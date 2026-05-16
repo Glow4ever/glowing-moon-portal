@@ -1,150 +1,53 @@
-import { useState, useEffect, useRef } from 'react'
-import { supabase } from '../lib/supabase'
-import styles from './Content.module.css'
+.page { padding: 26px 26px 48px; }
+.header { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 22px; }
+.title { font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 600; color: var(--text); margin-bottom: 3px; letter-spacing: 0.02em; }
+.sub { font-size: 12px; color: var(--text2); }
+.backBtn { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text3); background: none; border: none; padding: 0; margin-bottom: 8px; cursor: pointer; transition: color 0.15s; }
+.backBtn:hover { color: var(--gold-light); }
 
-const periods = ['Q2 2026', 'Q1 2026', 'Q4 2025', 'Q3 2025', 'Archive']
+.folderGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; }
+.folderCard { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; display: flex; align-items: stretch; transition: all 0.2s; }
+.folderCard:hover { border-color: var(--gold-border); }
+.folderCardInner { flex: 1; padding: 17px; cursor: pointer; }
+.folderIcon { width: 38px; height: 38px; border-radius: 9px; background: var(--gold-bg); color: var(--gold-light); display: flex; align-items: center; justify-content: center; font-size: 18px; margin-bottom: 11px; }
+.folderName { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+.folderCount { font-size: 11px; color: var(--text3); }
+.folderDelete { background: none; border: none; border-left: 1px solid var(--border); padding: 0 14px; color: var(--text3); cursor: pointer; transition: all 0.15s; font-size: 14px; }
+.folderDelete:hover { background: var(--coral-bg); color: var(--coral); }
+.folderDelete:disabled { opacity: 0.4; cursor: not-allowed; }
 
-function periodToPath(p) { return p.replace(' ', '-').toLowerCase() }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 400; }
+.modal { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius-lg); padding: 28px; width: 100%; max-width: 400px; }
+.modalTitle { font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 20px; }
+.field { margin-bottom: 14px; }
+.label { display: block; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text3); margin-bottom: 5px; }
+.input { width: 100%; background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--text); outline: none; transition: border-color 0.15s; font-family: inherit; }
+.input:focus { border-color: var(--gold-border); }
+.input::placeholder { color: var(--text3); }
+.modalActions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 
-function fileType(name) {
-  const ext = name.split('.').pop().toLowerCase()
-  if (['mp4','mov','avi','webm'].includes(ext)) return 'video'
-  if (['jpg','jpeg','png','gif','webp'].includes(ext)) return 'photo'
-  return 'other'
-}
+.section { margin-bottom: 28px; }
+.sectionLabel { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin-bottom: 11px; padding-bottom: 7px; border-bottom: 1px solid var(--border); }
 
-export default function Content() {
-  const [activePeriod, setActivePeriod] = useState('Q2 2026')
-  const [files, setFiles] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [lightbox, setLightbox] = useState(null)
-  const fileRef = useRef()
+.mediaGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 9px; }
+.thumb { border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); aspect-ratio: 1; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 6px; cursor: pointer; transition: border-color 0.15s; position: relative; overflow: hidden; }
+.thumb:hover { border-color: var(--gold-border); }
+.thumb:hover .thumbOverlay { opacity: 1; }
+.thumbImg { width: 100%; height: 100%; object-fit: cover; position: absolute; inset: 0; }
+.thumbFile { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.thumbOverlay { position: absolute; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.15s; font-size: 20px; color: var(--gold-light); }
+.thumbLabel { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.6); padding: 4px 6px; font-size: 9px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  useEffect(() => { loadFiles(activePeriod) }, [activePeriod])
+.empty { padding: 24px; text-align: center; font-size: 13px; color: var(--text3); }
+.emptyState { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 24px; text-align: center; }
 
-  async function loadFiles(period) {
-    setLoading(true)
-    setFiles([])
-    const path = `content/${periodToPath(period)}`
-    const { data, error } = await supabase.storage.from('portal-assets').list(path, { sortBy: { column: 'created_at', order: 'desc' } })
-    if (!error && data) {
-      const filtered = data.filter(f => f.name !== '.keep')
-      const withUrls = filtered.map(f => {
-        const { data: urlData } = supabase.storage.from('portal-assets').getPublicUrl(`${path}/${f.name}`)
-        return { ...f, url: urlData.publicUrl, type: fileType(f.name) }
-      })
-      setFiles(withUrls)
-    }
-    setLoading(false)
-  }
+.thumbDelete { position: absolute; top: 5px; right: 5px; width: 22px; height: 22px; border-radius: 50%; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.15); color: var(--text2); font-size: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity 0.15s; }
+.thumb:hover .thumbDelete { opacity: 1; }
+.thumbDelete:hover { background: var(--coral); color: #fff; border-color: var(--coral); }
 
-  async function handleUpload(e) {
-    const selected = Array.from(e.target.files)
-    if (!selected.length) return
-    setUploading(true)
-    for (const file of selected) {
-      const path = `content/${periodToPath(activePeriod)}/${file.name}`
-      await supabase.storage.from('portal-assets').upload(path, file, { upsert: true })
-    }
-    await loadFiles(activePeriod)
-    setUploading(false)
-  }
-
-  const photos = files.filter(f => f.type === 'photo')
-  const videos = files.filter(f => f.type === 'video')
-  const others = files.filter(f => f.type === 'other')
-
-  return (
-    <div className={styles.page}>
-      <div className={styles.header}>
-        <div>
-          <h1 className={styles.title}>Content Library</h1>
-          <p className={styles.sub}>Photo and video assets organised by period</p>
-        </div>
-        <div>
-          <input type="file" ref={fileRef} style={{ display:'none' }} multiple accept="image/*,video/*" onChange={handleUpload} />
-          <button className="btn btn-gold" onClick={() => fileRef.current.click()} disabled={uploading}>
-            <i className="ti ti-upload" aria-hidden="true" /> {uploading ? 'Uploading...' : 'Upload Assets'}
-          </button>
-        </div>
-      </div>
-
-      <div className={styles.tabs}>
-        {periods.map(p => (
-          <button key={p} className={`${styles.tab} ${activePeriod === p ? styles.tabActive : ''}`} onClick={() => setActivePeriod(p)}>{p}</button>
-        ))}
-      </div>
-
-      {loading && <div className={styles.empty}>Loading assets...</div>}
-
-      {!loading && files.length === 0 && (
-        <div className={styles.emptyState}>
-          <i className="ti ti-photo-off" style={{ fontSize:'36px', color:'var(--text3)', marginBottom:'12px' }} aria-hidden="true" />
-          <div style={{ fontSize:'14px', color:'var(--text2)', marginBottom:'4px' }}>No assets for {activePeriod} yet</div>
-          <div style={{ fontSize:'12px', color:'var(--text3)' }}>Upload photos and videos using the button above</div>
-        </div>
-      )}
-
-      {photos.length > 0 && (
-        <section className={styles.section}>
-          <div className={styles.sectionLabel}>Photos ({photos.length})</div>
-          <div className={styles.mediaGrid}>
-            {photos.map(f => (
-              <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
-                <img src={f.url} alt={f.name} className={styles.thumbImg} />
-                <div className={styles.thumbOverlay}><i className="ti ti-eye" aria-hidden="true" /></div>
-                <div className={styles.thumbLabel}>{f.name}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {videos.length > 0 && (
-        <section className={styles.section}>
-          <div className={styles.sectionLabel}>Videos & Reels ({videos.length})</div>
-          <div className={styles.mediaGrid}>
-            {videos.map(f => (
-              <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
-                <video src={f.url} className={styles.thumbImg} preload="metadata" muted />
-                <div className={styles.thumbOverlay}><i className="ti ti-player-play" aria-hidden="true" /></div>
-                <div className={styles.thumbLabel}>{f.name}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {others.length > 0 && (
-        <section className={styles.section}>
-          <div className={styles.sectionLabel}>Other Files ({others.length})</div>
-          <div className={styles.mediaGrid}>
-            {others.map(f => (
-              <div key={f.id} className={styles.thumb} onClick={() => window.open(f.url, '_blank')}>
-                <div className={styles.thumbFile}><i className="ti ti-file" style={{ fontSize:'28px', color:'var(--text3)' }} aria-hidden="true" /></div>
-                <div className={styles.thumbOverlay}><i className="ti ti-download" aria-hidden="true" /></div>
-                <div className={styles.thumbLabel}>{f.name}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {lightbox && (
-        <div className={styles.lightbox} onClick={() => setLightbox(null)}>
-          <div className={styles.lightboxInner} onClick={e => e.stopPropagation()}>
-            <button className={styles.lightboxClose} onClick={() => setLightbox(null)}>
-              <i className="ti ti-x" aria-hidden="true" />
-            </button>
-            {lightbox.type === 'photo'
-              ? <img src={lightbox.url} alt={lightbox.name} className={styles.lightboxMedia} />
-              : <video src={lightbox.url} controls className={styles.lightboxMedia} autoPlay />
-            }
-            <div className={styles.lightboxName}>{lightbox.name}</div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+.lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; align-items: center; justify-content: center; z-index: 500; }
+.lightboxInner { position: relative; max-width: 90vw; max-height: 90vh; }
+.lightboxClose { position: absolute; top: -40px; right: 0; background: none; border: none; color: var(--text2); font-size: 20px; cursor: pointer; }
+.lightboxClose:hover { color: var(--text); }
+.lightboxMedia { max-width: 80vw; max-height: 80vh; border-radius: var(--radius); display: block; }
+.lightboxName { font-size: 11px; color: var(--text3); text-align: center; margin-top: 8px; }
