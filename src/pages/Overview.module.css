@@ -1,74 +1,31 @@
 .page { padding: 26px 26px 48px; }
-
-.banner {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 22px 26px;
-  margin-bottom: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: relative;
-  overflow: hidden;
-}
-.banner::after {
-  content: '';
-  position: absolute;
-  right: -60px; top: -60px;
-  width: 260px; height: 260px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(201,168,76,0.06) 0%, transparent 65%);
-  pointer-events: none;
-}
-
+.banner { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 22px 26px; margin-bottom: 22px; display: flex; align-items: center; justify-content: space-between; position: relative; overflow: hidden; }
+.banner::after { content: ''; position: absolute; right: -60px; top: -60px; width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(circle, rgba(201,168,76,0.06) 0%, transparent 65%); pointer-events: none; }
 .bannerContent { display: flex; align-items: center; gap: 16px; }
-.bannerAvatar {
-  width: 48px; height: 48px;
-  border-radius: 50%;
-  border: 1px solid var(--gold-border);
-  background: var(--gold-bg);
-  display: flex; align-items: center; justify-content: center;
-  font-family: 'Cormorant Garamond', serif;
-  font-size: 16px; font-weight: 600;
-  color: var(--gold-light);
-  flex-shrink: 0;
-}
+.bannerAvatar { width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--gold-border); background: var(--gold-bg); display: flex; align-items: center; justify-content: center; font-family: 'Cormorant Garamond', serif; font-size: 16px; font-weight: 600; color: var(--gold-light); flex-shrink: 0; }
 .bannerTitle { font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 4px; letter-spacing: 0.02em; }
 .bannerSub { font-size: 12px; color: var(--text2); line-height: 1.6; max-width: 380px; }
 .bannerMeta { text-align: right; }
 .bannerDate { font-size: 11px; color: var(--text3); margin-bottom: 6px; }
-.activeBadge {
-  display: inline-flex; align-items: center; gap: 5px;
-  background: rgba(58,158,130,0.12); border: 1px solid rgba(58,158,130,0.25);
-  border-radius: 20px; padding: 4px 11px;
-  font-size: 11px; color: #5DCAA5; font-weight: 500;
-}
-.pulse {
-  width: 6px; height: 6px; border-radius: 50%; background: #5DCAA5;
-  animation: pulse 2s infinite;
-}
+.activeBadge { display: inline-flex; align-items: center; gap: 5px; background: rgba(58,158,130,0.12); border: 1px solid rgba(58,158,130,0.25); border-radius: 20px; padding: 4px 11px; font-size: 11px; color: #5DCAA5; font-weight: 500; }
+.pulse { width: 6px; height: 6px; border-radius: 50%; background: #5DCAA5; animation: pulse 2s infinite; display: inline-block; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
-
 .statsGrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 22px; }
 .statCard { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px 17px; }
 .statLabel { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .statDot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 .statVal { font-family: 'Cormorant Garamond', serif; font-size: 30px; font-weight: 600; color: var(--text); line-height: 1; margin-bottom: 2px; }
 .statSub { font-size: 10px; color: var(--text3); }
-
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 17px 19px; }
 .cardTitle { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin-bottom: 14px; display: flex; align-items: center; gap: 7px; }
 .goldLine { width: 16px; height: 1px; background: var(--gold-dim); display: inline-block; }
-
 .activityItem { display: flex; align-items: center; gap: 11px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 .activityItem:last-child { border-bottom: none; }
 .activityIcon { width: 27px; height: 27px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
 .activityText { flex: 1; font-size: 12px; color: var(--text2); line-height: 1.4; }
 .activityText strong { color: var(--text); font-weight: 500; }
 .activityTime { font-size: 10px; color: var(--text3); }
-
 .quickLink { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: 8px; background: var(--surface3); border: 1px solid var(--border); margin-bottom: 8px; cursor: pointer; transition: all 0.15s; }
 .quickLink:last-child { margin-bottom: 0; }
 .quickLink:hover { border-color: var(--gold-border); }
@@ -76,3 +33,4 @@
 .quickTitle { font-size: 12px; font-weight: 500; color: var(--text); }
 .quickSub { font-size: 10px; color: var(--text3); }
 .quickArrow { margin-left: auto; font-size: 13px; color: var(--text3); }
+.empty { padding: 24px; text-align: center; color: var(--text3); font-size: 12px; display: flex; flex-direction: column; align-items: center; }
