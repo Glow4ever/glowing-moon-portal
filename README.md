@@ -78,4 +78,4 @@ Open http://localhost:5173
 - 🖼 Content Library — quarterly photo/video organizer with lightbox viewer
 - 📅 Calendar — add, edit, delete events with color-coded types
 - 🏷 Uploadable logo in the topbar
-- 🎨 Glowing Moon Media branding (black + gold)
+- 🎨 Glowing Moon Media branding (black + gold) 
