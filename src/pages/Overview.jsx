@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useClient } from '../lib/ClientContext'
 import { supabase } from '../lib/supabase'
 import styles from './Overview.module.css'
 
 export default function Overview() {
-  const navigate = useNavigate()
+const navigate = useNavigate()
+const { client } = useClient()
   const [stats, setStats] = useState({ assets: 0, content: 0, events: 0 })
   const [recentFiles, setRecentFiles] = useState([])
   const [loading, setLoading] = useState(true)
