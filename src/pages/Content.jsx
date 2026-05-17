@@ -32,8 +32,7 @@ export default function Content() {
     setLoadingFolders(true)
     const { data, error } = await supabase.storage.from('portal-assets').list('content')
     if (!error && data) {
-      const real = data.filter(f => f.id === null) // folders have null id
-      // get file counts
+      const real = data.filter(f => f.id === null)
       const withCounts = await Promise.all(real.map(async f => {
         const { data: files } = await supabase.storage.from('portal-assets').list(`content/${f.name}`)
         return { ...f, count: files ? files.filter(x => x.name !== '.keep').length : 0 }
@@ -46,7 +45,6 @@ export default function Content() {
   async function createFolder() {
     if (!newFolderName.trim()) return
     const slug = slugify(newFolderName.trim())
-    // Create a placeholder file to materialise the folder
     const blob = new Blob([''], { type: 'text/plain' })
     await supabase.storage.from('portal-assets').upload(`content/${slug}/.keep`, blob, { upsert: true })
     setNewFolderName('')
@@ -75,10 +73,16 @@ export default function Content() {
     })
     if (!error && data) {
       const filtered = data.filter(f => f.name !== '.keep')
-      const withUrls = filtered.map(f => {
-        const { data: urlData } = supabase.storage.from('portal-assets').getPublicUrl(`content/${folder.name}/${f.name}`)
-        return { ...f, url: urlData.publicUrl, type: fileType(f.name) }
-      })
+      // Get signed URLs for all files
+      const paths = filtered.map(f => `content/${folder.name}/${f.name}`)
+      const { data: signedData } = await supabase.storage
+        .from('portal-assets')
+        .createSignedUrls(paths, 3600)
+      const withUrls = filtered.map((f, i) => ({
+        ...f,
+        url: signedData?.[i]?.signedUrl || null,
+        type: fileType(f.name)
+      }))
       setFiles(withUrls)
     }
     setLoadingFiles(false)
@@ -105,7 +109,6 @@ export default function Content() {
   const videos = files.filter(f => f.type === 'video')
   const others = files.filter(f => f.type === 'other')
 
-  // FOLDER LIST VIEW
   if (!activeFolder) return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -180,7 +183,6 @@ export default function Content() {
     </div>
   )
 
-  // FILE VIEW inside a folder
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -216,7 +218,7 @@ export default function Content() {
           <div className={styles.mediaGrid}>
             {photos.map(f => (
               <div key={f.name} className={styles.thumb}>
-                <img src={f.url} alt={f.name} className={styles.thumbImg} onClick={() => setLightbox(f)} />
+                {f.url && <img src={f.url} alt={f.name} className={styles.thumbImg} onClick={() => setLightbox(f)} />}
                 <div className={styles.thumbOverlay} onClick={() => setLightbox(f)}><i className="ti ti-eye" aria-hidden="true" /></div>
                 <div className={styles.thumbLabel}>{f.name}</div>
                 <button className={styles.thumbDelete} onClick={() => deleteFile(f)} title="Delete"><i className="ti ti-x" aria-hidden="true" /></button>
@@ -232,7 +234,7 @@ export default function Content() {
           <div className={styles.mediaGrid}>
             {videos.map(f => (
               <div key={f.name} className={styles.thumb}>
-                <video src={f.url} className={styles.thumbImg} preload="metadata" muted onClick={() => setLightbox(f)} />
+                {f.url && <video src={f.url} className={styles.thumbImg} preload="metadata" muted onClick={() => setLightbox(f)} />}
                 <div className={styles.thumbOverlay} onClick={() => setLightbox(f)}><i className="ti ti-player-play" aria-hidden="true" /></div>
                 <div className={styles.thumbLabel}>{f.name}</div>
                 <button className={styles.thumbDelete} onClick={() => deleteFile(f)} title="Delete"><i className="ti ti-x" aria-hidden="true" /></button>
@@ -248,8 +250,8 @@ export default function Content() {
           <div className={styles.mediaGrid}>
             {others.map(f => (
               <div key={f.name} className={styles.thumb}>
-                <div className={styles.thumbFile} onClick={() => window.open(f.url, '_blank')}><i className="ti ti-file" style={{ fontSize:'28px', color:'var(--text3)' }} aria-hidden="true" /></div>
-                <div className={styles.thumbOverlay} onClick={() => window.open(f.url, '_blank')}><i className="ti ti-download" aria-hidden="true" /></div>
+                <div className={styles.thumbFile} onClick={() => f.url && window.open(f.url, '_blank')}><i className="ti ti-file" style={{ fontSize:'28px', color:'var(--text3)' }} aria-hidden="true" /></div>
+                <div className={styles.thumbOverlay} onClick={() => f.url && window.open(f.url, '_blank')}><i className="ti ti-download" aria-hidden="true" /></div>
                 <div className={styles.thumbLabel}>{f.name}</div>
                 <button className={styles.thumbDelete} onClick={() => deleteFile(f)} title="Delete"><i className="ti ti-x" aria-hidden="true" /></button>
               </div>
@@ -275,4 +277,3 @@ export default function Content() {
     </div>
   )
 }
-
