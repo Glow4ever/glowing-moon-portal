@@ -73,7 +73,6 @@ export default function Content() {
     })
     if (!error && data) {
       const filtered = data.filter(f => f.name !== '.keep')
-      // Get signed URLs for all files
       const paths = filtered.map(f => `content/${folder.name}/${f.name}`)
       const { data: signedData } = await supabase.storage
         .from('portal-assets')
@@ -109,6 +108,7 @@ export default function Content() {
   const videos = files.filter(f => f.type === 'video')
   const others = files.filter(f => f.type === 'other')
 
+  // FOLDER LIST VIEW
   if (!activeFolder) return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -121,7 +121,7 @@ export default function Content() {
         </button>
       </div>
 
-      {loadingFolders && <div className={styles.emptyState} style={{ paddingTop:'40px' }}>Loading folders...</div>}
+      {loadingFolders && <div className={styles.emptyState}>Loading folders...</div>}
 
       {!loadingFolders && folders.length === 0 && (
         <div className={styles.emptyState}>
@@ -139,8 +139,12 @@ export default function Content() {
           {folders.map(f => (
             <div key={f.name} className={styles.folderCard}>
               <div className={styles.folderCardInner} onClick={() => openFolder(f)}>
-                <div className={styles.folderIcon}>
-                  <i className="ti ti-folder" aria-hidden="true" />
+                <div className={styles.folderIconWrap}>
+                  <svg viewBox="0 0 48 40" fill="none" xmlns="http://www.w3.org/2000/svg" className={styles.folderSvg}>
+                    <path d="M0 6C0 2.686 2.686 0 6 0H18.764C20.295 0 21.758 0.632 22.816 1.745L26.184 5.255C27.242 6.368 28.705 7 30.236 7H42C45.314 7 48 9.686 48 13V34C48 37.314 45.314 40 42 40H6C2.686 40 0 37.314 0 34V6Z" fill="var(--gold-bg)"/>
+                    <path d="M0 13C0 9.686 2.686 7 6 7H42C45.314 7 48 9.686 48 13V34C48 37.314 45.314 40 42 40H6C2.686 40 0 37.314 0 34V13Z" fill="var(--gold)" opacity="0.25"/>
+                    <path d="M0 15C0 11.686 2.686 9 6 9H42C45.314 9 48 11.686 48 15V34C48 37.314 45.314 40 42 40H6C2.686 40 0 37.314 0 34V15Z" fill="var(--gold)" opacity="0.35"/>
+                  </svg>
                 </div>
                 <div className={styles.folderName}>{f.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
                 <div className={styles.folderCount}>{f.count} {f.count === 1 ? 'file' : 'files'}</div>
@@ -183,6 +187,7 @@ export default function Content() {
     </div>
   )
 
+  // FILE VIEW
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -202,7 +207,12 @@ export default function Content() {
         </div>
       </div>
 
-      {loadingFiles && <div className={styles.emptyState}>Loading files...</div>}
+      {loadingFiles && (
+        <div className={styles.emptyState}>
+          <i className="ti ti-loader" style={{ fontSize:'28px', color:'var(--text3)', marginBottom:'8px' }} aria-hidden="true" />
+          Loading files...
+        </div>
+      )}
 
       {!loadingFiles && files.length === 0 && (
         <div className={styles.emptyState}>
@@ -217,11 +227,24 @@ export default function Content() {
           <div className={styles.sectionLabel}>Photos ({photos.length})</div>
           <div className={styles.mediaGrid}>
             {photos.map(f => (
-              <div key={f.name} className={styles.thumb}>
-                {f.url && <img src={f.url} alt={f.name} className={styles.thumbImg} onClick={() => setLightbox(f)} />}
-                <div className={styles.thumbOverlay} onClick={() => setLightbox(f)}><i className="ti ti-eye" aria-hidden="true" /></div>
-                <div className={styles.thumbLabel}>{f.name}</div>
-                <button className={styles.thumbDelete} onClick={() => deleteFile(f)} title="Delete"><i className="ti ti-x" aria-hidden="true" /></button>
+              <div key={f.name} className={styles.thumb} onClick={() => setLightbox(f)}>
+                <div className={styles.thumbImgWrap}>
+                  {f.url
+                    ? <img src={f.url} alt={f.name} className={styles.thumbImg}
+                        onError={e => { e.target.style.display='none'; e.target.nextSibling.style.display='flex' }}
+                      />
+                    : null
+                  }
+                  <div className={styles.thumbFallback} style={{ display: f.url ? 'none' : 'flex' }}>
+                    <i className="ti ti-photo" style={{ fontSize:'28px', color:'var(--teal)' }} aria-hidden="true" />
+                  </div>
+                </div>
+                <div className={styles.thumbFooter}>
+                  <div className={styles.thumbLabel}>{f.name}</div>
+                  <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); deleteFile(f) }} title="Delete">
+                    <i className="ti ti-trash" aria-hidden="true" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -233,11 +256,23 @@ export default function Content() {
           <div className={styles.sectionLabel}>Videos & Reels ({videos.length})</div>
           <div className={styles.mediaGrid}>
             {videos.map(f => (
-              <div key={f.name} className={styles.thumb}>
-                {f.url && <video src={f.url} className={styles.thumbImg} preload="metadata" muted onClick={() => setLightbox(f)} />}
-                <div className={styles.thumbOverlay} onClick={() => setLightbox(f)}><i className="ti ti-player-play" aria-hidden="true" /></div>
-                <div className={styles.thumbLabel}>{f.name}</div>
-                <button className={styles.thumbDelete} onClick={() => deleteFile(f)} title="Delete"><i className="ti ti-x" aria-hidden="true" /></button>
+              <div key={f.name} className={styles.thumb} onClick={() => setLightbox(f)}>
+                <div className={styles.thumbImgWrap}>
+                  {f.url
+                    ? <video src={f.url} className={styles.thumbImg} preload="metadata" muted />
+                    : null
+                  }
+                  <div className={styles.thumbFallback} style={{ display: f.url ? 'none' : 'flex' }}>
+                    <i className="ti ti-video" style={{ fontSize:'28px', color:'var(--gold-light)' }} aria-hidden="true" />
+                  </div>
+                  <div className={styles.playBadge}><i className="ti ti-player-play" aria-hidden="true" /></div>
+                </div>
+                <div className={styles.thumbFooter}>
+                  <div className={styles.thumbLabel}>{f.name}</div>
+                  <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); deleteFile(f) }} title="Delete">
+                    <i className="ti ti-trash" aria-hidden="true" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -249,11 +284,18 @@ export default function Content() {
           <div className={styles.sectionLabel}>Other Files ({others.length})</div>
           <div className={styles.mediaGrid}>
             {others.map(f => (
-              <div key={f.name} className={styles.thumb}>
-                <div className={styles.thumbFile} onClick={() => f.url && window.open(f.url, '_blank')}><i className="ti ti-file" style={{ fontSize:'28px', color:'var(--text3)' }} aria-hidden="true" /></div>
-                <div className={styles.thumbOverlay} onClick={() => f.url && window.open(f.url, '_blank')}><i className="ti ti-download" aria-hidden="true" /></div>
-                <div className={styles.thumbLabel}>{f.name}</div>
-                <button className={styles.thumbDelete} onClick={() => deleteFile(f)} title="Delete"><i className="ti ti-x" aria-hidden="true" /></button>
+              <div key={f.name} className={styles.thumb} onClick={() => f.url && window.open(f.url, '_blank')}>
+                <div className={styles.thumbImgWrap}>
+                  <div className={styles.thumbFallback} style={{ display:'flex' }}>
+                    <i className="ti ti-file" style={{ fontSize:'28px', color:'var(--text3)' }} aria-hidden="true" />
+                  </div>
+                </div>
+                <div className={styles.thumbFooter}>
+                  <div className={styles.thumbLabel}>{f.name}</div>
+                  <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); deleteFile(f) }} title="Delete">
+                    <i className="ti ti-trash" aria-hidden="true" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
