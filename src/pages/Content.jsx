@@ -139,13 +139,9 @@ export default function Content() {
           {folders.map(f => (
             <div key={f.name} className={styles.folderCard}>
               <div className={styles.folderCardInner} onClick={() => openFolder(f)}>
-                <div className={styles.folderIconWrap}>
-                  <svg viewBox="0 0 48 40" fill="none" xmlns="http://www.w3.org/2000/svg" className={styles.folderSvg}>
-                    <path d="M0 6C0 2.686 2.686 0 6 0H18.764C20.295 0 21.758 0.632 22.816 1.745L26.184 5.255C27.242 6.368 28.705 7 30.236 7H42C45.314 7 48 9.686 48 13V34C48 37.314 45.314 40 42 40H6C2.686 40 0 37.314 0 34V6Z" fill="var(--gold-bg)"/>
-                    <path d="M0 13C0 9.686 2.686 7 6 7H42C45.314 7 48 9.686 48 13V34C48 37.314 45.314 40 42 40H6C2.686 40 0 37.314 0 34V13Z" fill="var(--gold)" opacity="0.25"/>
-                    <path d="M0 15C0 11.686 2.686 9 6 9H42C45.314 9 48 11.686 48 15V34C48 37.314 45.314 40 42 40H6C2.686 40 0 37.314 0 34V15Z" fill="var(--gold)" opacity="0.35"/>
-                  </svg>
-                </div>
+               <div className={styles.folderIconWrap}>
+  <i className="ti ti-folder-filled" aria-hidden="true" />
+</div>
                 <div className={styles.folderName}>{f.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
                 <div className={styles.folderCount}>{f.count} {f.count === 1 ? 'file' : 'files'}</div>
               </div>
