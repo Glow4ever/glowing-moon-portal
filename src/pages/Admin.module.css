@@ -1,0 +1,40 @@
+.page { padding: 26px 26px 48px; }
+.header { margin-bottom: 22px; }
+.title { font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 600; color: var(--text); margin-bottom: 3px; letter-spacing: 0.02em; }
+.sub { font-size: 12px; color: var(--text2); }
+.tabs { display: flex; gap: 5px; margin-bottom: 22px; }
+.tab { padding: 6px 16px; border-radius: 20px; border: 1px solid var(--border); background: transparent; font-size: 12px; color: var(--text2); cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.tab:hover:not(.tabActive) { background: var(--surface2); color: var(--text); }
+.tabActive { background: var(--gold-bg); border-color: var(--gold-border); color: var(--gold-light); font-weight: 500; }
+.sectionLabel { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin-bottom: 12px; padding-bottom: 7px; border-bottom: 1px solid var(--border); }
+.clientGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
+.clientCard { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+.clientSwatch { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; }
+.clientInfo { flex: 1; }
+.clientName { font-size: 13px; font-weight: 500; color: var(--text); }
+.clientSlug { font-size: 10px; color: var(--text3); margin-top: 2px; }
+.editBtn { display: flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border2); background: transparent; color: var(--text2); font-size: 11px; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.editBtn:hover { border-color: var(--gold-border); color: var(--gold-light); }
+.formCard { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+.formTitle { font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 600; color: var(--text); margin-bottom: 16px; }
+.formGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 16px; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.label { font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text3); }
+.input { background: var(--surface3); border: 1px solid var(--border2); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--text); outline: none; transition: border-color 0.15s; font-family: inherit; width: 100%; }
+.input:focus { border-color: var(--gold-border); }
+.input::placeholder { color: var(--text3); }
+.colorRow { display: flex; gap: 8px; align-items: center; }
+.colorPicker { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border2); padding: 2px; background: var(--surface3); cursor: pointer; flex-shrink: 0; }
+.formActions { display: flex; gap: 8px; justify-content: flex-end; }
+.infoBox { display: flex; align-items: flex-start; gap: 8px; background: var(--gold-bg); border: 1px solid var(--gold-border); border-radius: var(--radius); padding: 12px 14px; font-size: 12px; color: var(--text2); margin-bottom: 16px; line-height: 1.6; }
+.teamList { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.teamRow { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+.teamRow:last-child { border-bottom: none; }
+.teamAvatar { width: 32px; height: 32px; border-radius: 50%; background: var(--surface3); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--text3); flex-shrink: 0; }
+.teamInfo { flex: 1; }
+.teamRole { font-size: 13px; font-weight: 500; color: var(--text); }
+.teamClient { font-size: 11px; color: var(--text3); margin-top: 2px; }
+.teamBadge { padding: 3px 9px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+.empty { padding: 32px; text-align: center; color: var(--text3); font-size: 13px; }
+.toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface3); border: 1px solid var(--gold-border); border-radius: 10px; padding: 10px 16px; font-size: 12px; color: var(--gold-light); display: flex; align-items: center; gap: 8px; z-index: 999; animation: fadeIn 0.3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
