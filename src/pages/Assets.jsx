@@ -40,8 +40,13 @@ export default function Assets() {
   async function openFolder(folder) {
     setActiveFolder(folder)
     setLoading(true)
-    const { data, error } = await supabase.storage.from('portal-assets').list(`assets/${folder.id}`, { sortBy: { column: 'created_at', order: 'desc' } })
-    if (!error) setFiles(data.filter(f => f.name !== '.keep'))
+    const { data, error } = await supabase.storage.from('portal-assets').list(`assets/${folder.id}`, {
+      sortBy: { column: 'created_at', order: 'desc' }
+    })
+    if (!error && data) {
+      const filtered = data.filter(f => f.name !== '.keep')
+      setFiles(filtered)
+    }
     setLoading(false)
   }
 
@@ -57,7 +62,9 @@ export default function Assets() {
   }
 
   async function handleDownload(file) {
-    const { data } = await supabase.storage.from('portal-assets').createSignedUrl(`assets/${activeFolder.id}/${file.name}`, 60)
+    const { data } = await supabase.storage
+      .from('portal-assets')
+      .createSignedUrl(`assets/${activeFolder.id}/${file.name}`, 60)
     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
   }
 
