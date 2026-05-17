@@ -64,7 +64,7 @@ export default function Overview() {
         <div className={styles.bannerContent}>
           <div className={styles.bannerAvatar}>GM</div>
           <div>
-            <h2 className={styles.bannerTitle}>Welcome, Glowing Moon Media</h2>
+            <h2 <h2 className={styles.bannerTitle}>Welcome, {client?.name || 'Glowing Moon Media'}</h2>
             <p className={styles.bannerSub}>{loading ? 'Loading your portal...' : `You have ${stats.assets} assets, ${stats.content} content files, and ${stats.events} upcoming calendar events.`}</p>
           </div>
         </div>
