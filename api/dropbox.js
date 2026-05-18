@@ -21,7 +21,7 @@ export default async function handler(req, res) {
       headers: {
         'Authorization': `Bearer ${ACCESS_TOKEN}`,
         'Content-Type': 'application/json',
-        'Dropbox-API-Select-User': MEMBER_ID,
+        
       },
       body: JSON.stringify(body)
     })
