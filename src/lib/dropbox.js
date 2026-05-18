@@ -1,125 +1,64 @@
 const ACCESS_TOKEN = import.meta.env.VITE_DROPBOX_ACCESS_TOKEN
+const MEMBER_ID = '2030131907'
+const BASE_PATH = '/Glowing Moon Portal'
 
-// Team folder configuration
-const TEAM_FOLDER_NAME = 'Commercial'
-const PORTAL_PATH = 'Glowing Moon Portal'
-
-// We need to first get the namespace ID for the Commercial team folder
-// then use it as path_root for all subsequent calls
-let teamNamespaceId = null
-
-async function getTeamNamespaceId() {
-  if (teamNamespaceId) return teamNamespaceId
-  
-  try {
-    // List root to find the Commercial team folder namespace
-    const res = await fetch('https://api.dropboxapi.com/2/files/list_folder', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ path: '', include_mounted_folders: true, include_non_downloadable_files: true })
-    })
-    const data = await res.json()
-    if (data.entries) {
-      const teamFolder = data.entries.find(e => e.name === TEAM_FOLDER_NAME && e.sharing_info)
-      if (teamFolder?.sharing_info?.read_only !== undefined) {
-        teamNamespaceId = teamFolder.sharing_info?.parent_shared_folder_id || teamFolder.id
-      }
-    }
-  } catch (err) {
-    console.error('getTeamNamespaceId error:', err)
-  }
-  return teamNamespaceId
-}
-
-async function dbxFetch(endpoint, body, useTeamNamespace = false) {
-  const headers = {
-    'Authorization': `Bearer ${ACCESS_TOKEN}`,
-    'Content-Type': 'application/json',
-  }
-
-  if (useTeamNamespace) {
-    headers['Dropbox-API-Path-Root'] = JSON.stringify({
-      '.tag': 'namespace_id',
-      'namespace_id': await getTeamNamespaceId()
-    })
-  }
-
+async function dbxFetch(endpoint, body) {
   const res = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
     method: 'POST',
-    headers,
+    headers: {
+      'Authorization': `Bearer ${ACCESS_TOKEN}`,
+      'Content-Type': 'application/json',
+      'Dropbox-API-Select-User': MEMBER_ID,
+    },
     body: JSON.stringify(body)
   })
-
   if (!res.ok) {
     const text = await res.text()
-    console.error(`Dropbox API error ${res.status}:`, text)
+    console.error('Dropbox API error:', res.status, text)
     throw new Error(`Dropbox API error: ${res.status}`)
   }
   return res.json()
 }
 
-// List folder contents
 async function listFolder(path) {
   try {
-    // Try direct path first (works if portal folder is shared with personal account)
-    const fullPath = `/${TEAM_FOLDER_NAME}/${PORTAL_PATH}${path ? '/' + path : ''}`
     const data = await dbxFetch('files/list_folder', {
-      path: fullPath,
+      path,
       include_deleted: false
     })
     return data.entries || []
   } catch (err) {
-    console.error('listFolder error, trying team namespace:', err)
-    try {
-      // Try with team_data scope using path from team space root
-      const data = await dbxFetch('files/list_folder', {
-        path: `/${PORTAL_PATH}${path ? '/' + path : ''}`,
-        include_deleted: false
-      }, true)
-      return data.entries || []
-    } catch (err2) {
-      console.error('listFolder team namespace error:', err2)
-      return []
-    }
-  }
-}
-
-// Get years available
-export async function getClientYears(clientName) {
-  try {
-    const entries = await listFolder('')
-    console.log('Year entries:', entries)
-    const years = entries
-      .filter(e => e['.tag'] === 'folder' && /^\d{4}$/.test(e.name))
-      .map(e => e.name)
-      .sort((a, b) => b - a)
-    return years
-  } catch (err) {
-    console.error('getClientYears error:', err)
+    console.error('listFolder error:', err)
     return []
   }
 }
 
+export async function getClientYears(clientName) {
+  const entries = await listFolder(BASE_PATH)
+  const years = entries
+    .filter(e => e['.tag'] === 'folder' && /^\d{4}$/.test(e.name))
+    .map(e => e.name)
+    .sort((a, b) => b - a)
+  return years
+}
+
 export async function getContentFolders(clientName, year) {
-  const entries = await listFolder(`${year}/${clientName}/Content`)
+  const entries = await listFolder(`${BASE_PATH}/${year}/${clientName}/Content`)
   return entries.filter(e => e['.tag'] === 'folder')
 }
 
 export async function getContentFiles(clientName, year, folderName) {
-  const entries = await listFolder(`${year}/${clientName}/Content/${folderName}`)
+  const entries = await listFolder(`${BASE_PATH}/${year}/${clientName}/Content/${folderName}`)
   return entries.filter(e => e['.tag'] === 'file')
 }
 
 export async function getAssetFolders(clientName, year) {
-  const entries = await listFolder(`${year}/${clientName}/Assets`)
+  const entries = await listFolder(`${BASE_PATH}/${year}/${clientName}/Assets`)
   return entries.filter(e => e['.tag'] === 'folder')
 }
 
 export async function getAssetFiles(clientName, year, folderName) {
-  const entries = await listFolder(`${year}/${clientName}/Assets/${folderName}`)
+  const entries = await listFolder(`${BASE_PATH}/${year}/${clientName}/Assets/${folderName}`)
   return entries.filter(e => e['.tag'] === 'file')
 }
 
@@ -145,13 +84,13 @@ export async function getPreviewLink(pathLower) {
 
 export async function uploadFile(relativePath, fileData) {
   try {
-    const fullPath = `/${TEAM_FOLDER_NAME}/${PORTAL_PATH}/${relativePath}`
     const res = await fetch('https://content.dropboxapi.com/2/files/upload', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${ACCESS_TOKEN}`,
+        'Dropbox-API-Select-User': MEMBER_ID,
         'Dropbox-API-Arg': JSON.stringify({
-          path: fullPath,
+          path: `${BASE_PATH}/${relativePath}`,
           mode: 'add',
           autorename: true,
           mute: false
@@ -190,8 +129,10 @@ export async function deleteFolder(pathLower) {
 
 export async function createFolder(relativePath) {
   try {
-    const fullPath = `/${TEAM_FOLDER_NAME}/${PORTAL_PATH}/${relativePath}`
-    await dbxFetch('files/create_folder_v2', { path: fullPath, autorename: false })
+    await dbxFetch('files/create_folder_v2', {
+      path: `${BASE_PATH}/${relativePath}`,
+      autorename: false
+    })
     return true
   } catch (err) {
     console.error('createFolder error:', err)
