@@ -13,7 +13,6 @@ export default async function handler(req, res) {
 
   const { endpoint, body } = req.body
   const ACCESS_TOKEN = process.env.VITE_DROPBOX_ACCESS_TOKEN
-  const MEMBER_ID = process.env.VITE_DROPBOX_MEMBER_ID
 
   try {
     const response = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
@@ -21,7 +20,10 @@ export default async function handler(req, res) {
       headers: {
         'Authorization': `Bearer ${ACCESS_TOKEN}`,
         'Content-Type': 'application/json',
-        
+        'Dropbox-API-Path-Root': JSON.stringify({
+          '.tag': 'root',
+          'root': '13502790915'
+        }),
       },
       body: JSON.stringify(body)
     })
