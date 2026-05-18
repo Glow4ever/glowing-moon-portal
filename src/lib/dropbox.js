@@ -1,5 +1,5 @@
 const ACCESS_TOKEN = import.meta.env.VITE_DROPBOX_ACCESS_TOKEN
-const BASE_PATH = '/Glowing Moon Portal'
+const BASE_PATH = '/Commercial/Glowing Moon Portal'
 
 async function dbxFetch(endpoint, body) {
   const res = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
