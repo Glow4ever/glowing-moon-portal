@@ -1,5 +1,5 @@
 const ACCESS_TOKEN = import.meta.env.VITE_DROPBOX_ACCESS_TOKEN
-const MEMBER_ID = '2030131907'
+
 const BASE_PATH = '/Glowingmoonmedia Team Folder/Glowing Moon Portal'
 
 async function dbxFetch(endpoint, body) {
@@ -88,7 +88,7 @@ export async function uploadFile(relativePath, fileData) {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${ACCESS_TOKEN}`,
-        'Dropbox-API-Select-User': MEMBER_ID,
+        
         'Dropbox-API-Arg': JSON.stringify({
           path: `${BASE_PATH}/${relativePath}`,
           mode: 'add',
