@@ -1,4 +1,4 @@
-const BASE_PATH = '/Glowing Moon Portal'
+const BASE_PATH = '/Glowingmoonmedia Team Folder/Glowing Moon Portal'
 
 async function dbxFetch(endpoint, body) {
   const res = await fetch('/api/dropbox', {
