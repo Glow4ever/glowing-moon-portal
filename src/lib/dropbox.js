@@ -1,5 +1,5 @@
 const ACCESS_TOKEN = import.meta.env.VITE_DROPBOX_ACCESS_TOKEN
-const TEAM_NAMESPACE_ID = 'AADlYyTjr_HBlMaxHvj_hujV8P4gNqo7T7A'
+const TEAM_NAMESPACE_ID = 'dbtid:AADlYyTjr_HBlMaxHvj_hujV8P4gNqo7T7A'
 const BASE_PATH = '/Glowing Moon Portal'
 
 async function dbxFetch(endpoint, body) {
