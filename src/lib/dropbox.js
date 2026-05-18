@@ -1,20 +1,14 @@
-const ACCESS_TOKEN = import.meta.env.VITE_DROPBOX_ACCESS_TOKEN
-const TEAM_NAMESPACE_ID = 'dbtid:AADlYyTjr_HBlMaxHvj_hujV8P4gNqo7T7A'
 const BASE_PATH = '/Glowing Moon Portal'
 
 async function dbxFetch(endpoint, body) {
-  const res = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
+  const res = await fetch('/api/dropbox', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${ACCESS_TOKEN}`,
       'Content-Type': 'application/json',
-      'Dropbox-API-Path-Root': JSON.stringify({
-        '.tag': 'namespace_id',
-        'namespace_id': TEAM_NAMESPACE_ID
-      }),
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ endpoint, body })
   })
+
   if (!res.ok) {
     const text = await res.text()
     console.error('Dropbox API error:', res.status, text)
@@ -87,23 +81,15 @@ export async function getPreviewLink(pathLower) {
 
 export async function uploadFile(relativePath, fileData) {
   try {
-    const res = await fetch('https://content.dropboxapi.com/2/files/upload', {
+    const res = await fetch('/api/dropbox-upload', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${ACCESS_TOKEN}`,
-        'Dropbox-API-Path-Root': JSON.stringify({
-          '.tag': 'namespace_id',
-          'namespace_id': TEAM_NAMESPACE_ID
-        }),
-        'Dropbox-API-Arg': JSON.stringify({
-          path: `${BASE_PATH}/${relativePath}`,
-          mode: 'add',
-          autorename: true,
-          mute: false
-        }),
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': 'application/json',
       },
-      body: fileData
+      body: JSON.stringify({
+        path: `${BASE_PATH}/${relativePath}`,
+        fileData: Array.from(new Uint8Array(fileData))
+      })
     })
     if (!res.ok) throw new Error(`Upload error: ${res.status}`)
     return await res.json()
