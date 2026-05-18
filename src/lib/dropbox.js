@@ -1,6 +1,6 @@
 const ACCESS_TOKEN = import.meta.env.VITE_DROPBOX_ACCESS_TOKEN
 const MEMBER_ID = '2030131907'
-const BASE_PATH = '/Glowing Moon Portal'
+const BASE_PATH = '/Glowingmoonmedia Team Folder/Glowing Moon Portal'
 
 async function dbxFetch(endpoint, body) {
   const res = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
@@ -8,7 +8,7 @@ async function dbxFetch(endpoint, body) {
     headers: {
       'Authorization': `Bearer ${ACCESS_TOKEN}`,
       'Content-Type': 'application/json',
-      'Dropbox-API-Select-User': MEMBER_ID,
+     
     },
     body: JSON.stringify(body)
   })
