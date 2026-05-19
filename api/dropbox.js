@@ -44,10 +44,10 @@ export default async function handler(req, res) {
       headers: {
         'Authorization': `Bearer ${ACCESS_TOKEN}`,
         'Content-Type': 'application/json',
-        'Dropbox-API-Path-Root': JSON.stringify({
-          '.tag': 'root',
-          'root': '13502790915'
-        }),
+       'Dropbox-API-Path-Root': JSON.stringify({
+  '.tag': 'namespace_id',
+  'namespace_id': '13502790915'
+}),
       },
       body: JSON.stringify(body)
     })
