@@ -1,3 +1,26 @@
+async function getAccessToken() {
+  const refresh_token = process.env.DROPBOX_REFRESH_TOKEN
+  const client_id = process.env.DROPBOX_APP_KEY
+  const client_secret = process.env.DROPBOX_APP_SECRET
+
+  const response = await fetch('https://api.dropboxapi.com/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token,
+      client_id,
+      client_secret
+    })
+  })
+
+  const data = await response.json()
+  if (!response.ok) {
+    throw new Error(`Token refresh failed: ${JSON.stringify(data)}`)
+  }
+  return data.access_token
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -12,9 +35,10 @@ export default async function handler(req, res) {
   }
 
   const { endpoint, body } = req.body
-  const ACCESS_TOKEN = process.env.VITE_DROPBOX_ACCESS_TOKEN
 
   try {
+    const ACCESS_TOKEN = await getAccessToken()
+
     const response = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
       method: 'POST',
       headers: {
@@ -29,7 +53,7 @@ export default async function handler(req, res) {
     })
 
     const text = await response.text()
-    
+
     let data
     try {
       data = JSON.parse(text)
