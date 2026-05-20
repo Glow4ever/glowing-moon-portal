@@ -45,10 +45,10 @@ export default async function handler(req, res) {
   'Authorization': `Bearer ${ACCESS_TOKEN}`,
   'Content-Type': 'application/json',
   'Dropbox-API-Select-User': 'dbmid:AAB5NbiP_F134OOJyqYZqre2-ZOM2psfZfs',
-  'Dropbox-API-Path-Root': JSON.stringify({
-    '.tag': 'namespace_id',
-    'namespace_id': '13502300579'
-  }),
+ 'Dropbox-API-Path-Root': JSON.stringify({
+  '.tag': 'root',
+  'root': '13502790915'
+}),
 },
 
     const text = await response.text()
