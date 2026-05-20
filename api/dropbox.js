@@ -44,11 +44,7 @@ export default async function handler(req, res) {
       headers: {
         'Authorization': `Bearer ${ACCESS_TOKEN}`,
         'Content-Type': 'application/json',
-        'Dropbox-API-Select-User': 'dbid:AAAf19erhSWezY-8vQmLRzwCKlpH1ZF5OwE',
-        'Dropbox-API-Path-Root': JSON.stringify({
-          '.tag': 'namespace_id',
-          'namespace_id': '13502790915'
-        }),
+      'Dropbox-API-Select-User': 'dbid:AAAf19erhSWezY-8vQmLRzwCKlpH1ZF5OwE',
       },
       body: JSON.stringify(body)
     })
