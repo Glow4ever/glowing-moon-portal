@@ -42,12 +42,14 @@ export default async function handler(req, res) {
     const response = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${ACCESS_TOKEN}`,
-        'Content-Type': 'application/json',
-      'Dropbox-API-Select-User': 'dbmid:AAB5NbiP_F134OOJyqYZqre2-ZOM2psfZfs',
-      },
-      body: JSON.stringify(body)
-    })
+  'Authorization': `Bearer ${ACCESS_TOKEN}`,
+  'Content-Type': 'application/json',
+  'Dropbox-API-Select-User': 'dbmid:AAB5NbiP_F134OOJyqYZqre2-ZOM2psfZfs',
+  'Dropbox-API-Path-Root': JSON.stringify({
+    '.tag': 'namespace_id',
+    'namespace_id': '13502300579'
+  }),
+},
 
     const text = await response.text()
 
