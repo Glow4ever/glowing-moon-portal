@@ -21,7 +21,7 @@ async function getAccessToken() {
   return data.access_token
 }
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
@@ -42,14 +42,15 @@ export default async function handler(req, res) {
     const response = await fetch(`https://api.dropboxapi.com/2/${endpoint}`, {
       method: 'POST',
       headers: {
-  'Authorization': `Bearer ${ACCESS_TOKEN}`,
-  'Content-Type': 'application/json',
-  'Dropbox-API-Select-User': 'dbmid:AAB5NbiP_F134OOJyqYZqre2-ZOM2psfZfs',
- 'Dropbox-API-Path-Root': JSON.stringify({
-  '.tag': 'root',
-  'root': '13502790915'
-}),
-},
+        'Authorization': `Bearer ${ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+        'Dropbox-API-Path-Root': JSON.stringify({
+          '.tag': 'root',
+          'root': '13502790915'
+        }),
+      },
+      body: JSON.stringify(body)
+    })
 
     const text = await response.text()
 
