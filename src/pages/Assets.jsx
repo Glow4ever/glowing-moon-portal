@@ -1,23 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
 import { useClient } from '../lib/ClientContext'
 import {
-  getClientYears, getAssetFolders, getAssetFiles,
   getDownloadLink, uploadFile, deleteFile, getFileType, formatBytes, formatDate
 } from '../lib/dropbox'
 import styles from './Assets.module.css'
 
-const BASE_PATH = '/Glowing Moon Portal'
-
-const FOLDER_ICONS = {
-  'Brand Guidelines': { icon: 'ti-palette', color: 'var(--gold-light)', bg: 'var(--gold-bg)' },
-  'Branding Assets':  { icon: 'ti-brand-figma', color: 'var(--teal)', bg: 'var(--teal-bg)' },
-  'Planning Docs':    { icon: 'ti-file-text', color: 'var(--text2)', bg: 'rgba(255,255,255,0.05)' },
-  'Reports':          { icon: 'ti-chart-bar', color: 'var(--text3)', bg: 'rgba(255,255,255,0.04)' },
-  'Templates':        { icon: 'ti-template', color: 'var(--coral)', bg: 'var(--coral-bg)' },
-}
-
-function getIconForFolder(name) {
-  return FOLDER_ICONS[name] || { icon: 'ti-folder', color: 'var(--gold-light)', bg: 'var(--gold-bg)' }
+async function listDropboxFolder(path) {
+  const res = await fetch('/api/dropbox', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      endpoint: 'files/list_folder',
+      body: { path, include_deleted: false }
+    })
+  })
+  if (!res.ok) return []
+  const data = await res.json()
+  return data.entries || []
 }
 
 function fileIcon(name) {
@@ -32,61 +31,50 @@ function fileIcon(name) {
 export default function Assets() {
   const { client, role } = useClient()
   const clientName = client?.name || 'Glowing Moon Media'
+  const ROOT = `/Glowing Moon Portal/2026/${clientName}/Assets`
 
-  const [years, setYears] = useState([])
-  const [activeYear, setActiveYear] = useState(null)
-  const [folders, setFolders] = useState([])
-  const [activeFolder, setActiveFolder] = useState(null)
-  const [files, setFiles] = useState([])
-  const [folderCounts, setFolderCounts] = useState({})
-  const [loadingYears, setLoadingYears] = useState(true)
-  const [loadingFiles, setLoadingFiles] = useState(false)
+  const [stack, setStack] = useState([{ name: 'Assets', path: ROOT }])
+  const [entries, setEntries] = useState([])
+  const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const fileRef = useRef()
 
-  useEffect(() => { if (clientName) loadYears() }, [clientName])
+  const currentPath = stack[stack.length - 1].path
 
-  async function loadYears() {
-    setLoadingYears(true)
-    const y = await getClientYears(clientName)
-    setYears(y)
-    if (y.length > 0) {
-      setActiveYear(y[0])
-      loadFolders(y[0])
-    }
-    setLoadingYears(false)
+  useEffect(() => {
+    loadFolder(currentPath)
+  }, [currentPath])
+
+  async function loadFolder(path) {
+    setLoading(true)
+    setEntries([])
+    const raw = await listDropboxFolder(path)
+    const folders = raw.filter(e => e['.tag'] === 'folder')
+    const files = raw.filter(e => e['.tag'] === 'file')
+    setEntries([
+      ...folders.map(f => ({ ...f, type: 'folder' })),
+      ...files.map(f => ({ ...f, type: getFileType(f.name) }))
+    ])
+    setLoading(false)
   }
 
-  async function loadFolders(year) {
-    const f = await getAssetFolders(clientName, year)
-    setFolders(f)
-    // Load counts
-    const counts = {}
-    await Promise.all(f.map(async folder => {
-      const files = await getAssetFiles(clientName, year, folder.name)
-      counts[folder.name] = files.length
-    }))
-    setFolderCounts(counts)
+  function openFolder(folder) {
+    setStack(prev => [...prev, { name: folder.name, path: folder.path_lower }])
   }
 
-  async function openFolder(folder) {
-    setActiveFolder(folder)
-    setLoadingFiles(true)
-    setFiles([])
-    const f = await getAssetFiles(clientName, activeYear, folder.name)
-    setFiles(f)
-    setLoadingFiles(false)
+  function goBack(index) {
+    setStack(prev => prev.slice(0, index + 1))
   }
 
   async function handleUpload(e) {
-    if (!activeFolder || !activeYear) return
-    const file = e.target.files[0]
-    if (!file) return
+    const selected = Array.from(e.target.files)
+    if (!selected.length) return
     setUploading(true)
-    const path = `${BASE_PATH}/${activeYear}/${clientName}/Assets/${activeFolder.name}/${file.name}`
-    const arrayBuffer = await file.arrayBuffer()
-    await uploadFile(path, arrayBuffer)
-    await openFolder(activeFolder)
+    for (const file of selected) {
+      const arrayBuffer = await file.arrayBuffer()
+      await uploadFile(`${currentPath}/${file.name}`, arrayBuffer)
+    }
+    await loadFolder(currentPath)
     setUploading(false)
   }
 
@@ -97,36 +85,44 @@ export default function Assets() {
 
   async function handleDeleteFile(file) {
     await deleteFile(file.path_lower)
-    setFiles(prev => prev.filter(f => f.id !== file.id))
+    setEntries(prev => prev.filter(e => e.id !== file.id))
   }
 
-  if (loadingYears) return (
-    <div className={styles.page}>
-      <div className={styles.empty}>Loading asset library...</div>
-    </div>
-  )
+  const folders = entries.filter(e => e.type === 'folder')
+  const files = entries.filter(e => e.type !== 'folder')
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          {activeFolder
-            ? <>
-                <button className={styles.backBtn} onClick={() => setActiveFolder(null)}>
-                  <i className="ti ti-arrow-left" /> All Folders
-                </button>
-                <h1 className={styles.title}>{activeFolder.name}</h1>
-                <p className={styles.sub}>{activeYear} · {clientName}</p>
-              </>
-            : <>
-                <h1 className={styles.title}>Asset Library</h1>
-                <p className={styles.sub}>Brand files, templates, and strategic documents</p>
-              </>
-          }
+          <h1 className={styles.title}>Asset Library</h1>
+          {/* Breadcrumb */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
+            {stack.map((crumb, i) => (
+              <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {i < stack.length - 1 ? (
+                  <button
+                    onClick={() => goBack(i)}
+                    style={{
+                      background: 'none', border: 'none', color: 'var(--gold-light)',
+                      cursor: 'pointer', fontSize: '13px', padding: 0
+                    }}
+                  >
+                    {crumb.name}
+                  </button>
+                ) : (
+                  <span style={{ color: 'var(--text1)', fontSize: '13px' }}>{crumb.name}</span>
+                )}
+                {i < stack.length - 1 && (
+                  <span style={{ color: 'var(--text3)', fontSize: '12px' }}>›</span>
+                )}
+              </span>
+            ))}
+          </div>
         </div>
-        {activeFolder && role === 'admin' && (
+        {role === 'admin' && (
           <div>
-            <input type="file" ref={fileRef} style={{ display:'none' }} onChange={handleUpload} />
+            <input type="file" ref={fileRef} style={{ display: 'none' }} multiple onChange={handleUpload} />
             <button className="btn btn-gold" onClick={() => fileRef.current.click()} disabled={uploading}>
               <i className="ti ti-upload" /> {uploading ? 'Uploading...' : 'Upload File'}
             </button>
@@ -134,53 +130,36 @@ export default function Assets() {
         )}
       </div>
 
-      {/* Year tabs */}
-      {!activeFolder && years.length > 1 && (
-        <div className={styles.yearTabs}>
-          {years.map(y => (
-            <button
-              key={y}
-              className={`${styles.yearTab} ${activeYear === y ? styles.yearTabActive : ''}`}
-              onClick={() => { setActiveYear(y); loadFolders(y) }}
-            >
-              {y}
-            </button>
+      {loading && <div className={styles.empty}>Loading asset library...</div>}
+
+      {!loading && entries.length === 0 && (
+        <div className={styles.empty}>
+          <i className="ti ti-folder-off" style={{ fontSize: '36px', color: 'var(--text3)', marginBottom: '12px' }} />
+          <div style={{ fontSize: '14px', color: 'var(--text2)' }}>This folder is empty</div>
+        </div>
+      )}
+
+      {/* Folders */}
+      {folders.length > 0 && (
+        <div className={styles.folderGrid}>
+          {folders.map(f => (
+            <div key={f.id} className={styles.folderCard} onClick={() => openFolder(f)}>
+              <div className={styles.folderIcon} style={{ background: 'var(--gold-bg)', color: 'var(--gold-light)' }}>
+                <i className="ti ti-folder-filled" />
+              </div>
+              <div className={styles.folderName}>{f.name}</div>
+              <div className={styles.folderCount}>Click to browse</div>
+            </div>
           ))}
         </div>
       )}
 
-      {!activeFolder ? (
-        <div className={styles.folderGrid}>
-          {folders.map(f => {
-            const iconInfo = getIconForFolder(f.name)
-            return (
-              <div key={f.id} className={styles.folderCard} onClick={() => openFolder(f)}>
-                <div className={styles.folderIcon} style={{ background: iconInfo.bg, color: iconInfo.color }}>
-                  <i className={`ti ${iconInfo.icon}`} />
-                </div>
-                <div className={styles.folderName}>{f.name}</div>
-                <div className={styles.folderCount}>{folderCounts[f.name] ?? 0} files</div>
-              </div>
-            )
-          })}
-          {folders.length === 0 && (
-            <div style={{ gridColumn:'1/-1', textAlign:'center', padding:'48px', color:'var(--text3)', fontSize:'13px' }}>
-              No asset folders found in Dropbox for {activeYear}
-            </div>
-          )}
-        </div>
-      ) : (
+      {/* Files */}
+      {files.length > 0 && (
         <div className={styles.fileList}>
           <div className={styles.fileListHeader}>
             <span>Name</span><span>Type</span><span>Date</span><span>Size</span>
           </div>
-          {loadingFiles && <div className={styles.empty}>Loading files...</div>}
-          {!loadingFiles && files.length === 0 && (
-            <div className={styles.empty}>
-              <i className="ti ti-folder-open" style={{ fontSize:'28px', color:'var(--text3)', marginBottom:'8px' }} />
-              <div>No files yet — {role === 'admin' ? 'upload your first file above' : 'check back soon'}</div>
-            </div>
-          )}
           {files.map(file => {
             const fi = fileIcon(file.name)
             const ext = file.name.split('.').pop().toUpperCase()
@@ -196,10 +175,12 @@ export default function Assets() {
                 <div className={styles.fileDate}>{formatDate(file.client_modified)}</div>
                 <div className={styles.fileSize}>
                   {formatBytes(file.size)}
-                  <i className="ti ti-download" style={{ fontSize:'13px', color:'var(--text3)', marginLeft:'6px' }} />
+                  <i className="ti ti-download" style={{ fontSize: '13px', color: 'var(--text3)', marginLeft: '6px' }} />
                   {role === 'admin' && (
-                    <i className="ti ti-trash" style={{ fontSize:'13px', color:'var(--text3)', marginLeft:'6px', cursor:'pointer' }}
-                      onClick={e => { e.stopPropagation(); handleDeleteFile(file) }} />
+                    <i className="ti ti-trash"
+                      style={{ fontSize: '13px', color: 'var(--text3)', marginLeft: '6px', cursor: 'pointer' }}
+                      onClick={e => { e.stopPropagation(); handleDeleteFile(file) }}
+                    />
                   )}
                 </div>
               </div>
