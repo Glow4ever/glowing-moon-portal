@@ -1,3 +1,4 @@
+import { logAction } from '../lib/audit'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useClient } from '../lib/ClientContext'
@@ -12,6 +13,8 @@ export default function Admin() {
   const [editingClient, setEditingClient] = useState(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
+  const [auditLogs, setAuditLogs] = useState([])
+const [loadingLogs, setLoadingLogs] = useState(false)
 
   useEffect(() => { loadTeam() }, [])
 
@@ -22,6 +25,16 @@ export default function Admin() {
       .order('created_at')
     if (data) setTeamMembers(data)
   }
+  async function loadAuditLogs() {
+  setLoadingLogs(true)
+  const { data } = await supabase
+    .from('audit_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(100)
+  if (data) setAuditLogs(data)
+  setLoadingLogs(false)
+}
 
   function showToast(msg) {
     setToast(msg)
@@ -97,10 +110,10 @@ export default function Admin() {
       </div>
 
       <div className={styles.tabs}>
-        {['clients','team'].map(t => (
-          <button key={t} className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`} onClick={() => setTab(t)}>
-            {t === 'clients' ? 'Clients' : 'Team Members'}
-          </button>
+       {['clients','team','audit'].map(t => (
+         <button key={t} className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`} onClick={() => { setTab(t); if (t === 'audit') loadAuditLogs() }}>
+  {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : 'Audit Log'}
+</button>
         ))}
       </div>
 
@@ -209,6 +222,38 @@ export default function Admin() {
         </div>
       )}
 
+      {tab === 'audit' && (
+  <div>
+    <div className={styles.sectionLabel}>Recent Activity (last 100 events)</div>
+    {loadingLogs && <div className={styles.empty}>Loading audit logs...</div>}
+    {!loadingLogs && auditLogs.length === 0 && (
+      <div className={styles.empty}>No activity logged yet</div>
+    )}
+    <div className={styles.teamList}>
+      {auditLogs.map((log, i) => (
+        <div key={i} className={styles.teamRow}>
+          <div className={styles.teamAvatar}>
+            {log.action === 'login' && <i className="ti ti-login" />}
+            {log.action === 'download' && <i className="ti ti-download" />}
+            {log.action === 'delete' && <i className="ti ti-trash" />}
+            {log.action === 'upload' && <i className="ti ti-upload" />}
+            {!['login','download','delete','upload'].includes(log.action) && <i className="ti ti-activity" />}
+          </div>
+          <div className={styles.teamInfo}>
+            <div className={styles.teamRole}>{log.user_email}</div>
+            <div className={styles.teamClient}>
+              {log.action} · {log.resource}
+              {log.details?.fileName ? ` · ${log.details.fileName}` : ''}
+            </div>
+          </div>
+          <div className={styles.teamBadge} style={{ background: 'var(--gold-bg)', color: 'var(--gold-light)', fontSize: '11px' }}>
+            {new Date(log.created_at).toLocaleString()}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
       {toast && (
         <div className={styles.toast}>
           <i className="ti ti-check" aria-hidden="true" /> {toast}
