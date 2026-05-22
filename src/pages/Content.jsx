@@ -4,6 +4,7 @@ import {
   getDownloadLink, getPreviewLink, uploadFile, deleteFile,
   createFolder, deleteFolder, getFileType, formatBytes, formatDate
 } from '../lib/dropbox'
+import { logAction } from '../lib/audit'
 import styles from './Content.module.css'
 
 async function listDropboxFolder(path) {
@@ -81,10 +82,11 @@ export default function Content() {
     setUploading(false)
   }
 
-  async function handleDeleteFile(file) {
-    await deleteFile(file.path_lower)
-    setEntries(prev => prev.filter(e => e.id !== file.id))
-  }
+async function handleDeleteFile(file) {
+  await deleteFile(file.path_lower)
+  await logAction('delete', 'content', { fileName: file.name, path: file.path_lower })
+  setEntries(prev => prev.filter(e => e.id !== file.id))
+}
 
   async function handleDeleteFolder(folder) {
     await deleteFolder(folder.path_lower)
@@ -99,10 +101,13 @@ export default function Content() {
     await loadFolder(currentPath)
   }
 
-  async function handleDownload(file) {
-    const link = await getDownloadLink(file.path_lower)
-    if (link) window.open(link, '_blank')
+async function handleDownload(file) {
+  const link = await getDownloadLink(file.path_lower)
+  if (link) {
+    window.open(link, '_blank')
+    await logAction('download', 'content', { fileName: file.name, path: file.path_lower })
   }
+}
 
   const folders = entries.filter(e => e.type === 'folder')
   const photos = entries.filter(e => e.type === 'photo')
