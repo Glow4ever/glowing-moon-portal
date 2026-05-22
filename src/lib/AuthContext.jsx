@@ -1,3 +1,4 @@
+import { logAction } from './audit'
 import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
@@ -56,8 +57,13 @@ export function AuthProvider({ children }) {
     }
   }, [user])
 
-  const signIn = (email, password) =>
-    supabase.auth.signInWithPassword({ email, password })
+  const signIn = async (email, password) => {
+  const result = await supabase.auth.signInWithPassword({ email, password })
+  if (result.data?.user) {
+    await logAction('login', 'auth', { email })
+  }
+  return result
+}
 
   const signOut = () => {
     clearTimer()
