@@ -4,6 +4,7 @@ import {
   getDownloadLink, uploadFile, deleteFile, getFileType, formatBytes, formatDate
 } from '../lib/dropbox'
 import styles from './Assets.module.css'
+import { logAction } from '../lib/audit'
 
 async function listDropboxFolder(path) {
   const res = await fetch('/api/dropbox', {
@@ -78,15 +79,19 @@ export default function Assets() {
     setUploading(false)
   }
 
-  async function handleDownload(file) {
-    const link = await getDownloadLink(file.path_lower)
-    if (link) window.open(link, '_blank')
+async function handleDownload(file) {
+  const link = await getDownloadLink(file.path_lower)
+  if (link) {
+    window.open(link, '_blank')
+    await logAction('download', 'assets', { fileName: file.name, path: file.path_lower })
   }
+}
 
-  async function handleDeleteFile(file) {
-    await deleteFile(file.path_lower)
-    setEntries(prev => prev.filter(e => e.id !== file.id))
-  }
+ async function handleDeleteFile(file) {
+  await deleteFile(file.path_lower)
+  await logAction('delete', 'assets', { fileName: file.name, path: file.path_lower })
+  setEntries(prev => prev.filter(e => e.id !== file.id))
+}
 
   const folders = entries.filter(e => e.type === 'folder')
   const files = entries.filter(e => e.type !== 'folder')
