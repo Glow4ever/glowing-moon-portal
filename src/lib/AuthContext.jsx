@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 
 const AuthContext = createContext({})
 
-const TIMEOUT_MINUTES = 30
+const TIMEOUT_MINUTES = 1440
 const TIMEOUT_MS = TIMEOUT_MINUTES * 60 * 1000
 
 export function AuthProvider({ children }) {
