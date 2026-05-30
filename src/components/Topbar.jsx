@@ -82,23 +82,24 @@ async function loadLogo() {
           {logoUrl && role === 'admin' && (
             <button
               onClick={handleLogoDelete}
-              style={{
-                position: 'absolute',
-                top: '0px',
-right: '0px',
-                width: '16px',
-                height: '16px',
-                borderRadius: '50%',
-                background: '#e0845a',
-                border: 'none',
-                color: 'white',
-                fontSize: '9px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                zIndex: 10
-              }}
+             style={{
+  position: 'absolute',
+  top: '0px',
+  right: '0px',
+  width: '12px',
+  height: '12px',
+  borderRadius: '50%',
+  background: '#e0845a',
+  border: 'none',
+  color: 'white',
+  fontSize: '7px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  zIndex: 10,
+  opacity: 0,
+}}
             >
               <i className="ti ti-x" />
             </button>
