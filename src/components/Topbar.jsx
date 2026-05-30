@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useClient } from '../lib/ClientContext'
 import styles from './Topbar.module.css'
@@ -11,12 +11,34 @@ export default function Topbar() {
   const [showSwitcher, setShowSwitcher] = useState(false)
   const fileRef = useRef()
 
+  const primaryColor = client?.primary_color || '#c9a84c'
+  const logoPath = `logos/${client?.slug}-logo`
+
+  useEffect(() => {
+    if (client?.slug) loadLogo()
+  }, [client])
+
+  async function loadLogo() {
+    const extensions = ['png', 'jpg', 'jpeg', 'svg', 'webp']
+    for (const ext of extensions) {
+      const { data } = supabase.storage
+        .from('portal-assets')
+        .getPublicUrl(`${logoPath}.${ext}`)
+      const res = await fetch(data.publicUrl, { method: 'HEAD' }).catch(() => null)
+      if (res?.ok) {
+        setLogoUrl(data.publicUrl + '?t=' + Date.now())
+        return
+      }
+    }
+    setLogoUrl(null)
+  }
+
   async function handleLogoUpload(e) {
     const file = e.target.files[0]
     if (!file) return
     setUploading(true)
     const ext = file.name.split('.').pop()
-    const path = `logos/client-logo.${ext}`
+    const path = `${logoPath}.${ext}`
     const { error } = await supabase.storage
       .from('portal-assets')
       .upload(path, file, { upsert: true })
@@ -29,15 +51,23 @@ export default function Topbar() {
     setUploading(false)
   }
 
-  const primaryColor = client?.primary_color || '#c9a84c'
-
   return (
     <header className={styles.topbar}>
       <div className={styles.logo} onClick={() => fileRef.current.click()} title="Click to update logo">
         <input type="file" ref={fileRef} accept="image/*" style={{ display:'none' }} onChange={handleLogoUpload} />
         <div className={styles.logoCircle} style={{ borderColor: primaryColor + '55' }}>
           {logoUrl
-            ? <img src={logoUrl} alt="Logo" className={styles.logoImg} />
+            ? <img
+                src={logoUrl}
+                alt="Logo"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  borderRadius: '50%',
+                  padding: '4px'
+                }}
+              />
             : <span className={styles.logoInitials} style={{ color: primaryColor }}>
                 {client?.name?.split(' ').map(w => w[0]).join('').slice(0,2) || 'GM'}
               </span>
