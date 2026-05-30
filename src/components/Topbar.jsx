@@ -84,8 +84,8 @@ async function loadLogo() {
               onClick={handleLogoDelete}
               style={{
                 position: 'absolute',
-                top: '-6px',
-                right: '-6px',
+                top: '-4px',
+right: '-4px',
                 width: '16px',
                 height: '16px',
                 borderRadius: '50%',
