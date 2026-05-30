@@ -33,68 +33,84 @@ export default function Topbar() {
     setLogoUrl(null)
   }
 
-async function handleLogoDelete(e) {
-  e.stopPropagation()
-  const extensions = ['png', 'jpg', 'jpeg', 'svg', 'webp']
-  for (const ext of extensions) {
-    await supabase.storage.from('portal-assets').remove([`${logoPath}.${ext}`])
-  }
-  setLogoUrl(null)
-  setToast('Logo removed!')
-  setTimeout(() => setToast(''), 2500)
-}
+  async function handleLogoUpload(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    const ext = file.name.split('.').pop()
+    const path = `${logoPath}.${ext}`
+    const { error } = await supabase.storage
+      .from('portal-assets')
+      .upload(path, file, { upsert: true })
+    if (!error) {
+      const { data } = supabase.storage.from('portal-assets').getPublicUrl(path)
+      setLogoUrl(data.publicUrl + '?t=' + Date.now())
+      setToast('Logo updated!')
+      setTimeout(() => setToast(''), 2500)
+    }
     setUploading(false)
+  }
+
+  async function handleLogoDelete(e) {
+    e.stopPropagation()
+    const extensions = ['png', 'jpg', 'jpeg', 'svg', 'webp']
+    for (const ext of extensions) {
+      await supabase.storage.from('portal-assets').remove([`${logoPath}.${ext}`])
+    }
+    setLogoUrl(null)
+    setToast('Logo removed!')
+    setTimeout(() => setToast(''), 2500)
   }
 
   return (
     <header className={styles.topbar}>
       <div className={styles.logo} onClick={() => fileRef.current.click()} title="Click to update logo">
         <input type="file" ref={fileRef} accept="image/*" style={{ display:'none' }} onChange={handleLogoUpload} />
-     <div className={styles.logoCircle} style={{ borderColor: primaryColor + '55' }}>
-  {logoUrl
-    ? <img
-        src={logoUrl}
-        alt="Logo"
-        style={{
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          borderRadius: '50%',
-          padding: '4px'
-        }}
-      />
-    : <span className={styles.logoInitials} style={{ color: primaryColor }}>
-        {client?.name?.split(' ').map(w => w[0]).join('').slice(0,2) || 'GM'}
-      </span>
-  }
-  {logoUrl && role === 'admin' && (
-    <button
-      onClick={handleLogoDelete}
-      style={{
-        position: 'absolute',
-        top: '-6px',
-        right: '-6px',
-        width: '16px',
-        height: '16px',
-        borderRadius: '50%',
-        background: '#e0845a',
-        border: 'none',
-        color: 'white',
-        fontSize: '9px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        zIndex: 10
-      }}
-    >
-      <i className="ti ti-x" />
-    </button>
-  )}
-  <div className={styles.logoOverlay}>
-    <i className={`ti ${uploading ? 'ti-loader' : 'ti-camera'}`} aria-hidden="true" />
-  </div>
-</div>
+        <div className={styles.logoCircle} style={{ borderColor: primaryColor + '55' }}>
+          {logoUrl
+            ? <img
+                src={logoUrl}
+                alt="Logo"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  borderRadius: '50%',
+                  padding: '4px'
+                }}
+              />
+            : <span className={styles.logoInitials} style={{ color: primaryColor }}>
+                {client?.name?.split(' ').map(w => w[0]).join('').slice(0,2) || 'GM'}
+              </span>
+          }
+          {logoUrl && role === 'admin' && (
+            <button
+              onClick={handleLogoDelete}
+              style={{
+                position: 'absolute',
+                top: '-6px',
+                right: '-6px',
+                width: '16px',
+                height: '16px',
+                borderRadius: '50%',
+                background: '#e0845a',
+                border: 'none',
+                color: 'white',
+                fontSize: '9px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                zIndex: 10
+              }}
+            >
+              <i className="ti ti-x" />
+            </button>
+          )}
+          <div className={styles.logoOverlay}>
+            <i className={`ti ${uploading ? 'ti-loader' : 'ti-camera'}`} aria-hidden="true" />
+          </div>
+        </div>
         <div className={styles.logoText}>
           {client?.name || 'Glowing Moon Media'}
         </div>
