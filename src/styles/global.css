@@ -10,11 +10,11 @@
   --text: #f0ede6;
   --text2: #847f72;
   --text3: #4a4740;
-  --gold: #c9a84c;
-  --gold-light: #e2c47a;
-  --gold-dim: #8a6e2f;
-  --gold-bg: rgba(201,168,76,0.10);
-  --gold-border: rgba(201,168,76,0.22);
+ --gold: var(--brand-primary, #c9a84c);
+--gold-light: var(--brand-primary, #e2c47a);
+--gold-dim: var(--brand-primary, #8a6e2f);
+--gold-bg: var(--brand-primary-18, rgba(201,168,76,0.10));
+--gold-border: var(--brand-primary-40, rgba(201,168,76,0.22));
   --teal: #3a9e82;
   --teal-bg: rgba(58,158,130,0.10);
   --coral: #b85a35;
