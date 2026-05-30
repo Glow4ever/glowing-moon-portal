@@ -2,7 +2,7 @@
 .logo { display: flex; align-items: center; gap: 10px; cursor: pointer; position: relative; }
 .logo:hover .logoHint { opacity: 1; }
 .logoCircle { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--gold-border); background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; flex-shrink: 0; }
-.logoImg { width: 100%; height: 100%; object-fit: cover; }
+.logoImg { width: 100%; height: 100%; object-fit: contain; padding: 3px; }
 .logoInitials { font-family: 'Cormorant Garamond', serif; font-size: 11px; font-weight: 600; }
 .logoOverlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.15s; font-size: 13px; color: var(--gold-light); }
 .logoCircle:hover .logoOverlay { opacity: 1; }
