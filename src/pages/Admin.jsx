@@ -196,12 +196,77 @@ async function inviteMember() {
       )}
 
       {tab === 'team' && (
-        <div>
-          <div className={styles.sectionLabel}>Team Members & Roles</div>
-          <div className={styles.infoBox}>
-            <i className="ti ti-info-circle" aria-hidden="true" />
-            To add a new team member or client user, first create their account in <a href="https://supabase.com/dashboard/project/sqakattqftlmstsbxgxw/auth/users" target="_blank" rel="noreferrer" style={{color:'var(--gold-light)'}}>Supabase Auth</a>, then assign their role below.
+  <div>
+    <div className={styles.sectionLabel}>Team Members & Roles</div>
+    <div className={styles.teamList}>
+      {teamMembers.map((m, i) => (
+        <div key={i} className={styles.teamRow}>
+          <div className={styles.teamAvatar}>
+            {m.role === 'admin' ? <i className="ti ti-shield" aria-hidden="true" /> : <i className="ti ti-user" aria-hidden="true" />}
           </div>
+          <div className={styles.teamInfo}>
+            <div className={styles.teamRole}>{m.role === 'admin' ? 'Admin' : 'Client Member'}</div>
+            <div className={styles.teamClient}>{m.clients?.name || 'All clients (admin)'}</div>
+          </div>
+          <div className={styles.teamBadge} style={{ background: m.role === 'admin' ? 'var(--gold-bg)' : 'var(--teal-bg)', color: m.role === 'admin' ? 'var(--gold-light)' : 'var(--teal)' }}>
+            {m.role}
+          </div>
+        </div>
+      ))}
+      {teamMembers.length === 0 && (
+        <div className={styles.empty}>No team members yet</div>
+      )}
+    </div>
+
+    <div className={styles.formCard}>
+      <div className={styles.formTitle}>Add New Client User</div>
+      <div className={styles.formGrid}>
+        <div className={styles.field}>
+          <label className={styles.label}>Email</label>
+          <input
+            className={styles.input}
+            type="email"
+            value={newMember.email}
+            onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
+            placeholder="client@example.com"
+          />
+        </div>
+        <div className={styles.field}>
+          <label className={styles.label}>Temporary Password</label>
+          <input
+            className={styles.input}
+            type="password"
+            value={newMember.password}
+            onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
+            placeholder="Min 8 characters"
+          />
+        </div>
+        <div className={styles.field}>
+          <label className={styles.label}>Assign to Client</label>
+          <select
+            className={styles.input}
+            value={newMember.client_id}
+            onChange={e => setNewMember(p => ({...p, client_id: e.target.value}))}
+          >
+            <option value="">Select client...</option>
+            {allClients.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className={styles.formActions}>
+        <button
+          className="btn btn-gold"
+          onClick={inviteMember}
+          disabled={saving || !newMember.email || !newMember.password || !newMember.client_id}
+        >
+          <i className="ti ti-user-plus" aria-hidden="true" /> Create User
+        </button>
+      </div>
+    </div>
+  </div>
+)}
 
           <div className={styles.teamList}>
             {teamMembers.map((m, i) => (
