@@ -1,3 +1,4 @@
+import ResetPassword from './pages/ResetPassword'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import { ClientProvider, useClient } from './lib/ClientContext'
@@ -41,6 +42,7 @@ export default function App() {
         <BrandingInjector />
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/*" element={
             <ProtectedRoute>
               <Portal />
