@@ -8,7 +8,10 @@ async function listDropboxFolder(path) {
   const res = await fetch('/api/dropbox', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'list', path })
+    body: JSON.stringify({ 
+      endpoint: 'files/list_folder', 
+      body: { path, include_deleted: false } 
+    })
   })
   if (!res.ok) return []
   const data = await res.json()
