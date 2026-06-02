@@ -8,6 +8,7 @@ const navItems = [
   { to: '/assets',   icon: 'ti-folder',            label: 'Asset Library' },
   { to: '/content',  icon: 'ti-photo',             label: 'Content Library' },
   { to: '/calendar', icon: 'ti-calendar',          label: 'Calendar' },
+  { to: '/settings', icon: 'ti-settings',          label: 'Settings' },
 ]
 
 export default function Sidebar() {
