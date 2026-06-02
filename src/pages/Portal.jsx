@@ -33,7 +33,8 @@ export default function Portal() {
             <Route path="/assets"   element={<Assets />} />
             <Route path="/content"  element={<Content />} />
             <Route path="/calendar" element={<Calendar />} />
-            <Route path="/admin"    element={<Admin />} />
+           <Route path="/admin" element={<Admin />} />
+<Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
       </div>
