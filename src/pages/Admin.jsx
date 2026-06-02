@@ -73,20 +73,23 @@ const [loadingLogs, setLoadingLogs] = useState(false)
     setSaving(false)
   }
 
-  async function inviteMember() {
-    if (!newMember.email || !newMember.password) return
+async function inviteMember() {
+    if (!newMember.email || !newMember.password || !newMember.client_id) return
     setSaving(true)
-    // Create auth user
-    const { data: authData, error: authError } = await supabase.auth.admin
-      ? await supabase.functions.invoke('create-user', { body: newMember })
-      : { data: null, error: { message: 'Use Supabase dashboard to invite users' } }
-
-    if (authError) {
-      showToast('Add user via Supabase Auth dashboard, then assign role below')
+    const { data, error } = await supabase.functions.invoke('create-user', {
+      body: {
+        email: newMember.email,
+        password: newMember.password,
+        client_id: newMember.client_id,
+        role: newMember.role
+      }
+    })
+    if (error || data?.error) {
+      showToast(data?.error || 'Failed to create user. Try again.')
       setSaving(false)
       return
     }
-    showToast('Member invited!')
+    showToast('Client user created successfully!')
     setNewMember({ email: '', password: '', client_id: '', role: 'member' })
     await loadTeam()
     setSaving(false)
