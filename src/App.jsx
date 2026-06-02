@@ -1,4 +1,4 @@
-import ResetPassword from './pages/ResetPassword'
+import ResetPassword from './pages/ResetPassword.jsx'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import { ClientProvider, useClient } from './lib/ClientContext'
