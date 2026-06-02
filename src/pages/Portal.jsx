@@ -7,6 +7,7 @@ import Assets from './Assets'
 import Content from './Content'
 import Calendar from './Calendar'
 import Admin from './Admin'
+import Settings from './Settings'
 import styles from './Portal.module.css'
 
 export default function Portal() {
