@@ -32,7 +32,7 @@ module.exports = async function handler(req, res) {
                   <!-- Header -->
                   <tr>
                     <td style="background:#111113;border-radius:12px 12px 0 0;padding:36px 40px;text-align:center;border-bottom:2px solid #D3C9A7;">
-                      <div style="font-size:13px;letter-spacing:3px;color:#c9a84c;text-transform:uppercase;font-weight:600;">Glowing Moon Media</div>
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;">Glowing Moon Media</div>
                     </td>
                   </tr>
 
@@ -61,7 +61,7 @@ module.exports = async function handler(req, res) {
                   <!-- Footer -->
                   <tr>
                     <td style="background:#111113;border-radius:0 0 12px 12px;padding:24px 40px;text-align:center;">
-                      <p style="margin:0;font-size:12px;color:#444;line-height:1.6;">You're receiving this because you're a Glowing Moon Media client.<br>Questions? Reply to this email or contact us at <a href="mailto:hector@glowingmoonmedia.com" style="color:#c9a84c;text-decoration:none;">hector@glowingmoonmedia.com</a></p>
+                      <p style="margin:0;font-size:12px;color:#444;line-height:1.6;">You're receiving this because you're a Glowing Moon Media client.<br>Questions? Reply to this email or contact us at <a href="mailto:hector@glowingmoonmedia.com" style="color:#D3C9A7;text-decoration:none;">hector@glowingmoonmedia.com</a></p>
                     </td>
                   </tr>
 
