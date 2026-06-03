@@ -143,6 +143,9 @@ export default function Content() {
   async function handleApprove() {
     setApproving(true)
 
+    async function handleApprove() {
+    setApproving(true)
+
     await supabase.from('clients').update({
       approval_status: 'approved'
     }).eq('id', client.id)
@@ -157,8 +160,8 @@ export default function Content() {
       })
     })
 
+    await loadUserContext()
     setApproving(false)
-    setTimeout(() => window.location.reload(), 500)
   }
 
   const folders = entries.filter(e => e.type === 'folder')
