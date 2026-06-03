@@ -156,7 +156,6 @@ export default function Content() {
       })
 
       setLocalStatus('approved')
-      await loadUserContext()
     } catch(err) {
       console.error('Approve error:', err)
     }
