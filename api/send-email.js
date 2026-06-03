@@ -10,7 +10,9 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const { type, clientName, month, portalLink, fileName, comment, notificationEmail } = req.body;
+  const { type, clientName, month, notificationEmail, fileName, comment } = req.body;
+
+  const portalLink = 'https://portal.glowingmoonmedia.com/content';
 
   try {
     if (type === 'review') {
@@ -19,14 +21,55 @@ module.exports = async function handler(req, res) {
         to: notificationEmail,
         subject: `Your ${month} content is ready for review`,
         html: `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
-            <h2 style="color:#d4af37;">Your ${month} content is ready</h2>
-            <p>Hi ${clientName},</p>
-            <p>Your content for <strong>${month}</strong> has been uploaded and is ready for your review.</p>
-            <p>Log in to the portal to preview files, leave comments on anything that needs revision, and approve the full month when you're ready.</p>
-            <a href="${portalLink}" style="display:inline-block;background:#d4af37;color:#000;padding:12px 24px;text-decoration:none;border-radius:4px;font-weight:bold;margin:16px 0;">Review Content</a>
-            <p style="color:#888;font-size:12px;">Glowing Moon Media</p>
-          </div>
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+                  <!-- Header -->
+                  <tr>
+                    <td style="background:#111113;border-radius:12px 12px 0 0;padding:36px 40px;text-align:center;border-bottom:2px solid #c9a84c;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#c9a84c;text-transform:uppercase;font-weight:600;">Glowing Moon Media</div>
+                    </td>
+                  </tr>
+
+                  <!-- Body -->
+                  <tr>
+                    <td style="background:#111113;padding:40px 40px 32px;">
+                      <h1 style="margin:0 0 8px;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">Your ${month} content<br>is ready to review</h1>
+                      <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">Hi ${clientName}, your content package for <strong style="color:#fff;">${month}</strong> has been uploaded to your portal. Take a look, leave any revision notes on specific files, and approve when everything looks good.</p>
+                    </td>
+                  </tr>
+
+                  <!-- CTA -->
+                  <tr>
+                    <td style="background:#111113;padding:0 40px 40px;text-align:center;">
+                      <a href="${portalLink}" style="display:inline-block;background:#c9a84c;color:#000000;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Review My Content</a>
+                    </td>
+                  </tr>
+
+                  <!-- Divider -->
+                  <tr>
+                    <td style="background:#111113;padding:0 40px;">
+                      <div style="border-top:1px solid #222;"></div>
+                    </td>
+                  </tr>
+
+                  <!-- Footer -->
+                  <tr>
+                    <td style="background:#111113;border-radius:0 0 12px 12px;padding:24px 40px;text-align:center;">
+                      <p style="margin:0;font-size:12px;color:#444;line-height:1.6;">You're receiving this because you're a Glowing Moon Media client.<br>Questions? Reply to this email or contact us at <a href="mailto:hector@glowingmoonmedia.com" style="color:#c9a84c;text-decoration:none;">hector@glowingmoonmedia.com</a></p>
+                    </td>
+                  </tr>
+
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
         `
       });
     }
@@ -37,11 +80,24 @@ module.exports = async function handler(req, res) {
         to: 'hector@glowingmoonmedia.com',
         subject: `${clientName} approved ${month} content`,
         html: `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
-            <h2 style="color:#d4af37;">${clientName} approved their content</h2>
-            <p><strong>${clientName}</strong> has approved all content for <strong>${month}</strong>.</p>
-            <p style="color:#888;font-size:12px;">Glowing Moon Media Portal</p>
-          </div>
+          <!DOCTYPE html>
+          <html>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #c9a84c;">
+                  <tr>
+                    <td style="padding:40px;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#c9a84c;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+                      <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Content Approved</h1>
+                      <p style="margin:0;font-size:15px;color:#888;line-height:1.6;"><strong style="color:#fff;">${clientName}</strong> has approved all content for <strong style="color:#fff;">${month}</strong>. You're clear to schedule and publish.</p>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
         `
       });
     }
@@ -50,14 +106,29 @@ module.exports = async function handler(req, res) {
       await resend.emails.send({
         from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
         to: 'hector@glowingmoonmedia.com',
-        subject: `${clientName} left a revision note`,
+        subject: `${clientName} requested a revision`,
         html: `
-          <div style="font-family:sans-serif;max-width:600px;margin:0 auto;">
-            <h2 style="color:#d4af37;">Revision requested</h2>
-            <p><strong>${clientName}</strong> left a comment on <strong>${fileName}</strong>:</p>
-            <blockquote style="border-left:3px solid #d4af37;padding-left:16px;color:#333;">${comment}</blockquote>
-            <p style="color:#888;font-size:12px;">Glowing Moon Media Portal</p>
-          </div>
+          <!DOCTYPE html>
+          <html>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #ff6b6b;">
+                  <tr>
+                    <td style="padding:40px;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#c9a84c;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+                      <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Revision Requested</h1>
+                      <p style="margin:0 0 24px;font-size:15px;color:#888;line-height:1.6;"><strong style="color:#fff;">${clientName}</strong> left a note on <strong style="color:#fff;">${fileName}</strong>:</p>
+                      <div style="background:#1a1a1c;border-left:3px solid #c9a84c;border-radius:4px;padding:16px 20px;">
+                        <p style="margin:0;font-size:15px;color:#fff;line-height:1.6;">${comment}</p>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
         `
       });
     }
