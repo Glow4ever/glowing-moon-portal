@@ -154,6 +154,7 @@ export default function Content() {
     })
     setLocalStatus('approved')
     setApproving(false)
+    alert('localStatus set to approved')
   }
 
   const folders = entries.filter(e => e.type === 'folder')
