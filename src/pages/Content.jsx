@@ -156,7 +156,6 @@ export default function Content() {
       })
     })
 
-    await loadUserContext()
     setApproving(false)
     window.location.reload()
   }
