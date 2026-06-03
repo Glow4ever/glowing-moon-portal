@@ -140,21 +140,27 @@ export default function Content() {
 
   async function handleApprove() {
     setApproving(true)
-    await supabase.from('clients').update({
-      approval_status: 'approved'
-    }).eq('id', client.id)
-    await fetch('/api/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'approved',
-        clientName: client.name,
-        month: approvalMonth
+    try {
+      await supabase.from('clients').update({
+        approval_status: 'approved'
+      }).eq('id', client.id)
+
+      await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'approved',
+          clientName: client.name,
+          month: approvalMonth
+        })
       })
-    })
-    setLocalStatus('approved')
+
+      setLocalStatus('approved')
+      alert('done')
+    } catch(err) {
+      alert('error: ' + err.message)
+    }
     setApproving(false)
-    alert('localStatus set to approved')
   }
 
   const folders = entries.filter(e => e.type === 'folder')
