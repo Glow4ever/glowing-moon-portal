@@ -17,6 +17,8 @@ export default function Admin() {
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [reviewMonth, setReviewMonth] = useState({})
   const [sendingReview, setSendingReview] = useState({})
+  const [comments, setComments] = useState([])
+  const [loadingComments, setLoadingComments] = useState(false)
 
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
   const currentYear = new Date().getFullYear()
@@ -40,6 +42,21 @@ export default function Admin() {
       .limit(100)
     if (data) setAuditLogs(data)
     setLoadingLogs(false)
+  }
+
+  async function loadComments() {
+    setLoadingComments(true)
+    const { data } = await supabase
+      .from('file_comments')
+      .select('*, clients(name, primary_color)')
+      .order('created_at', { ascending: false })
+    if (data) setComments(data)
+    setLoadingComments(false)
+  }
+
+  async function dismissComment(id) {
+    await supabase.from('file_comments').delete().eq('id', id)
+    setComments(prev => prev.filter(c => c.id !== id))
   }
 
   function showToast(msg) {
@@ -148,6 +165,14 @@ export default function Admin() {
     return <div className={styles.teamBadge} style={{ background: s.bg, color: s.color }}>{s.label}</div>
   }
 
+  // Group comments by client
+  const commentsByClient = comments.reduce((acc, c) => {
+    const name = c.clients?.name || 'Unknown'
+    if (!acc[name]) acc[name] = { color: c.clients?.primary_color, items: [] }
+    acc[name].items.push(c)
+    return acc
+  }, {})
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -156,9 +181,17 @@ export default function Admin() {
       </div>
 
       <div className={styles.tabs}>
-        {['clients','team','audit'].map(t => (
-          <button key={t} className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`} onClick={() => { setTab(t); if (t === 'audit') loadAuditLogs() }}>
-            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : 'Audit Log'}
+        {['clients','team','revisions','audit'].map(t => (
+          <button
+            key={t}
+            className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`}
+            onClick={() => {
+              setTab(t)
+              if (t === 'audit') loadAuditLogs()
+              if (t === 'revisions') loadComments()
+            }}
+          >
+            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : t === 'revisions' ? 'Revisions' : 'Audit Log'}
           </button>
         ))}
       </div>
@@ -337,6 +370,51 @@ export default function Admin() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {tab === 'revisions' && (
+        <div>
+          <div className={styles.sectionLabel}>Client Revision Notes</div>
+          {loadingComments && <div className={styles.empty}>Loading...</div>}
+          {!loadingComments && comments.length === 0 && (
+            <div className={styles.empty}>No revision notes yet</div>
+          )}
+          {Object.entries(commentsByClient).map(([clientName, { color, items }]) => (
+            <div key={clientName} style={{ marginBottom: '28px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: color || 'var(--gold)' }} />
+                <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{clientName}</div>
+                <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{items.length} note{items.length !== 1 ? 's' : ''}</div>
+              </div>
+              <div className={styles.teamList}>
+                {items.map(c => (
+                  <div key={c.id} className={styles.teamRow} style={{ alignItems: 'flex-start', gap: '12px' }}>
+                    <div className={styles.teamAvatar} style={{ marginTop: '2px' }}>
+                      <i className="ti ti-message" />
+                    </div>
+                    <div className={styles.teamInfo} style={{ flex: 1 }}>
+                      <div className={styles.teamRole} style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>
+                        {c.file_path.split('/').pop()}
+                      </div>
+                      <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: '1.5' }}>{c.comment}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>
+                        {new Date(c.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                    <button
+                      className={styles.editBtn}
+                      onClick={() => dismissComment(c.id)}
+                      title="Dismiss"
+                      style={{ marginTop: '2px', flexShrink: 0 }}
+                    >
+                      <i className="ti ti-check" /> Done
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
