@@ -5,6 +5,7 @@ import {
   createFolder, deleteFolder, getFileType, formatBytes, formatDate
 } from '../lib/dropbox'
 import { logAction } from '../lib/audit'
+import { supabase } from '../lib/supabase'
 import styles from './Content.module.css'
 
 async function listDropboxFolder(path) {
@@ -33,9 +34,15 @@ export default function Content() {
   const [lightbox, setLightbox] = useState(null)
   const [newFolderModal, setNewFolderModal] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
+  const [commentModal, setCommentModal] = useState(null)
+  const [commentText, setCommentText] = useState('')
+  const [submittingComment, setSubmittingComment] = useState(false)
+  const [approving, setApproving] = useState(false)
   const fileRef = useRef()
 
   const currentPath = stack[stack.length - 1].path
+  const isPending = client?.approval_status === 'pending'
+  const approvalMonth = client?.approval_month
 
   useEffect(() => {
     loadFolder(currentPath)
@@ -45,10 +52,8 @@ export default function Content() {
     setLoading(true)
     setEntries([])
     const raw = await listDropboxFolder(path)
-
     const folders = raw.filter(e => e['.tag'] === 'folder')
     const files = raw.filter(e => e['.tag'] === 'file')
-
     const filesWithUrls = await Promise.all(files.map(async file => {
       const type = getFileType(file.name)
       let url = null
@@ -57,7 +62,6 @@ export default function Content() {
       }
       return { ...file, type, url }
     }))
-
     setEntries([...folders.map(f => ({ ...f, type: 'folder' })), ...filesWithUrls])
     setLoading(false)
   }
@@ -82,11 +86,11 @@ export default function Content() {
     setUploading(false)
   }
 
-async function handleDeleteFile(file) {
-  await deleteFile(file.path_lower)
-  await logAction('delete', 'content', { fileName: file.name, path: file.path_lower })
-  setEntries(prev => prev.filter(e => e.id !== file.id))
-}
+  async function handleDeleteFile(file) {
+    await deleteFile(file.path_lower)
+    await logAction('delete', 'content', { fileName: file.name, path: file.path_lower })
+    setEntries(prev => prev.filter(e => e.id !== file.id))
+  }
 
   async function handleDeleteFolder(folder) {
     await deleteFolder(folder.path_lower)
@@ -101,13 +105,59 @@ async function handleDeleteFile(file) {
     await loadFolder(currentPath)
   }
 
-async function handleDownload(file) {
-  const link = await getDownloadLink(file.path_lower)
-  if (link) {
-    window.open(link, '_blank')
-    await logAction('download', 'content', { fileName: file.name, path: file.path_lower })
+  async function handleDownload(file) {
+    const link = await getDownloadLink(file.path_lower)
+    if (link) {
+      window.open(link, '_blank')
+      await logAction('download', 'content', { fileName: file.name, path: file.path_lower })
+    }
   }
-}
+
+  async function submitComment() {
+    if (!commentText.trim() || !commentModal) return
+    setSubmittingComment(true)
+
+    await supabase.from('file_comments').insert({
+      client_id: client.id,
+      file_path: commentModal.path_lower,
+      comment: commentText.trim()
+    })
+
+    await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'comment',
+        clientName: client.name,
+        fileName: commentModal.name,
+        comment: commentText.trim()
+      })
+    })
+
+    setCommentText('')
+    setCommentModal(null)
+    setSubmittingComment(false)
+  }
+
+  async function handleApprove() {
+    setApproving(true)
+
+    await supabase.from('clients').update({
+      approval_status: 'approved'
+    }).eq('id', client.id)
+
+    await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'approved',
+        clientName: client.name,
+        month: approvalMonth
+      })
+    })
+
+    setApproving(false)
+  }
 
   const folders = entries.filter(e => e.type === 'folder')
   const photos = entries.filter(e => e.type === 'photo')
@@ -119,17 +169,13 @@ async function handleDownload(file) {
       <div className={styles.header}>
         <div>
           <h1 className={styles.title}>Content Library</h1>
-          {/* Breadcrumb */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
             {stack.map((crumb, i) => (
               <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {i < stack.length - 1 ? (
                   <button
                     onClick={() => goBack(i)}
-                    style={{
-                      background: 'none', border: 'none', color: 'var(--gold-light)',
-                      cursor: 'pointer', fontSize: '13px', padding: 0
-                    }}
+                    style={{ background: 'none', border: 'none', color: 'var(--gold-light)', cursor: 'pointer', fontSize: '13px', padding: 0 }}
                   >
                     {crumb.name}
                   </button>
@@ -155,6 +201,53 @@ async function handleDownload(file) {
           </div>
         )}
       </div>
+
+      {/* Approval Banner */}
+      {isPending && (
+        <div style={{
+          background: 'var(--gold-bg)',
+          border: '1px solid var(--gold-border)',
+          borderRadius: '10px',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          flexWrap: 'wrap'
+        }}>
+          <div>
+            <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--gold-light)', marginBottom: '4px' }}>
+              {approvalMonth} content is ready for your review
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
+              Leave a comment on any file that needs changes, then approve when everything looks good.
+            </div>
+          </div>
+          <button
+            className="btn btn-gold"
+            onClick={handleApprove}
+            disabled={approving}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            <i className="ti ti-circle-check" /> {approving ? 'Approving...' : `Approve ${approvalMonth}`}
+          </button>
+        </div>
+      )}
+
+      {client?.approval_status === 'approved' && (
+        <div style={{
+          background: 'var(--teal-bg)',
+          border: '1px solid var(--teal)',
+          borderRadius: '10px',
+          padding: '12px 20px',
+          marginBottom: '24px',
+          fontSize: '13px',
+          color: 'var(--teal)'
+        }}>
+          <i className="ti ti-circle-check" /> {approvalMonth} content approved
+        </div>
+      )}
 
       {loading && <div className={styles.emptyState}>Loading...</div>}
 
@@ -208,6 +301,11 @@ async function handleDownload(file) {
                   <div className={styles.thumbLabel}>{f.name}</div>
                   <div style={{ display: 'flex', gap: '4px' }}>
                     <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
+                    {isPending && role === 'member' && (
+                      <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); setCommentModal(f); setCommentText('') }} title="Request revision">
+                        <i className="ti ti-message" />
+                      </button>
+                    )}
                     {role === 'admin' && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
                   </div>
                 </div>
@@ -235,6 +333,11 @@ async function handleDownload(file) {
                   <div className={styles.thumbLabel}>{f.name}</div>
                   <div style={{ display: 'flex', gap: '4px' }}>
                     <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
+                    {isPending && role === 'member' && (
+                      <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); setCommentModal(f); setCommentText('') }} title="Request revision">
+                        <i className="ti ti-message" />
+                      </button>
+                    )}
                     {role === 'admin' && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
                   </div>
                 </div>
@@ -256,7 +359,14 @@ async function handleDownload(file) {
                 </div>
                 <div className={styles.thumbFooter}>
                   <div className={styles.thumbLabel}>{f.name}</div>
-                  <button className={styles.thumbActionBtn} onClick={() => handleDownload(f)}><i className="ti ti-download" /></button>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <button className={styles.thumbActionBtn} onClick={() => handleDownload(f)}><i className="ti ti-download" /></button>
+                    {isPending && role === 'member' && (
+                      <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); setCommentModal(f); setCommentText('') }} title="Request revision">
+                        <i className="ti ti-message" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
@@ -283,6 +393,34 @@ async function handleDownload(file) {
             <div className={styles.modalActions}>
               <button className="btn" onClick={() => setNewFolderModal(false)}>Cancel</button>
               <button className="btn btn-gold" onClick={handleCreateFolder} disabled={!newFolderName.trim()}>Create Folder</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Comment Modal */}
+      {commentModal && (
+        <div className={styles.overlay} onClick={() => setCommentModal(null)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalTitle}>Request Revision</div>
+            <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '16px' }}>{commentModal.name}</div>
+            <div className={styles.field}>
+              <label className={styles.label}>What needs to change?</label>
+              <textarea
+                className={styles.input}
+                value={commentText}
+                onChange={e => setCommentText(e.target.value)}
+                placeholder="Describe the revision you need..."
+                rows={4}
+                style={{ resize: 'vertical' }}
+                autoFocus
+              />
+            </div>
+            <div className={styles.modalActions}>
+              <button className="btn" onClick={() => setCommentModal(null)}>Cancel</button>
+              <button className="btn btn-gold" onClick={submitComment} disabled={submittingComment || !commentText.trim()}>
+                {submittingComment ? 'Sending...' : 'Send Revision Note'}
+              </button>
             </div>
           </div>
         </div>
