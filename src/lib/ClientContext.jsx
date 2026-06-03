@@ -46,11 +46,16 @@ export function ClientProvider({ children }) {
       // Admin defaults to GMM client
       const gmm = clients?.find(c => c.slug === 'glowing-moon-media')
       setClient(gmm || clients?.[0] || null)
-    } else {
-      // Regular member — get their client
+} else {
+      // Regular member — get their client fresh from clients table
       setRole('member')
       const memberRole = roleData[0]
-      setClient(memberRole.clients)
+      const { data: freshClient } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('id', memberRole.client_id)
+        .single()
+      setClient(freshClient || memberRole.clients)
     }
 
     setLoading(false)
