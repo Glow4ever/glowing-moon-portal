@@ -139,7 +139,7 @@ export default function Content() {
     setSubmittingComment(false)
   }
 
-  async function handleApprove() {
+ async function handleApprove() {
     setApproving(true)
 
     await supabase.from('clients').update({
@@ -156,6 +156,7 @@ export default function Content() {
       })
     })
 
+    await loadUserContext()
     setApproving(false)
   }
 
