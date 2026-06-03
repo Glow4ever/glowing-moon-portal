@@ -23,7 +23,7 @@ async function listDropboxFolder(path) {
 }
 
 export default function Content() {
-  const { client, role } = useClient()
+  const { client, role, loadUserContext } = useClient()
   const clientName = client?.name || 'Glowing Moon Media'
   const ROOT = `/Glowing Moon Portal/2026/${clientName}/Content`
 
