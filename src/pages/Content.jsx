@@ -144,7 +144,7 @@ export default function Content() {
   async function handleApprove() {
     setApproving(true)
 
-    async function handleApprove() {
+   async function handleApprove() {
     setApproving(true)
 
     await supabase.from('clients').update({
