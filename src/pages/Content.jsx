@@ -38,10 +38,10 @@ export default function Content() {
   const [commentText, setCommentText] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
   const [approving, setApproving] = useState(false)
+  const [localStatus, setLocalStatus] = useState(null)
   const fileRef = useRef()
 
   const currentPath = stack[stack.length - 1].path
-  const [localStatus, setLocalStatus] = useState(null)
   const approvalStatus = localStatus ?? client?.approval_status
   const isPending = approvalStatus === 'pending'
   const approvalMonth = client?.approval_month
@@ -118,13 +118,11 @@ export default function Content() {
   async function submitComment() {
     if (!commentText.trim() || !commentModal) return
     setSubmittingComment(true)
-
     await supabase.from('file_comments').insert({
       client_id: client.id,
       file_path: commentModal.path_lower,
       comment: commentText.trim()
     })
-
     await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -135,7 +133,6 @@ export default function Content() {
         comment: commentText.trim()
       })
     })
-
     setCommentText('')
     setCommentModal(null)
     setSubmittingComment(false)
@@ -143,14 +140,9 @@ export default function Content() {
 
   async function handleApprove() {
     setApproving(true)
-
-   async function handleApprove() {
-    setApproving(true)
-
     await supabase.from('clients').update({
       approval_status: 'approved'
     }).eq('id', client.id)
-
     await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -160,7 +152,6 @@ export default function Content() {
         month: approvalMonth
       })
     })
-
     setLocalStatus('approved')
     setApproving(false)
   }
@@ -208,7 +199,6 @@ export default function Content() {
         )}
       </div>
 
-      {/* Approval Banner */}
       {isPending && (
         <div style={{
           background: 'var(--gold-bg)',
@@ -241,7 +231,7 @@ export default function Content() {
         </div>
       )}
 
-      {client?.approval_status === 'approved' && (
+      {approvalStatus === 'approved' && (
         <div style={{
           background: 'var(--teal-bg)',
           border: '1px solid var(--teal)',
@@ -264,7 +254,6 @@ export default function Content() {
         </div>
       )}
 
-      {/* Folders */}
       {folders.length > 0 && (
         <div className={styles.folderGrid}>
           {folders.map(f => (
@@ -290,7 +279,6 @@ export default function Content() {
         </div>
       )}
 
-      {/* Photos */}
       {photos.length > 0 && (
         <section className={styles.section}>
           <div className={styles.sectionLabel}>Photos ({photos.length})</div>
@@ -321,7 +309,6 @@ export default function Content() {
         </section>
       )}
 
-      {/* Videos */}
       {videos.length > 0 && (
         <section className={styles.section}>
           <div className={styles.sectionLabel}>Videos & Reels ({videos.length})</div>
@@ -353,7 +340,6 @@ export default function Content() {
         </section>
       )}
 
-      {/* Other files */}
       {others.length > 0 && (
         <section className={styles.section}>
           <div className={styles.sectionLabel}>Other Files ({others.length})</div>
@@ -380,7 +366,6 @@ export default function Content() {
         </section>
       )}
 
-      {/* New Folder Modal */}
       {newFolderModal && (
         <div className={styles.overlay} onClick={() => setNewFolderModal(false)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -404,7 +389,6 @@ export default function Content() {
         </div>
       )}
 
-      {/* Comment Modal */}
       {commentModal && (
         <div className={styles.overlay} onClick={() => setCommentModal(null)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -432,7 +416,6 @@ export default function Content() {
         </div>
       )}
 
-      {/* Lightbox */}
       {lightbox && (
         <div className={styles.lightbox} onClick={() => setLightbox(null)}>
           <div className={styles.lightboxInner} onClick={e => e.stopPropagation()}>
