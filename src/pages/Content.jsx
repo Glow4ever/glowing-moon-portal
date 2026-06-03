@@ -161,7 +161,7 @@ export default function Content() {
       })
     })
 
-    await loadUserContext()
+    setLocalStatus('approved')
     setApproving(false)
   }
 
