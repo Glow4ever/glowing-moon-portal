@@ -41,7 +41,9 @@ export default function Content() {
   const fileRef = useRef()
 
   const currentPath = stack[stack.length - 1].path
-  const isPending = client?.approval_status === 'pending'
+  const [localStatus, setLocalStatus] = useState(null)
+  const approvalStatus = localStatus ?? client?.approval_status
+  const isPending = approvalStatus === 'pending'
   const approvalMonth = client?.approval_month
 
   useEffect(() => {
