@@ -158,6 +158,7 @@ export default function Content() {
 
     await loadUserContext()
     setApproving(false)
+    window.location.reload()
   }
 
   const folders = entries.filter(e => e.type === 'folder')
