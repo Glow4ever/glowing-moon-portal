@@ -31,7 +31,7 @@ module.exports = async function handler(req, res) {
 
                   <!-- Header -->
                   <tr>
-                    <td style="background:#111113;border-radius:12px 12px 0 0;padding:36px 40px;text-align:center;border-bottom:2px solid #c9a84c;">
+                    <td style="background:#111113;border-radius:12px 12px 0 0;padding:36px 40px;text-align:center;border-bottom:2px solid #D3C9A7;">
                       <div style="font-size:13px;letter-spacing:3px;color:#c9a84c;text-transform:uppercase;font-weight:600;">Glowing Moon Media</div>
                     </td>
                   </tr>
@@ -47,7 +47,7 @@ module.exports = async function handler(req, res) {
                   <!-- CTA -->
                   <tr>
                     <td style="background:#111113;padding:0 40px 40px;text-align:center;">
-                      <a href="${portalLink}" style="display:inline-block;background:#c9a84c;color:#000000;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Review My Content</a>
+                      <a href="${portalLink}" style="display:inline-block;background:#D3C9A7;color:#000000;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Review My Content</a>
                     </td>
                   </tr>
 
@@ -85,10 +85,10 @@ module.exports = async function handler(req, res) {
           <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
             <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
               <tr><td align="center">
-                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #c9a84c;">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #D3C9A7;">
                   <tr>
                     <td style="padding:40px;">
-                      <div style="font-size:13px;letter-spacing:3px;color:#c9a84c;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
                       <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Content Approved</h1>
                       <p style="margin:0;font-size:15px;color:#888;line-height:1.6;"><strong style="color:#fff;">${clientName}</strong> has approved all content for <strong style="color:#fff;">${month}</strong>. You're clear to schedule and publish.</p>
                     </td>
@@ -116,10 +116,10 @@ module.exports = async function handler(req, res) {
                 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #ff6b6b;">
                   <tr>
                     <td style="padding:40px;">
-                      <div style="font-size:13px;letter-spacing:3px;color:#c9a84c;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
                       <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Revision Requested</h1>
                       <p style="margin:0 0 24px;font-size:15px;color:#888;line-height:1.6;"><strong style="color:#fff;">${clientName}</strong> left a note on <strong style="color:#fff;">${fileName}</strong>:</p>
-                      <div style="background:#1a1a1c;border-left:3px solid #c9a84c;border-radius:4px;padding:16px 20px;">
+                      <div style="background:#1a1a1c;border-left:3px solid #D3C9A7;border-radius:4px;padding:16px 20px;">
                         <p style="margin:0;font-size:15px;color:#fff;line-height:1.6;">${comment}</p>
                       </div>
                     </td>
