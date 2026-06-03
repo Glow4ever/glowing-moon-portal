@@ -69,8 +69,18 @@ export default function Admin() {
  async function saveClientBranding() {
     if (!editingClient) return
     setSaving(true)
-    console.log('Saving client:', editingClient)
     await updateClientBranding(editingClient.id, {
+      name: editingClient.name,
+      primary_color: editingClient.primary_color,
+      secondary_color: editingClient.secondary_color,
+      notification_email: editingClient.notification_email || null,
+    })
+    setEditingClient(null)
+    showToast('Branding saved!')
+    setSaving(false)
+  }
+
+  async function sendForReview(client) {
 
   async function sendForReview(client) {
     const month = reviewMonth[client.id]
