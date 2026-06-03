@@ -237,19 +237,7 @@ export default function Content() {
         </div>
       )}
 
-      {approvalStatus === 'approved' && (
-        <div style={{
-          background: 'var(--teal-bg)',
-          border: '1px solid var(--teal)',
-          borderRadius: '10px',
-          padding: '12px 20px',
-          marginBottom: '24px',
-          fontSize: '13px',
-          color: 'var(--teal)'
-        }}>
-          <i className="ti ti-circle-check" /> {approvalMonth} content approved
-        </div>
-      )}
+  
 
       {loading && <div className={styles.emptyState}>Loading...</div>}
 
