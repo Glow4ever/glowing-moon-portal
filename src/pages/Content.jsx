@@ -41,6 +41,7 @@ export default function Content() {
   const fileRef = useRef()
 
   const currentPath = stack[stack.length - 1].path
+  console.log('client on render:', client?.approval_status)
   const isPending = client?.approval_status === 'pending'
   const approvalMonth = client?.approval_month
 
