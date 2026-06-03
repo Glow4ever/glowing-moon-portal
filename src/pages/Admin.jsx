@@ -66,7 +66,7 @@ export default function Admin() {
     setSaving(false)
   }
 
- async function saveClientBranding() {
+  async function saveClientBranding() {
     if (!editingClient) return
     setSaving(true)
     await updateClientBranding(editingClient.id, {
@@ -81,21 +81,17 @@ export default function Admin() {
   }
 
   async function sendForReview(client) {
-
-  async function sendForReview(client) {
     const month = reviewMonth[client.id]
     if (!month) return showToast('Select a month first')
     if (!client.notification_email) return showToast('No notification email set for this client')
 
     setSendingReview(p => ({ ...p, [client.id]: true }))
 
-    // Update approval status in Supabase
     await supabase.from('clients').update({
       approval_status: 'pending',
       approval_month: month
     }).eq('id', client.id)
 
-    // Send email via serverless function
     const res = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
