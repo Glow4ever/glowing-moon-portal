@@ -55,7 +55,7 @@ export function ClientProvider({ children }) {
         .select('*')
         .eq('id', memberRole.client_id)
         .single()
-      console.log('freshClient:', freshClient)
+    
       setClient(freshClient || memberRole.clients)
     }
 
