@@ -157,7 +157,7 @@ export default function Content() {
     })
 
     setApproving(false)
-    window.location.reload()
+    setTimeout(() => window.location.reload(), 500)
   }
 
   const folders = entries.filter(e => e.type === 'folder')
