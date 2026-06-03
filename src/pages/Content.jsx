@@ -156,9 +156,9 @@ export default function Content() {
       })
 
       setLocalStatus('approved')
-      alert('done')
+      await loadUserContext()
     } catch(err) {
-      alert('error: ' + err.message)
+      console.error('Approve error:', err)
     }
     setApproving(false)
   }
