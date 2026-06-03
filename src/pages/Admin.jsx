@@ -15,6 +15,11 @@ export default function Admin() {
   const [toast, setToast] = useState('')
   const [auditLogs, setAuditLogs] = useState([])
   const [loadingLogs, setLoadingLogs] = useState(false)
+  const [reviewMonth, setReviewMonth] = useState({})
+  const [sendingReview, setSendingReview] = useState({})
+
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const currentYear = new Date().getFullYear()
 
   useEffect(() => { loadTeam() }, [])
 
@@ -74,6 +79,42 @@ export default function Admin() {
     setSaving(false)
   }
 
+  async function sendForReview(client) {
+    const month = reviewMonth[client.id]
+    if (!month) return showToast('Select a month first')
+    if (!client.notification_email) return showToast('No notification email set for this client')
+
+    setSendingReview(p => ({ ...p, [client.id]: true }))
+
+    // Update approval status in Supabase
+    await supabase.from('clients').update({
+      approval_status: 'pending',
+      approval_month: month
+    }).eq('id', client.id)
+
+    // Send email via serverless function
+    const res = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'review',
+        clientName: client.name,
+        month,
+        portalLink: 'https://portal.glowingmoonmedia.com',
+        notificationEmail: client.notification_email
+      })
+    })
+
+    if (res.ok) {
+      await loadUserContext()
+      showToast(`Review email sent to ${client.notification_email}`)
+    } else {
+      showToast('Email failed — check Vercel logs')
+    }
+
+    setSendingReview(p => ({ ...p, [client.id]: false }))
+  }
+
   async function inviteMember() {
     if (!newMember.email || !newMember.password || !newMember.client_id) return
     setSaving(true)
@@ -94,6 +135,18 @@ export default function Admin() {
     setNewMember({ email: '', password: '', client_id: '', role: 'member' })
     await loadTeam()
     setSaving(false)
+  }
+
+  function getStatusBadge(status) {
+    if (!status || status === 'none') return null
+    const map = {
+      pending: { bg: 'var(--gold-bg)', color: 'var(--gold-light)', label: 'Pending Review' },
+      approved: { bg: 'var(--teal-bg)', color: 'var(--teal)', label: 'Approved' },
+      revision: { bg: '#2a1a1a', color: '#ff6b6b', label: 'Revision Requested' }
+    }
+    const s = map[status]
+    if (!s) return null
+    return <div className={styles.teamBadge} style={{ background: s.bg, color: s.color }}>{s.label}</div>
   }
 
   return (
@@ -121,10 +174,32 @@ export default function Admin() {
                 <div className={styles.clientInfo}>
                   <div className={styles.clientName}>{c.name}</div>
                   <div className={styles.clientSlug}>/{c.slug}</div>
+                  {c.approval_month && getStatusBadge(c.approval_status)}
                 </div>
-                <button className={styles.editBtn} onClick={() => setEditingClient({...c})}>
-                  <i className="ti ti-pencil" aria-hidden="true" /> Edit
-                </button>
+                <div className={styles.clientActions}>
+                  <select
+                    className={styles.input}
+                    style={{ width: '140px', padding: '6px 8px', fontSize: '13px' }}
+                    value={reviewMonth[c.id] || ''}
+                    onChange={e => setReviewMonth(p => ({ ...p, [c.id]: e.target.value }))}
+                  >
+                    <option value="">Select month...</option>
+                    {MONTHS.map(m => (
+                      <option key={m} value={`${m} ${currentYear}`}>{m} {currentYear}</option>
+                    ))}
+                  </select>
+                  <button
+                    className="btn btn-gold"
+                    style={{ whiteSpace: 'nowrap', fontSize: '13px' }}
+                    onClick={() => sendForReview(c)}
+                    disabled={sendingReview[c.id] || !reviewMonth[c.id]}
+                  >
+                    {sendingReview[c.id] ? 'Sending...' : 'Send for Review'}
+                  </button>
+                  <button className={styles.editBtn} onClick={() => setEditingClient({...c})}>
+                    <i className="ti ti-pencil" aria-hidden="true" /> Edit
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -136,6 +211,16 @@ export default function Admin() {
                 <div className={styles.field}>
                   <label className={styles.label}>Client Name</label>
                   <input className={styles.input} value={editingClient.name} onChange={e => setEditingClient(p => ({...p, name: e.target.value}))} />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.label}>Notification Email</label>
+                  <input
+                    className={styles.input}
+                    type="email"
+                    value={editingClient.notification_email || ''}
+                    onChange={e => setEditingClient(p => ({...p, notification_email: e.target.value}))}
+                    placeholder="client@example.com"
+                  />
                 </div>
                 <div className={styles.field}>
                   <label className={styles.label}>Primary Color</label>
