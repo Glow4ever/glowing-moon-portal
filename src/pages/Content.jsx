@@ -25,7 +25,7 @@ async function listDropboxFolder(path) {
 export default function Content() {
   const { client, role, loadUserContext } = useClient()
   const clientName = client?.name || 'Glowing Moon Media'
-  const ROOT = `/Glowing Moon Portal/2026/${clientName}/Content`
+  const ROOT = `/Glowing Moon Portal/${clientName}/Content`
 
   const [stack, setStack] = useState([{ name: 'Content', path: ROOT }])
   const [entries, setEntries] = useState([])
