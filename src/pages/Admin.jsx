@@ -282,7 +282,7 @@ export default function Admin() {
                   </div>
                 </div>
                 <div className={styles.field}>
-                  <label className={styles.label}>Background Color</label>
+                  <label className={styles.label}>Secondary Accent</label>
                   <div className={styles.colorRow}>
                     <input type="color" className={styles.colorPicker} value={editingClient.secondary_color} onChange={e => setEditingClient(p => ({...p, secondary_color: e.target.value}))} />
                     <input className={styles.input} value={editingClient.secondary_color} onChange={e => setEditingClient(p => ({...p, secondary_color: e.target.value}))} />
@@ -304,7 +304,7 @@ export default function Admin() {
                 <input className={styles.input} value={newClient.name} onChange={e => setNewClient(p => ({...p, name: e.target.value}))} placeholder="e.g. Acme Brand Co." />
               </div>
               <div className={styles.field}>
-                <label className={styles.label}>Primary Color</label>
+                <label className={styles.label}>Primary Accent</label>
                 <div className={styles.colorRow}>
                   <input type="color" className={styles.colorPicker} value={newClient.primary_color} onChange={e => setNewClient(p => ({...p, primary_color: e.target.value}))} />
                   <input className={styles.input} value={newClient.primary_color} onChange={e => setNewClient(p => ({...p, primary_color: e.target.value}))} />
