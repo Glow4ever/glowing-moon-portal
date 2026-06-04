@@ -127,9 +127,24 @@ export default function Settings() {
           <input
             type="file"
             accept="image/*"
-            style={{ fontSize: '12px', color: 'var(--text2)' }}
+            style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '12px' }}
             onChange={handleCoverUpload}
           />
+          <div className={styles.field}>
+            <label className={styles.label}>Photo Position</label>
+            <select
+              className={styles.input}
+              value={client?.cover_position || 'center'}
+              onChange={async e => {
+                await updateClientBranding(client.id, { cover_position: e.target.value })
+                showToast('Position updated!')
+              }}
+            >
+              <option value="top">Top</option>
+              <option value="center">Center</option>
+              <option value="bottom">Bottom</option>
+            </select>
+          </div>
           {coverSaving && <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '8px' }}>Uploading...</div>}
         </div>
       </div>
