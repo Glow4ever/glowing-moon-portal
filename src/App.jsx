@@ -17,6 +17,8 @@ function BrandingInjector() {
     }
     if (client?.secondary_color) {
       document.documentElement.style.setProperty('--brand-secondary', client.secondary_color)
+      document.documentElement.style.setProperty('--brand-secondary-18', client.secondary_color + '18')
+      document.documentElement.style.setProperty('--brand-secondary-40', client.secondary_color + '40')
     }
   }, [client])
   return null
