@@ -66,7 +66,7 @@ export default function Overview() {
     setLoading(true)
 
     const clientName = client.name
-    const basePath = `/Glowing Moon Portal/2026/${clientName}`
+    const basePath = `/Glowing Moon Portal/${clientName}`
     const rollingMonths = getRollingMonths()
 
     const [assetCount, contentCount] = await Promise.all([
