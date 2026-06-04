@@ -16,6 +16,7 @@ export default function Admin() {
   const [auditLogs, setAuditLogs] = useState([])
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [reviewMonth, setReviewMonth] = useState({})
+  const [plannedPosts, setPlannedPosts] = useState({})
   const [sendingReview, setSendingReview] = useState({})
   const [comments, setComments] = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
@@ -104,10 +105,20 @@ export default function Admin() {
 
     setSendingReview(p => ({ ...p, [client.id]: true }))
 
+    const [monthName, year] = month.split(' ')
+
     await supabase.from('clients').update({
       approval_status: 'pending',
       approval_month: month
     }).eq('id', client.id)
+
+    await supabase.from('content_months').upsert({
+      client_id: client.id,
+      month: monthName,
+      year: parseInt(year),
+      planned: plannedPosts[client.id] || 0,
+      approval_status: 'pending'
+    }, { onConflict: 'client_id,month,year' })
 
     const res = await fetch('/api/send-email', {
       method: 'POST',
@@ -220,6 +231,15 @@ export default function Admin() {
                       <option key={m} value={`${m} ${currentYear}`}>{m} {currentYear}</option>
                     ))}
                   </select>
+                  <input
+                    type="number"
+                    className={styles.input}
+                    style={{ width: '70px', padding: '6px 8px', fontSize: '13px' }}
+                    value={plannedPosts[c.id] || ''}
+                    onChange={e => setPlannedPosts(p => ({ ...p, [c.id]: parseInt(e.target.value) || 0 }))}
+                    placeholder="# posts"
+                    min="0"
+                  />
                   <button
                     className="btn btn-gold"
                     style={{ whiteSpace: 'nowrap', fontSize: '13px' }}
