@@ -145,7 +145,7 @@ export default function Overview() {
       <div className={styles.banner} style={client?.cover_url ? {
         backgroundImage: `linear-gradient(to right, var(--surface2) 30%, transparent 100%), url(${client.cover_url})`,
         backgroundSize: 'cover',
-        backgroundPosition: 'center right',
+        backgroundPosition: `right ${client.cover_position || 'center'}`,
         backgroundRepeat: 'no-repeat'
       } : {}}>
         <div className={styles.bannerContent}>
