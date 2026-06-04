@@ -20,6 +20,24 @@ export default function Settings() {
     setTimeout(() => setToast(''), 3000)
   }
 
+  async function handleCoverUpload(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    setCoverSaving(true)
+    const ext = file.name.split('.').pop()
+    const path = `covers/${client.slug}-cover.${ext}`
+    const { error } = await supabase.storage
+      .from('portal-assets')
+      .upload(path, file, { upsert: true })
+    if (!error) {
+      const { data } = supabase.storage.from('portal-assets').getPublicUrl(path)
+      await updateClientBranding(client.id, { cover_url: data.publicUrl })
+      setCoverPreview(data.publicUrl)
+      showToast('Cover photo updated!')
+    }
+    setCoverSaving(false)
+  }
+
   async function handlePasswordChange(e) {
     e.preventDefault()
     setError('')
