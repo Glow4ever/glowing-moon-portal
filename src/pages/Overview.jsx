@@ -142,7 +142,12 @@ export default function Overview() {
 
   return (
     <div className={styles.page}>
-      <div className={styles.banner}>
+      <div className={styles.banner} style={client?.cover_url ? {
+        backgroundImage: `linear-gradient(to right, var(--surface2) 30%, transparent 100%), url(${client.cover_url})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center right',
+        backgroundRepeat: 'no-repeat'
+      } : {}}>
         <div className={styles.bannerContent}>
           <div className={styles.bannerAvatar}>
             {client?.name?.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase() || 'GM'}
