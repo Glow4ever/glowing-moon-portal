@@ -32,7 +32,7 @@ function fileIcon(name) {
 export default function Assets() {
   const { client, role } = useClient()
   const clientName = client?.name || 'Glowing Moon Media'
-  const ROOT = `/Glowing Moon Portal/2026/${clientName}/Assets`
+  const ROOT = `/Glowing Moon Portal/${clientName}/Assets`
 
   const [stack, setStack] = useState([{ name: 'Assets', path: ROOT }])
   const [entries, setEntries] = useState([])
