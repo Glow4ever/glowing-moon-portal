@@ -1,16 +1,19 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/AuthContext'
+import { useClient } from '../lib/ClientContext'
 import styles from './Admin.module.css'
-
 export default function Settings() {
   const { user } = useAuth()
+  const { client, updateClientBranding } = useClient()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
   const [error, setError] = useState('')
+  const [coverSaving, setCoverSaving] = useState(false)
+  const [coverPreview, setCoverPreview] = useState(null)
 
   function showToast(msg) {
     setToast(msg)
@@ -94,6 +97,25 @@ export default function Settings() {
         </form>
       </div>
 
+      <div className={styles.formCard}>
+        <div className={styles.formTitle}>Cover Photo</div>
+        <p style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '16px' }}>
+          This photo appears as a banner on your portal overview. Use a wide landscape image for best results.
+        </p>
+        <div className={styles.field}>
+          {coverPreview && (
+            <img src={coverPreview} alt="cover preview" style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border2)', marginBottom: '12px' }} />
+          )}
+          <input
+            type="file"
+            accept="image/*"
+            style={{ fontSize: '12px', color: 'var(--text2)' }}
+            onChange={handleCoverUpload}
+          />
+          {coverSaving && <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '8px' }}>Uploading...</div>}
+        </div>
+      </div>
+      
       {toast && (
         <div className={styles.toast}>
           <i className="ti ti-check" aria-hidden="true" /> {toast}
