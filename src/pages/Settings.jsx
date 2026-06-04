@@ -38,6 +38,17 @@ export default function Settings() {
     setCoverSaving(false)
   }
 
+  async function handleCoverRemove() {
+    setCoverSaving(true)
+    const ext = client.cover_url?.split('.').pop()
+    const path = `covers/${client.slug}-cover.${ext}`
+    await supabase.storage.from('portal-assets').remove([path])
+    await updateClientBranding(client.id, { cover_url: null })
+    setCoverPreview(null)
+    showToast('Cover photo removed.')
+    setCoverSaving(false)
+  }
+  
   async function handlePasswordChange(e) {
     e.preventDefault()
     setError('')
@@ -121,8 +132,18 @@ export default function Settings() {
           This photo appears as a banner on your portal overview. Use a wide landscape image for best results.
         </p>
         <div className={styles.field}>
-          {coverPreview && (
-            <img src={coverPreview} alt="cover preview" style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border2)', marginBottom: '12px' }} />
+          {(coverPreview || client?.cover_url) && (
+            <div style={{ position: 'relative', marginBottom: '12px' }}>
+              <img src={coverPreview || client.cover_url} alt="cover preview" style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border2)' }} />
+              <button
+                className="btn btn-danger"
+                style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '11px', padding: '4px 10px' }}
+                onClick={handleCoverRemove}
+                disabled={coverSaving}
+              >
+                <i className="ti ti-trash" /> Remove
+              </button>
+            </div>
           )}
           <input
             type="file"
