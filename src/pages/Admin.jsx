@@ -66,22 +66,45 @@ export default function Admin() {
     setTimeout(() => setToast(''), 3000)
   }
 
-  async function createClient() {
+  async function onboardClient() {
     if (!newClient.name.trim()) return
     setSaving(true)
     const slug = newClient.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    const { error } = await supabase.from('clients').insert({
+
+    const { data: clientData, error: clientError } = await supabase.from('clients').insert({
       name: newClient.name.trim(),
       slug,
       primary_color: newClient.primary_color,
       secondary_color: newClient.secondary_color,
       active: true
-    })
-    if (!error) {
-      setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
-      await loadUserContext()
-      showToast('Client created!')
+    }).select().single()
+
+    if (clientError) {
+      showToast('Failed to create client.')
+      setSaving(false)
+      return
     }
+
+    if (newMember.email && newMember.password) {
+      const { data, error } = await supabase.functions.invoke('create-user', {
+        body: {
+          email: newMember.email,
+          password: newMember.password,
+          client_id: clientData.id,
+          role: 'member'
+        }
+      })
+      if (error || data?.error) {
+        showToast('Client created but user account failed. Add manually.')
+        setSaving(false)
+        return
+      }
+    }
+
+    setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
+    setNewMember({ email: '', password: '', client_id: '', role: 'member' })
+    await loadUserContext()
+    showToast('Client onboarded!')
     setSaving(false)
   }
 
@@ -143,28 +166,6 @@ export default function Admin() {
     }
 
     setSendingReview(p => ({ ...p, [client.id]: false }))
-  }
-
-  async function inviteMember() {
-    if (!newMember.email || !newMember.password || !newMember.client_id) return
-    setSaving(true)
-    const { data, error } = await supabase.functions.invoke('create-user', {
-      body: {
-        email: newMember.email,
-        password: newMember.password,
-        client_id: newMember.client_id,
-        role: newMember.role
-      }
-    })
-    if (error || data?.error) {
-      showToast(data?.error || 'Failed to create user. Try again.')
-      setSaving(false)
-      return
-    }
-    showToast('Client user created successfully!')
-    setNewMember({ email: '', password: '', client_id: '', role: 'member' })
-    await loadTeam()
-    setSaving(false)
   }
 
   function getStatusBadge(status) {
@@ -319,8 +320,8 @@ export default function Admin() {
             </div>
           </div>
 
-          <div>
-            <div className={styles.sectionLabel}>Add New Client</div>
+         <div>
+            <div className={styles.sectionLabel}>Onboard New Client</div>
             <div className={styles.formCard}>
               <div className={styles.field} style={{ marginBottom: '12px' }}>
                 <label className={styles.label}>Client Name</label>
@@ -333,69 +334,46 @@ export default function Admin() {
                   <input className={styles.input} value={newClient.primary_color} onChange={e => setNewClient(p => ({...p, primary_color: e.target.value}))} />
                 </div>
               </div>
-              <div className={styles.field} style={{ marginBottom: '16px' }}>
+              <div className={styles.field} style={{ marginBottom: '12px' }}>
                 <label className={styles.label}>Secondary Accent</label>
                 <div className={styles.colorRow}>
                   <input type="color" className={styles.colorPicker} value={newClient.secondary_color} onChange={e => setNewClient(p => ({...p, secondary_color: e.target.value}))} />
                   <input className={styles.input} value={newClient.secondary_color} onChange={e => setNewClient(p => ({...p, secondary_color: e.target.value}))} />
                 </div>
               </div>
-              <div className={styles.formActions} style={{ justifyContent: 'stretch' }}>
-                <button className="btn btn-gold" style={{ width: '100%', justifyContent: 'center' }} onClick={createClient} disabled={saving || !newClient.name.trim()}>
-                  <i className="ti ti-plus" aria-hidden="true" /> Create Client
-                </button>
+              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginBottom: '12px' }}>
+                <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>Portal Access</div>
+                <div className={styles.field} style={{ marginBottom: '12px' }}>
+                  <label className={styles.label}>Login Email</label>
+                  <input
+                    className={styles.input}
+                    type="email"
+                    value={newMember.email}
+                    onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
+                    placeholder="client@example.com"
+                  />
+                </div>
+                <div className={styles.field}>
+                  <label className={styles.label}>Temporary Password</label>
+                  <input
+                    className={styles.input}
+                    type="password"
+                    value={newMember.password}
+                    onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
+                    placeholder="Min 8 characters"
+                  />
+                </div>
               </div>
-            </div>
-
-            <div className={styles.sectionLabel} style={{ marginTop: '20px' }}>Add Client User</div>
-            <div className={styles.formCard}>
-              <div className={styles.field} style={{ marginBottom: '12px' }}>
-                <label className={styles.label}>Email</label>
-                <input
-                  className={styles.input}
-                  type="email"
-                  value={newMember.email}
-                  onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
-                  placeholder="client@example.com"
-                />
-              </div>
-              <div className={styles.field} style={{ marginBottom: '12px' }}>
-                <label className={styles.label}>Temporary Password</label>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={newMember.password}
-                  onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
-                  placeholder="Min 8 characters"
-                />
-              </div>
-              <div className={styles.field} style={{ marginBottom: '16px' }}>
-                <label className={styles.label}>Assign to Client</label>
-                <select
-                  className={styles.input}
-                  value={newMember.client_id}
-                  onChange={e => setNewMember(p => ({...p, client_id: e.target.value}))}
-                >
-                  <option value="">Select client...</option>
-                  {allClients.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className={styles.formActions} style={{ justifyContent: 'stretch' }}>
-                <button
-                  className="btn btn-gold"
-                  style={{ width: '100%', justifyContent: 'center' }}
-                  onClick={inviteMember}
-                  disabled={saving || !newMember.email || !newMember.password || !newMember.client_id}
-                >
-                  <i className="ti ti-user-plus" aria-hidden="true" /> Create User
-                </button>
-              </div>
+              <button
+                className="btn btn-gold"
+                style={{ width: '100%', justifyContent: 'center', marginTop: '4px' }}
+                onClick={onboardClient}
+                disabled={saving || !newClient.name.trim()}
+              >
+                <i className="ti ti-user-plus" aria-hidden="true" /> Onboard Client
+              </button>
             </div>
           </div>
-        </div>
-      )}
 
       {tab === 'team' && (
         <div>
