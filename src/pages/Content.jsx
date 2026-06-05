@@ -121,7 +121,8 @@ export default function Content() {
     await supabase.from('file_comments').insert({
       client_id: client.id,
       file_path: commentModal.path_lower,
-      comment: commentText.trim()
+      comment: commentText.trim(),
+      read: false
     })
     await fetch('/api/send-email', {
       method: 'POST',
@@ -154,7 +155,11 @@ export default function Content() {
           month: approvalMonth
         })
       })
-
+await supabase.from('notifications').insert({
+      client_id: client.id,
+      type: 'approval',
+      message: `${client.name} approved ${approvalMonth} content`
+    })
       setLocalStatus('approved')
     } catch(err) {
       console.error('Approve error:', err)
