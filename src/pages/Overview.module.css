@@ -7,7 +7,7 @@
 .bannerSub { font-size: 12px; color: var(--text2); line-height: 1.6; max-width: 380px; }
 .statsGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 22px; }
 .statCard { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 15px 17px; transition: border-color 0.15s, transform 0.15s; }
-.statCard:hover { border-color: var(--gold-border); transform: translateY(-2px); }
+.statCard:hover { border-color: var(--gold-border); transform: translateY(-2px); box-shadow: 0 0 20px var(--brand-primary-40, rgba(201,168,76,0.15)); }
 .statLabel { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.09em; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .statDot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 .statVal { font-family: 'Cormorant Garamond', serif; font-size: 30px; font-weight: 600; color: var(--text); line-height: 1; margin-bottom: 2px; }
