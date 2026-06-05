@@ -64,8 +64,7 @@ export default function Topbar() {
       supabase.from('notifications').update({ read: true }).eq('read', false),
       supabase.from('file_comments').update({ read: true }).eq('read', false)
     ])
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })))
-    setUnreadCount(0)
+    await loadNotifications()
   }
 
   async function loadLogo() {
