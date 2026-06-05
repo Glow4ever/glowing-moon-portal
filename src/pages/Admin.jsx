@@ -223,7 +223,7 @@ export default function Admin() {
                       <div className={styles.clientSlug}>/{c.slug}</div>
                       {c.approval_month && getStatusBadge(c.approval_status)}
                     </div>
-                    <div className={styles.clientActions}>
+                    <div className={styles.clientActions} style={{ flexDirection: 'row', gap: '6px' }}>
                       <button
                         className={styles.editBtn}
                         onClick={() => setExpandedReview(p => ({ ...p, [c.id]: !p[c.id] }))}
