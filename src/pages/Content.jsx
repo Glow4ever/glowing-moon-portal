@@ -142,11 +142,9 @@ export default function Content() {
   async function handleApprove() {
     setApproving(true)
     try {
-      const { data, error } = await supabase.from('clients').update({
+      await supabase.from('clients').update({
         approval_status: 'approved'
-      }).eq('id', client.id).select()
-      
-      console.log('Update result:', data, error)
+      }).eq('id', client.id)
       
       await supabase.from('content_months').update({
         approval_status: 'approved'
