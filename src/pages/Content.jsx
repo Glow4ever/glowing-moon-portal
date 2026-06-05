@@ -142,9 +142,15 @@ export default function Content() {
   async function handleApprove() {
     setApproving(true)
     try {
+      const { data, error } = await supabase.from('clients').update({
+        approval_status: 'approved'
+      }).eq('id', client.id).select()
+      
+      console.log('Update result:', data, error)
+      
       await supabase.from('content_months').update({
-      approval_status: 'approved'
-    }).eq('client_id', client.id).eq('month', client.approval_month?.split(' ')[0]).eq('year', parseInt(client.approval_month?.split(' ')[1]))
+        approval_status: 'approved'
+      }).eq('client_id', client.id).eq('month', client.approval_month?.split(' ')[0]).eq('year', parseInt(client.approval_month?.split(' ')[1]))
 
       await fetch('/api/send-email', {
         method: 'POST',
@@ -155,12 +161,15 @@ export default function Content() {
           month: approvalMonth
         })
       })
-await supabase.from('notifications').insert({
-      client_id: client.id,
-      type: 'approval',
-      message: `${client.name} approved ${approvalMonth} content`
-    })
+
+      await supabase.from('notifications').insert({
+        client_id: client.id,
+        type: 'approval',
+        message: `${client.name} approved ${approvalMonth} content`
+      })
+
       setLocalStatus('approved')
+      await loadUserContext()
     } catch(err) {
       console.error('Approve error:', err)
     }
