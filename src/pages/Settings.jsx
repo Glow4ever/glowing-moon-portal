@@ -24,8 +24,15 @@ export default function Settings() {
     const file = e.target.files[0]
     if (!file) return
     setCoverSaving(true)
+
+    // Delete old cover if exists
+    if (client.cover_url) {
+      const oldPath = client.cover_url.split('/portal-assets/')[1]
+      if (oldPath) await supabase.storage.from('portal-assets').remove([oldPath])
+    }
+
     const ext = file.name.split('.').pop()
-    const path = `covers/${client.slug}-cover.${ext}`
+    const path = `covers/${client.slug}-cover-${Date.now()}.${ext}`
     const { error } = await supabase.storage
       .from('portal-assets')
       .upload(path, file, { upsert: true })
