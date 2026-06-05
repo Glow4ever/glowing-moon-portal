@@ -4,11 +4,12 @@ import { useClient } from '../lib/ClientContext'
 import styles from './Sidebar.module.css'
 
 const navItems = [
-  { to: '/',         icon: 'ti-layout-dashboard', label: 'Overview',        end: true },
-  { to: '/assets',   icon: 'ti-folder',            label: 'Asset Library' },
-  { to: '/content',  icon: 'ti-photo',             label: 'Content Library' },
-  { to: '/calendar', icon: 'ti-calendar',          label: 'Calendar' },
-  { to: '/settings', icon: 'ti-settings',          label: 'Settings' },
+  { to: '/',          icon: 'ti-layout-dashboard', label: 'Overview',        end: true },
+  { to: '/assets',    icon: 'ti-folder',            label: 'Asset Library' },
+  { to: '/content',   icon: 'ti-photo',             label: 'Content Library' },
+  { to: '/calendar',  icon: 'ti-calendar',          label: 'Calendar' },
+  { to: '/messages',  icon: 'ti-message',           label: 'Messages' },
+  { to: '/settings',  icon: 'ti-settings',          label: 'Settings' },
 ]
 
 export default function Sidebar() {
