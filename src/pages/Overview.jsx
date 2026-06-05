@@ -64,6 +64,8 @@ export default function Overview() {
   const [monthUploads, setMonthUploads] = useState({})
   const [monthScheduled, setMonthScheduled] = useState({})
   const [weekEvents, setWeekEvents] = useState([])
+  const [scheduleOpen, setScheduleOpen] = useState(true)
+  const [progressOpen, setProgressOpen] = useState(true)
 
   useEffect(() => { loadDashboard() }, [client])
 
@@ -205,7 +207,11 @@ export default function Overview() {
 
         {/* This week's schedule */}
         <div className={styles.card}>
-          <div className={styles.cardTitle}><span className={styles.goldLine} />This week's schedule</div>
+          <div className={styles.cardTitle} onClick={() => setScheduleOpen(p => !p)} style={{ cursor: 'pointer', justifyContent: 'space-between' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}><span className={styles.goldLine} />This week's schedule</span>
+            <i className={`ti ti-chevron-${scheduleOpen ? 'up' : 'down'}`} style={{ fontSize: '13px' }} />
+          </div>
+          {scheduleOpen && (
           {loading && <div className={styles.empty}>Loading...</div>}
           {!loading && weekEvents.length === 0 && (
             <div className={styles.empty}>
