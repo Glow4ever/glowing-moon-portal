@@ -8,7 +8,7 @@ export default function Admin() {
   const { allClients, updateClientBranding, loadUserContext } = useClient()
   const [tab, setTab] = useState('clients')
   const [teamMembers, setTeamMembers] = useState([])
-  const [newClient, setNewClient] = useState({ name: '', primary_color: '#c9a84c', secondary_color: '#0a0a0b' })
+  const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
   const [newMember, setNewMember] = useState({ email: '', password: '', client_id: '', role: 'member' })
   const [editingClient, setEditingClient] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -18,6 +18,7 @@ export default function Admin() {
   const [reviewMonth, setReviewMonth] = useState({})
   const [plannedPosts, setPlannedPosts] = useState({})
   const [sendingReview, setSendingReview] = useState({})
+  const [expandedReview, setExpandedReview] = useState({})
   const [comments, setComments] = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
 
@@ -77,7 +78,7 @@ export default function Admin() {
       active: true
     })
     if (!error) {
-      setNewClient({ name: '', primary_color: '#c9a84c', secondary_color: '#0a0a0b' })
+      setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
       await loadUserContext()
       showToast('Client created!')
     }
@@ -92,6 +93,7 @@ export default function Admin() {
       primary_color: editingClient.primary_color,
       secondary_color: editingClient.secondary_color,
       notification_email: editingClient.notification_email || null,
+      cover_url: editingClient.cover_url || null,
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -134,6 +136,7 @@ export default function Admin() {
 
     if (res.ok) {
       await loadUserContext()
+      setExpandedReview(p => ({ ...p, [client.id]: false }))
       showToast(`Review email sent to ${client.notification_email}`)
     } else {
       showToast('Email failed — check Vercel logs')
@@ -173,10 +176,9 @@ export default function Admin() {
     }
     const s = map[status]
     if (!s) return null
-    return <div className={styles.teamBadge} style={{ background: s.bg, color: s.color }}>{s.label}</div>
+    return <span className={styles.teamBadge} style={{ background: s.bg, color: s.color }}>{s.label}</span>
   }
 
-  // Group comments by client
   const commentsByClient = comments.reduce((acc, c) => {
     const name = c.clients?.name || 'Unknown'
     if (!acc[name]) acc[name] = { color: c.clients?.primary_color, items: [] }
@@ -208,113 +210,188 @@ export default function Admin() {
       </div>
 
       {tab === 'clients' && (
-        <div>
-          <div className={styles.sectionLabel}>Active Clients ({allClients.length})</div>
-          <div className={styles.clientGrid}>
-            {allClients.map(c => (
-              <div key={c.id} className={styles.clientCard}>
-                <div className={styles.clientSwatch} style={{ background: c.primary_color }} />
-                <div className={styles.clientInfo}>
-                  <div className={styles.clientName}>{c.name}</div>
-                  <div className={styles.clientSlug}>/{c.slug}</div>
-                  {c.approval_month && getStatusBadge(c.approval_status)}
+        <div className={styles.adminLayout}>
+          <div>
+            <div className={styles.sectionLabel}>Active Clients ({allClients.length})</div>
+            <div className={styles.clientGrid}>
+              {allClients.map(c => (
+                <div key={c.id} className={styles.clientCard}>
+                  <div className={styles.clientCardMain}>
+                    <div className={styles.clientSwatch} style={{ background: c.primary_color }} />
+                    <div className={styles.clientInfo}>
+                      <div className={styles.clientName}>{c.name}</div>
+                      <div className={styles.clientSlug}>/{c.slug}</div>
+                      {c.approval_month && getStatusBadge(c.approval_status)}
+                    </div>
+                    <div className={styles.clientActions}>
+                      <button
+                        className={styles.editBtn}
+                        onClick={() => setExpandedReview(p => ({ ...p, [c.id]: !p[c.id] }))}
+                      >
+                        <i className="ti ti-send" aria-hidden="true" /> Send for Review
+                      </button>
+                      <button className={styles.editBtn} onClick={() => setEditingClient({...c})}>
+                        <i className="ti ti-pencil" aria-hidden="true" /> Edit
+                      </button>
+                    </div>
+                  </div>
+
+                  {expandedReview[c.id] && (
+                    <div className={styles.clientReviewForm}>
+                      <select
+                        className={styles.input}
+                        style={{ width: '150px', padding: '6px 8px', fontSize: '12px' }}
+                        value={reviewMonth[c.id] || ''}
+                        onChange={e => setReviewMonth(p => ({ ...p, [c.id]: e.target.value }))}
+                      >
+                        <option value="">Select month...</option>
+                        {MONTHS.map(m => (
+                          <option key={m} value={`${m} ${currentYear}`}>{m} {currentYear}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="number"
+                        className={styles.input}
+                        style={{ width: '80px', padding: '6px 8px', fontSize: '12px' }}
+                        value={plannedPosts[c.id] || ''}
+                        onChange={e => setPlannedPosts(p => ({ ...p, [c.id]: parseInt(e.target.value) || 0 }))}
+                        placeholder="# posts"
+                        min="0"
+                      />
+                      <button
+                        className="btn btn-gold"
+                        style={{ fontSize: '12px', padding: '6px 14px' }}
+                        onClick={() => sendForReview(c)}
+                        disabled={sendingReview[c.id] || !reviewMonth[c.id]}
+                      >
+                        {sendingReview[c.id] ? 'Sending...' : 'Send for Review'}
+                      </button>
+                      <button
+                        className="btn"
+                        style={{ fontSize: '12px', padding: '6px 10px' }}
+                        onClick={() => setExpandedReview(p => ({ ...p, [c.id]: false }))}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+
+                  {editingClient?.id === c.id && (
+                    <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '16px' }}>
+                      <div className={styles.formGrid}>
+                        <div className={styles.field}>
+                          <label className={styles.label}>Client Name</label>
+                          <input className={styles.input} value={editingClient.name} onChange={e => setEditingClient(p => ({...p, name: e.target.value}))} />
+                        </div>
+                        <div className={styles.field}>
+                          <label className={styles.label}>Notification Email</label>
+                          <input
+                            className={styles.input}
+                            type="email"
+                            value={editingClient.notification_email || ''}
+                            onChange={e => setEditingClient(p => ({...p, notification_email: e.target.value}))}
+                            placeholder="client@example.com"
+                          />
+                        </div>
+                        <div className={styles.field}>
+                          <label className={styles.label}>Primary Accent</label>
+                          <div className={styles.colorRow}>
+                            <input type="color" className={styles.colorPicker} value={editingClient.primary_color} onChange={e => setEditingClient(p => ({...p, primary_color: e.target.value}))} />
+                            <input className={styles.input} value={editingClient.primary_color} onChange={e => setEditingClient(p => ({...p, primary_color: e.target.value}))} />
+                          </div>
+                        </div>
+                        <div className={styles.field}>
+                          <label className={styles.label}>Secondary Accent</label>
+                          <div className={styles.colorRow}>
+                            <input type="color" className={styles.colorPicker} value={editingClient.secondary_color} onChange={e => setEditingClient(p => ({...p, secondary_color: e.target.value}))} />
+                            <input className={styles.input} value={editingClient.secondary_color} onChange={e => setEditingClient(p => ({...p, secondary_color: e.target.value}))} />
+                          </div>
+                        </div>
+                      </div>
+                      <div className={styles.formActions}>
+                        <button className="btn" onClick={() => setEditingClient(null)}>Cancel</button>
+                        <button className="btn btn-gold" onClick={saveClientBranding} disabled={saving}>Save Branding</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className={styles.clientActions}>
-                  <select
-                    className={styles.input}
-                    style={{ width: '140px', padding: '6px 8px', fontSize: '13px' }}
-                    value={reviewMonth[c.id] || ''}
-                    onChange={e => setReviewMonth(p => ({ ...p, [c.id]: e.target.value }))}
-                  >
-                    <option value="">Select month...</option>
-                    {MONTHS.map(m => (
-                      <option key={m} value={`${m} ${currentYear}`}>{m} {currentYear}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    className={styles.input}
-                    style={{ width: '70px', padding: '6px 8px', fontSize: '13px' }}
-                    value={plannedPosts[c.id] || ''}
-                    onChange={e => setPlannedPosts(p => ({ ...p, [c.id]: parseInt(e.target.value) || 0 }))}
-                    placeholder="# posts"
-                    min="0"
-                  />
-                  <button
-                    className="btn btn-gold"
-                    style={{ whiteSpace: 'nowrap', fontSize: '13px' }}
-                    onClick={() => sendForReview(c)}
-                    disabled={sendingReview[c.id] || !reviewMonth[c.id]}
-                  >
-                    {sendingReview[c.id] ? 'Sending...' : 'Send for Review'}
-                  </button>
-                  <button className={styles.editBtn} onClick={() => setEditingClient({...c})}>
-                    <i className="ti ti-pencil" aria-hidden="true" /> Edit
-                  </button>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
-          {editingClient && (
+          <div>
+            <div className={styles.sectionLabel}>Add New Client</div>
             <div className={styles.formCard}>
-              <div className={styles.formTitle}>Edit — {editingClient.name}</div>
-              <div className={styles.formGrid}>
-                <div className={styles.field}>
-                  <label className={styles.label}>Client Name</label>
-                  <input className={styles.input} value={editingClient.name} onChange={e => setEditingClient(p => ({...p, name: e.target.value}))} />
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>Notification Email</label>
-                  <input
-                    className={styles.input}
-                    type="email"
-                    value={editingClient.notification_email || ''}
-                    onChange={e => setEditingClient(p => ({...p, notification_email: e.target.value}))}
-                    placeholder="client@example.com"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>Primary Color</label>
-                  <div className={styles.colorRow}>
-                    <input type="color" className={styles.colorPicker} value={editingClient.primary_color} onChange={e => setEditingClient(p => ({...p, primary_color: e.target.value}))} />
-                    <input className={styles.input} value={editingClient.primary_color} onChange={e => setEditingClient(p => ({...p, primary_color: e.target.value}))} />
-                  </div>
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>Secondary Accent</label>
-                  <div className={styles.colorRow}>
-                    <input type="color" className={styles.colorPicker} value={editingClient.secondary_color} onChange={e => setEditingClient(p => ({...p, secondary_color: e.target.value}))} />
-                    <input className={styles.input} value={editingClient.secondary_color} onChange={e => setEditingClient(p => ({...p, secondary_color: e.target.value}))} />
-                  </div>
-                </div>
-              </div>
-              <div className={styles.formActions}>
-                <button className="btn" onClick={() => setEditingClient(null)}>Cancel</button>
-                <button className="btn btn-gold" onClick={saveClientBranding} disabled={saving}>Save Branding</button>
-              </div>
-            </div>
-          )}
-
-          <div className={styles.formCard}>
-            <div className={styles.formTitle}>Add New Client</div>
-            <div className={styles.formGrid}>
-              <div className={styles.field}>
+              <div className={styles.field} style={{ marginBottom: '12px' }}>
                 <label className={styles.label}>Client Name</label>
                 <input className={styles.input} value={newClient.name} onChange={e => setNewClient(p => ({...p, name: e.target.value}))} placeholder="e.g. Acme Brand Co." />
               </div>
-              <div className={styles.field}>
+              <div className={styles.field} style={{ marginBottom: '12px' }}>
                 <label className={styles.label}>Primary Accent</label>
                 <div className={styles.colorRow}>
                   <input type="color" className={styles.colorPicker} value={newClient.primary_color} onChange={e => setNewClient(p => ({...p, primary_color: e.target.value}))} />
                   <input className={styles.input} value={newClient.primary_color} onChange={e => setNewClient(p => ({...p, primary_color: e.target.value}))} />
                 </div>
               </div>
+              <div className={styles.field} style={{ marginBottom: '16px' }}>
+                <label className={styles.label}>Secondary Accent</label>
+                <div className={styles.colorRow}>
+                  <input type="color" className={styles.colorPicker} value={newClient.secondary_color} onChange={e => setNewClient(p => ({...p, secondary_color: e.target.value}))} />
+                  <input className={styles.input} value={newClient.secondary_color} onChange={e => setNewClient(p => ({...p, secondary_color: e.target.value}))} />
+                </div>
+              </div>
+              <div className={styles.formActions} style={{ justifyContent: 'stretch' }}>
+                <button className="btn btn-gold" style={{ width: '100%', justifyContent: 'center' }} onClick={createClient} disabled={saving || !newClient.name.trim()}>
+                  <i className="ti ti-plus" aria-hidden="true" /> Create Client
+                </button>
+              </div>
             </div>
-            <div className={styles.formActions}>
-              <button className="btn btn-gold" onClick={createClient} disabled={saving || !newClient.name.trim()}>
-                <i className="ti ti-plus" aria-hidden="true" /> Create Client
-              </button>
+
+            <div className={styles.sectionLabel} style={{ marginTop: '20px' }}>Add Client User</div>
+            <div className={styles.formCard}>
+              <div className={styles.field} style={{ marginBottom: '12px' }}>
+                <label className={styles.label}>Email</label>
+                <input
+                  className={styles.input}
+                  type="email"
+                  value={newMember.email}
+                  onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
+                  placeholder="client@example.com"
+                />
+              </div>
+              <div className={styles.field} style={{ marginBottom: '12px' }}>
+                <label className={styles.label}>Temporary Password</label>
+                <input
+                  className={styles.input}
+                  type="password"
+                  value={newMember.password}
+                  onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
+                  placeholder="Min 8 characters"
+                />
+              </div>
+              <div className={styles.field} style={{ marginBottom: '16px' }}>
+                <label className={styles.label}>Assign to Client</label>
+                <select
+                  className={styles.input}
+                  value={newMember.client_id}
+                  onChange={e => setNewMember(p => ({...p, client_id: e.target.value}))}
+                >
+                  <option value="">Select client...</option>
+                  {allClients.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formActions} style={{ justifyContent: 'stretch' }}>
+                <button
+                  className="btn btn-gold"
+                  style={{ width: '100%', justifyContent: 'center' }}
+                  onClick={inviteMember}
+                  disabled={saving || !newMember.email || !newMember.password || !newMember.client_id}
+                >
+                  <i className="ti ti-user-plus" aria-hidden="true" /> Create User
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -322,7 +399,7 @@ export default function Admin() {
 
       {tab === 'team' && (
         <div>
-          <div className={styles.sectionLabel}>Team Members & Roles</div>
+          <div className={styles.sectionLabel}>Portal Accounts</div>
           <div className={styles.teamList}>
             {teamMembers.map((m, i) => (
               <div key={i} className={styles.teamRow}>
@@ -339,56 +416,8 @@ export default function Admin() {
               </div>
             ))}
             {teamMembers.length === 0 && (
-              <div className={styles.empty}>No team members yet</div>
+              <div className={styles.empty}>No accounts yet</div>
             )}
-          </div>
-
-          <div className={styles.formCard}>
-            <div className={styles.formTitle}>Add New Client User</div>
-            <div className={styles.formGrid}>
-              <div className={styles.field}>
-                <label className={styles.label}>Email</label>
-                <input
-                  className={styles.input}
-                  type="email"
-                  value={newMember.email}
-                  onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
-                  placeholder="client@example.com"
-                />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.label}>Temporary Password</label>
-                <input
-                  className={styles.input}
-                  type="password"
-                  value={newMember.password}
-                  onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
-                  placeholder="Min 8 characters"
-                />
-              </div>
-              <div className={styles.field}>
-                <label className={styles.label}>Assign to Client</label>
-                <select
-                  className={styles.input}
-                  value={newMember.client_id}
-                  onChange={e => setNewMember(p => ({...p, client_id: e.target.value}))}
-                >
-                  <option value="">Select client...</option>
-                  {allClients.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className={styles.formActions}>
-              <button
-                className="btn btn-gold"
-                onClick={inviteMember}
-                disabled={saving || !newMember.email || !newMember.password || !newMember.client_id}
-              >
-                <i className="ti ti-user-plus" aria-hidden="true" /> Create User
-              </button>
-            </div>
           </div>
         </div>
       )}
