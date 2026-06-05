@@ -158,8 +158,7 @@ export default function Overview() {
           </div>
         </div>
         <div className={styles.bannerMeta}>
-          <div className={styles.bannerDate}>{today}</div>
-          <div className={styles.activeBadge}><span className={styles.pulse} /> Active</div>
+          <div className={styles.bannerDate} style={{ color: '#ffffff' }}>{today}</div>
         </div>
       </div>
 
