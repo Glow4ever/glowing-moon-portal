@@ -215,7 +215,7 @@ export default function Overview() {
           )}
           {weekEvents.map((e, i) => {
             const { label, day } = formatEventDate(e.date)
-            const platform = (e.platform || '').toLowerCase()
+           const platform = (e.notes || '').toLowerCase()
             const color = PLATFORM_COLORS[platform] || 'var(--text3)'
             return (
               <div key={i} className={styles.scheduleItem} onClick={() => navigate('/calendar')}>
@@ -226,7 +226,7 @@ export default function Overview() {
                 <div className={styles.scheduleBar} style={{ background: color }} />
                 <div className={styles.scheduleInfo}>
                   <div className={styles.scheduleName}>{e.title || e.post_name || 'Untitled'}</div>
-                  <div className={styles.schedulePlatform} style={{ color }}>{e.platform || 'Post'}</div>
+                <div className={styles.schedulePlatform} style={{ color }}>{e.notes || 'Post'}</div>
                 </div>
                 <i className="ti ti-arrow-right" style={{ fontSize: '12px', color: 'var(--text3)' }} />
               </div>
