@@ -141,9 +141,9 @@ export default function Content() {
   async function handleApprove() {
     setApproving(true)
     try {
-      await supabase.from('clients').update({
-        approval_status: 'approved'
-      }).eq('id', client.id)
+      await supabase.from('content_months').update({
+      approval_status: 'approved'
+    }).eq('client_id', client.id).eq('month', client.approval_month?.split(' ')[0]).eq('year', parseInt(client.approval_month?.split(' ')[1]))
 
       await fetch('/api/send-email', {
         method: 'POST',
