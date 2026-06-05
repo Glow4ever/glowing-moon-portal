@@ -298,6 +298,55 @@ export default function Admin() {
                           </div>
                         </div>
                       </div>
+                      {!teamMembers.find(m => m.client_id === editingClient.id) && (
+                          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
+                            <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>Portal Access</div>
+                            <div className={styles.formGrid}>
+                              <div className={styles.field}>
+                                <label className={styles.label}>Login Email</label>
+                                <input
+                                  className={styles.input}
+                                  type="email"
+                                  value={newMember.email}
+                                  onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
+                                  placeholder="client@example.com"
+                                />
+                              </div>
+                              <div className={styles.field}>
+                                <label className={styles.label}>Temporary Password</label>
+                                <input
+                                  className={styles.input}
+                                  type="password"
+                                  value={newMember.password}
+                                  onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
+                                  placeholder="Min 8 characters"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              className="btn btn-gold"
+                              style={{ fontSize: '12px' }}
+                              onClick={async () => {
+                                if (!newMember.email || !newMember.password) return showToast('Enter email and password')
+                                setSaving(true)
+                                const { data, error } = await supabase.functions.invoke('create-user', {
+                                  body: { email: newMember.email, password: newMember.password, client_id: editingClient.id, role: 'member' }
+                                })
+                                if (error || data?.error) {
+                                  showToast(data?.error || 'Failed to create user.')
+                                } else {
+                                  showToast('Portal access created!')
+                                  setNewMember({ email: '', password: '', client_id: '', role: 'member' })
+                                  await loadTeam()
+                                }
+                                setSaving(false)
+                              }}
+                              disabled={saving}
+                            >
+                              <i className="ti ti-user-plus" aria-hidden="true" /> Add Portal Access
+                            </button>
+                          </div>
+                        )}
                       <div className={styles.formActions}>
                         <button className="btn" onClick={() => setEditingClient(null)}>Cancel</button>
                         <button className="btn btn-gold" onClick={saveClientBranding} disabled={saving}>Save Branding</button>
