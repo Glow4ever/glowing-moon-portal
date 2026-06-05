@@ -70,7 +70,6 @@ export default function Admin() {
     if (!newClient.name.trim()) return
     setSaving(true)
     const slug = newClient.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-
     const { data: clientData, error: clientError } = await supabase.from('clients').insert({
       name: newClient.name.trim(),
       slug,
@@ -78,13 +77,11 @@ export default function Admin() {
       secondary_color: newClient.secondary_color,
       active: true
     }).select().single()
-
     if (clientError) {
       showToast('Failed to create client.')
       setSaving(false)
       return
     }
-
     if (newMember.email && newMember.password) {
       const { data, error } = await supabase.functions.invoke('create-user', {
         body: {
@@ -100,7 +97,6 @@ export default function Admin() {
         return
       }
     }
-
     setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
     setNewMember({ email: '', password: '', client_id: '', role: 'member' })
     await loadUserContext()
@@ -127,16 +123,12 @@ export default function Admin() {
     const month = reviewMonth[client.id]
     if (!month) return showToast('Select a month first')
     if (!client.notification_email) return showToast('No notification email set for this client')
-
     setSendingReview(p => ({ ...p, [client.id]: true }))
-
     const [monthName, year] = month.split(' ')
-
     await supabase.from('clients').update({
       approval_status: 'pending',
       approval_month: month
     }).eq('id', client.id)
-
     await supabase.from('content_months').upsert({
       client_id: client.id,
       month: monthName,
@@ -144,7 +136,6 @@ export default function Admin() {
       planned: plannedPosts[client.id] || 0,
       approval_status: 'pending'
     }, { onConflict: 'client_id,month,year' })
-
     const res = await fetch('/api/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -156,7 +147,6 @@ export default function Admin() {
         notificationEmail: client.notification_email
       })
     })
-
     if (res.ok) {
       await loadUserContext()
       setExpandedReview(p => ({ ...p, [client.id]: false }))
@@ -164,7 +154,6 @@ export default function Admin() {
     } else {
       showToast('Email failed — check Vercel logs')
     }
-
     setSendingReview(p => ({ ...p, [client.id]: false }))
   }
 
@@ -320,7 +309,7 @@ export default function Admin() {
             </div>
           </div>
 
-         <div>
+          <div>
             <div className={styles.sectionLabel}>Onboard New Client</div>
             <div className={styles.formCard}>
               <div className={styles.field} style={{ marginBottom: '12px' }}>
@@ -374,6 +363,8 @@ export default function Admin() {
               </button>
             </div>
           </div>
+        </div>
+      )}
 
       {tab === 'team' && (
         <div>
