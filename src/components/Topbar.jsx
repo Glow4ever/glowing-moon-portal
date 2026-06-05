@@ -69,15 +69,21 @@ export default function Topbar() {
   }
 
   async function loadLogo() {
-    const extensions = ['png', 'jpg', 'jpeg', 'svg', 'webp']
-    for (const ext of extensions) {
-      const { data } = supabase.storage
-        .from('portal-assets')
-        .getPublicUrl(`${logoPath}.${ext}`)
-      setLogoUrl(data.publicUrl + '?t=' + Date.now())
-      return
-    }
+  const extensions = ['png', 'jpg', 'jpeg', 'svg', 'webp']
+  for (const ext of extensions) {
+    const path = `${logoPath}.${ext}`
+    const { data } = supabase.storage.from('portal-assets').getPublicUrl(path)
+    const url = data.publicUrl
+    try {
+      const res = await fetch(url, { method: 'HEAD' })
+      if (res.ok) {
+        setLogoUrl(url + '?t=' + Date.now())
+        return
+      }
+    } catch {}
   }
+  setLogoUrl(null)
+}
 
   async function handleLogoUpload(e) {
     const file = e.target.files[0]
