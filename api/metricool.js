@@ -15,8 +15,8 @@ module.exports = async function handler(req, res) {
 
   const { start, end } = req.query
 
-  const startDate = start || new Date().toISOString().split('T')[0]
-  const endDate = end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  const startDate = start || new Date().toISOString().split('T')[0] + 'T00:00:00'
+const endDate = end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + 'T23:59:59'
 
   const url = `https://app.metricool.com/api/v2/scheduler/posts?userId=${userId}&blogId=${blogId}&start=${startDate}&end=${endDate}&timezone=America/New_York`
 
