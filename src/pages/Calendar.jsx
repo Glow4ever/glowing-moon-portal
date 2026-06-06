@@ -64,9 +64,7 @@ export default function Calendar() {
     if (!ev || !metricoolPosts.length) return null
     const match = metricoolPosts.find(post => {
       const postDate = post.publicationDate?.dateTime?.split('T')[0]
-      const titleMatch = post.text?.toLowerCase().includes(ev.title?.toLowerCase().slice(0, 20))
-      const dateMatch = postDate === ev.date
-      return dateMatch && titleMatch
+      return postDate === ev.date
     })
     return match?.media?.[0] || null
   }
