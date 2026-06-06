@@ -61,11 +61,15 @@ export default function Calendar() {
   }
 
   function getMediaForEvent(ev) {
+    console.log('metricoolPosts count:', metricoolPosts.length)
+    console.log('looking for date:', ev.date)
     if (!ev || !metricoolPosts.length) return null
     const match = metricoolPosts.find(post => {
       const postDate = post.publicationDate?.dateTime?.split('T')[0]
+      console.log('comparing:', postDate, '===', ev.date)
       return postDate === ev.date
     })
+    console.log('match:', match)
     return match?.media?.[0] || null
   }
 
