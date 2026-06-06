@@ -61,15 +61,11 @@ export default function Calendar() {
   }
 
   function getMediaForEvent(ev) {
-    console.log('metricoolPosts count:', metricoolPosts.length)
-    console.log('looking for date:', ev.date)
     if (!ev || !metricoolPosts.length) return null
     const match = metricoolPosts.find(post => {
       const postDate = post.publicationDate?.dateTime?.split('T')[0]
-      console.log('comparing:', postDate, '===', ev.date)
       return postDate === ev.date
     })
-    console.log('match:', match)
     return match?.media?.[0] || null
   }
 
@@ -236,7 +232,6 @@ export default function Calendar() {
         </div>
       )}
 
-      {/* View Event Modal */}
       {viewEvent && (
         <div className={styles.overlay} onClick={() => setViewEvent(null)}>
           <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
@@ -272,13 +267,13 @@ export default function Calendar() {
                 <video
                   src={mediaUrl}
                   controls
-                  style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '280px', objectFit: 'cover' }}
+                  style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
                 />
               ) : (
                 <img
                   src={mediaUrl}
                   alt="Post media"
-                  style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '280px', objectFit: 'cover' }}
+                  style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
                   onError={e => { e.target.style.display = 'none' }}
                 />
               )
@@ -297,7 +292,6 @@ export default function Calendar() {
         </div>
       )}
 
-      {/* Add/Edit Modal */}
       {modal && (
         <div className={styles.overlay} onClick={() => setModal(null)}>
           <div className={styles.modalCard} onClick={e => e.stopPropagation()}>
