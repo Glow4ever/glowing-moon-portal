@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { useClient } from '../lib/ClientContext'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isSameDay, parseISO } from 'date-fns'
 import styles from './Calendar.module.css'
 
@@ -31,18 +32,47 @@ function truncate(str, n) {
 }
 
 export default function Calendar() {
+  const { client } = useClient()
   const [currentDate, setCurrentDate] = useState(new Date(2026, 5, 1))
   const [events, setEvents] = useState([])
+  const [metricoolPosts, setMetricoolPosts] = useState([])
   const [modal, setModal] = useState(null)
   const [viewEvent, setViewEvent] = useState(null)
   const [form, setForm] = useState({ title: '', date: '', type: 'photo', notes: '' })
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { loadEvents() }, [])
+  useEffect(() => { loadMetricoolPosts() }, [])
 
   async function loadEvents() {
     const { data, error } = await supabase.from('calendar_events').select('*').order('date')
     if (!error && data) setEvents(data)
+  }
+
+  async function loadMetricoolPosts() {
+    try {
+      const res = await fetch('/api/metricool')
+      if (!res.ok) return
+      const data = await res.json()
+      setMetricoolPosts(data.data || [])
+    } catch (err) {
+      console.error('Metricool fetch error:', err)
+    }
+  }
+
+  function getMediaForEvent(ev) {
+    if (!ev || !metricoolPosts.length) return null
+    const match = metricoolPosts.find(post => {
+      const postDate = post.publicationDate?.dateTime?.split('T')[0]
+      const titleMatch = post.text?.toLowerCase().includes(ev.title?.toLowerCase().slice(0, 20))
+      const dateMatch = postDate === ev.date
+      return dateMatch && titleMatch
+    })
+    return match?.media?.[0] || null
+  }
+
+  function isVideo(url) {
+    return url && (url.endsWith('.mp4') || url.includes('/video/'))
   }
 
   async function saveEvent() {
@@ -207,7 +237,7 @@ export default function Calendar() {
       {/* View Event Modal */}
       {viewEvent && (
         <div className={styles.overlay} onClick={() => setViewEvent(null)}>
-          <div className={styles.modalCard} onClick={e => e.stopPropagation()}>
+          <div className={styles.modalCard} onClick={e => e.stopPropagation()} style={{ maxWidth: '480px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{
@@ -232,7 +262,27 @@ export default function Calendar() {
                 <i className="ti ti-x" />
               </button>
             </div>
-            <div style={{ fontSize: '14px', color: 'var(--text1)', lineHeight: '1.6', marginBottom: '20px' }}>
+
+            {(() => {
+              const mediaUrl = getMediaForEvent(viewEvent)
+              if (!mediaUrl) return null
+              return isVideo(mediaUrl) ? (
+                <video
+                  src={mediaUrl}
+                  controls
+                  style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '280px', objectFit: 'cover' }}
+                />
+              ) : (
+                <img
+                  src={mediaUrl}
+                  alt="Post media"
+                  style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '280px', objectFit: 'cover' }}
+                  onError={e => { e.target.style.display = 'none' }}
+                />
+              )
+            })()}
+
+            <div style={{ fontSize: '14px', color: 'var(--text)', lineHeight: '1.6', marginBottom: '20px' }}>
               {viewEvent.title}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
