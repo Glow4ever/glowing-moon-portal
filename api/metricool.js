@@ -5,8 +5,6 @@ module.exports = async function handler(req, res) {
 
   if (req.method === 'OPTIONS') return res.status(200).end()
 
-  const { start, end } = req.query
-
   const userId = process.env.METRICOOL_USER_ID
   const blogId = process.env.METRICOOL_BLOG_ID
   const token = process.env.METRICOOL_API_TOKEN
@@ -15,24 +13,21 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'Metricool env vars not set' })
   }
 
- const params = new URLSearchParams({
-  userId,
-  blogId,
-  start: start || new Date().toISOString().split('T')[0],
-  end: end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  timezone: 'America/New_York'
-})
+  const { start, end } = req.query
 
-    const response = await fetch(
-      `https://app.metricool.com/api/v2/scheduler/posts?${params}`,
-      {
-        method: 'GET',
-        headers: {
-          'X-Mc-Auth': token,
-          'Content-Type': 'application/json'
-        }
+  const startDate = start || new Date().toISOString().split('T')[0]
+  const endDate = end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+  const url = `https://app.metricool.com/api/v2/scheduler/posts?userId=${userId}&blogId=${blogId}&start=${startDate}&end=${endDate}&timezone=America/New_York`
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'X-Mc-Auth': token,
+        'Content-Type': 'application/json'
       }
-    )
+    })
 
     const data = await response.json()
 
