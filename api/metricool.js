@@ -15,14 +15,13 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'Metricool env vars not set' })
   }
 
-  try {
-    const params = new URLSearchParams({
-      userId,
-      blogId,
-      start: start || new Date().toISOString().split('T')[0],
-      end: end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      timezone: 'America%2FNew_York'
-    })
+ const params = new URLSearchParams({
+  userId,
+  blogId,
+  start: start || new Date().toISOString().split('T')[0],
+  end: end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+  timezone: 'America/New_York'
+})
 
     const response = await fetch(
       `https://app.metricool.com/api/v2/scheduler/posts?${params}`,
