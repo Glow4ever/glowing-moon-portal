@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useClient } from '../lib/ClientContext'
 import { supabase } from '../lib/supabase'
@@ -67,56 +67,31 @@ export default function Overview() {
   const [contentMonths, setContentMonths] = useState([])
   const [monthUploads, setMonthUploads] = useState({})
   const [monthScheduled, setMonthScheduled] = useState({})
+  const [weekEvents, setWeekEvents] = useState([])
   const [metricoolPosts, setMetricoolPosts] = useState([])
-  const [carouselIndex, setCarouselIndex] = useState(0)
-  const [fading, setFading] = useState(false)
-  const [paused, setPaused] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(true)
   const [progressOpen, setProgressOpen] = useState(true)
-  const autoplayRef = useRef(null)
 
   useEffect(() => { loadDashboard() }, [client])
   useEffect(() => { loadMetricoolPosts() }, [])
-
-  useEffect(() => {
-    if (metricoolPosts.length === 0 || paused) return
-    autoplayRef.current = setInterval(() => {
-      goToNext()
-    }, 4000)
-    return () => clearInterval(autoplayRef.current)
-  }, [metricoolPosts, carouselIndex, paused])
-
-  function goToIndex(i) {
-    if (i === carouselIndex) return
-    setFading(true)
-    setTimeout(() => {
-      setCarouselIndex(i)
-      setFading(false)
-    }, 300)
-  }
-
-  function goToNext() {
-    const next = (carouselIndex + 1) % metricoolPosts.length
-    goToIndex(next)
-  }
-
-  function goToPrev() {
-    const prev = (carouselIndex - 1 + metricoolPosts.length) % metricoolPosts.length
-    goToIndex(prev)
-  }
 
   async function loadMetricoolPosts() {
     try {
       const res = await fetch('/api/metricool')
       if (!res.ok) return
       const data = await res.json()
-      const posts = (data.data || [])
-        .filter(p => p.media?.length > 0)
-        .sort((a, b) => new Date(a.publicationDate.dateTime) - new Date(b.publicationDate.dateTime))
-        .slice(0, 10)
-      setMetricoolPosts(posts)
+      setMetricoolPosts(data.data || [])
     } catch (err) {
       console.error('Metricool error:', err)
     }
+  }
+
+  function getMediaForDate(dateStr) {
+    const match = metricoolPosts.find(post => {
+      const postDate = post.publicationDate?.dateTime?.split('T')[0]
+      return postDate === dateStr
+    })
+    return match?.media?.[0] || null
   }
 
   async function loadDashboard() {
@@ -133,12 +108,22 @@ export default function Overview() {
     ])
 
     const today = new Date().toISOString().split('T')[0]
+    const weekEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
     const { count } = await supabase
       .from('calendar_events')
       .select('*', { count: 'exact', head: true })
       .eq('client_id', client.id)
       .gte('date', today)
+
+    const { data: weekData } = await supabase
+      .from('calendar_events')
+      .select('*')
+      .eq('client_id', client.id)
+      .gte('date', today)
+      .lte('date', weekEnd)
+      .order('date', { ascending: true })
+      .limit(6)
 
     const { data: monthRows } = await supabase
       .from('content_months')
@@ -170,6 +155,7 @@ export default function Overview() {
     }))
 
     setStats({ assets: assetCount, content: contentCount, events: count || 0 })
+    setWeekEvents(weekData || [])
     setContentMonths(monthRows || [])
     setMonthUploads(uploadsMap)
     setMonthScheduled(scheduledMap)
@@ -177,12 +163,15 @@ export default function Overview() {
   }
 
   const rollingMonths = getRollingMonths()
-  const currentPost = metricoolPosts[carouselIndex]
-  const platforms = currentPost?.providers?.map(p => p.network).join(', ') || ''
 
-  function formatPostDate(dateTime) {
-    const d = new Date(dateTime)
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  function formatEventDate(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00')
+    const today = new Date().toISOString().split('T')[0]
+    if (dateStr === today) return { label: 'Today', day: d.getDate() }
+    return {
+      label: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      day: d.getDate()
+    }
   }
 
   return (
@@ -205,115 +194,100 @@ export default function Overview() {
         </div>
       </div>
 
-      <div className={styles.overviewGrid}>
-
-        {/* Left col -- stat cards */}
-        <div className={styles.statCol}>
-          <div className={styles.statCard} onClick={() => navigate('/assets')} style={{ cursor: 'pointer' }}>
-            <div className={styles.statLabel}>
-              <i className="ti ti-folder" style={{ fontSize: '13px', color: 'var(--gold-light)' }} />
-              Asset Library
-            </div>
-            <div className={styles.statVal}>{loading ? '—' : stats.assets}</div>
-            <div className={styles.statSub}>Brand files & templates</div>
-            <div className={styles.statLink}>View library →</div>
+      <div className={styles.statsGrid}>
+        <div className={styles.statCard} onClick={() => navigate('/assets')} style={{ cursor: 'pointer' }}>
+          <div className={styles.statLabel}>
+            <i className="ti ti-folder" style={{ fontSize: '13px', color: 'var(--gold-light)' }} />
+            Asset Library
           </div>
-          <div className={styles.statCard} onClick={() => navigate('/content')} style={{ cursor: 'pointer' }}>
-            <div className={styles.statLabel}>
-              <i className="ti ti-photo" style={{ fontSize: '13px', color: 'var(--teal)' }} />
-              Content Library
-            </div>
-            <div className={styles.statVal}>{loading ? '—' : stats.content}</div>
-            <div className={styles.statSub}>Photos & videos</div>
-            <div className={styles.statLink} style={{ color: 'var(--teal)' }}>Review content →</div>
-          </div>
-          <div className={styles.statCard} onClick={() => navigate('/calendar')} style={{ cursor: 'pointer' }}>
-            <div className={styles.statLabel}>
-              <i className="ti ti-calendar" style={{ fontSize: '13px', color: 'var(--text2)' }} />
-              Upcoming Posts
-            </div>
-            <div className={styles.statVal}>{loading ? '—' : stats.events}</div>
-            <div className={styles.statSub}>Scheduled ahead</div>
-            <div className={styles.statLink} style={{ color: 'var(--text2)' }}>View calendar →</div>
-          </div>
+          <div className={styles.statVal}>{loading ? '—' : stats.assets}</div>
+          <div className={styles.statSub}>Brand files & templates</div>
+          <div className={styles.statLink}>View library →</div>
         </div>
-
-        {/* Center col -- carousel */}
-        <div
-          className={styles.card}
-          onMouseEnter={() => setPaused(true)}
-          onMouseLeave={() => setPaused(false)}
-        >
-          <div className={styles.cardTitle} style={{ justifyContent: 'space-between' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-              <span className={styles.goldLine} />Coming up
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
-              {metricoolPosts.length > 0 ? `${carouselIndex + 1} / ${metricoolPosts.length}` : ''}
-            </span>
+        <div className={styles.statCard} onClick={() => navigate('/content')} style={{ cursor: 'pointer' }}>
+          <div className={styles.statLabel}>
+            <i className="ti ti-photo" style={{ fontSize: '13px', color: 'var(--teal)' }} />
+            Content Library
           </div>
-          {metricoolPosts.length === 0 ? (
-            <div className={styles.empty}>
-              <i className="ti ti-calendar-off" style={{ fontSize: '24px', marginBottom: '8px', color: 'var(--text3)' }} />
-              {loading ? 'Loading...' : 'No upcoming posts'}
-            </div>
-          ) : (
-            <div>
-              <div style={{ opacity: fading ? 0 : 1, transition: 'opacity 0.3s ease', borderRadius: '8px', overflow: 'hidden', background: 'var(--surface3)', marginBottom: '12px', maxHeight: '340px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {isVideo(currentPost?.media?.[0]) ? (
-                  <video
-                    key={currentPost.id}
-                    src={currentPost.media[0]}
-                    style={{ width: '100%', maxHeight: '340px', objectFit: 'contain' }}
-                    muted playsInline loop autoPlay
-                  />
-                ) : (
-                  <img
-                    key={currentPost.id}
-                    src={currentPost?.media?.[0]}
-                    alt="Upcoming post"
-                    style={{ width: '100%', maxHeight: '340px', objectFit: 'contain' }}
-                  />
-                )}
-              </div>
+          <div className={styles.statVal}>{loading ? '—' : stats.content}</div>
+          <div className={styles.statSub}>Photos & videos</div>
+          <div className={styles.statLink} style={{ color: 'var(--teal)' }}>Review content →</div>
+        </div>
+        <div className={styles.statCard} onClick={() => navigate('/calendar')} style={{ cursor: 'pointer' }}>
+          <div className={styles.statLabel}>
+            <i className="ti ti-calendar" style={{ fontSize: '13px', color: 'var(--text2)' }} />
+            Upcoming Posts
+          </div>
+          <div className={styles.statVal}>{loading ? '—' : stats.events}</div>
+          <div className={styles.statSub}>Scheduled ahead</div>
+          <div className={styles.statLink} style={{ color: 'var(--text2)' }}>View calendar →</div>
+        </div>
+      </div>
 
-              <div style={{ opacity: fading ? 0 : 1, transition: 'opacity 0.3s ease', marginBottom: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
-                  <span style={{ fontSize: '11px', color: PLATFORM_COLORS[platforms.split(',')[0].trim()] || 'var(--text3)', textTransform: 'capitalize', fontWeight: '500' }}>
-                    {platforms}
-                  </span>
-                  <span style={{ fontSize: '11px', color: 'var(--text3)' }}>·</span>
-                  <span style={{ fontSize: '11px', color: 'var(--text3)' }}>
-                    {formatPostDate(currentPost?.publicationDate?.dateTime)}
-                  </span>
-                </div>
-                <div style={{ fontSize: '12px', color: 'var(--text2)', lineHeight: '1.5', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                  {currentPost?.text}
-                </div>
-              </div>
+      <div className={styles.grid}>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <button onClick={goToPrev} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 10px', color: 'var(--text2)', cursor: 'pointer', fontSize: '13px' }}>
-                  <i className="ti ti-chevron-left" />
-                </button>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  {metricoolPosts.map((_, i) => (
-                    <div
-                      key={i}
-                      onClick={() => goToIndex(i)}
-                      style={{ width: i === carouselIndex ? '16px' : '6px', height: '6px', borderRadius: '3px', background: i === carouselIndex ? 'var(--gold-dim)' : 'var(--border2)', cursor: 'pointer', transition: 'all 0.2s' }}
-                    />
-                  ))}
+        <div className={styles.card}>
+          <div
+            className={styles.cardTitle}
+            onClick={() => setScheduleOpen(p => !p)}
+            style={{ cursor: 'pointer', justifyContent: 'space-between' }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+              <span className={styles.goldLine} />This week's schedule
+            </span>
+            <i className={`ti ti-chevron-${scheduleOpen ? 'up' : 'down'}`} style={{ fontSize: '13px' }} />
+          </div>
+          {scheduleOpen && (
+            <>
+              {loading && <div className={styles.empty}>Loading...</div>}
+              {!loading && weekEvents.length === 0 && (
+                <div className={styles.empty}>
+                  <i className="ti ti-calendar-off" style={{ fontSize: '24px', marginBottom: '8px', color: 'var(--text3)' }} />
+                  No posts scheduled this week
                 </div>
-                <button onClick={goToNext} style={{ background: 'var(--surface3)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px 10px', color: 'var(--text2)', cursor: 'pointer', fontSize: '13px' }}>
-                  <i className="ti ti-chevron-right" />
-                </button>
-              </div>
-            </div>
+              )}
+              {weekEvents.map((e, i) => {
+                const { label, day } = formatEventDate(e.date)
+                const platform = (e.notes || '').toLowerCase()
+                const color = PLATFORM_COLORS[platform] || 'var(--text3)'
+                const mediaUrl = getMediaForDate(e.date)
+                return (
+                  <div key={i} className={styles.scheduleItem} onClick={() => navigate('/calendar')}>
+                    {mediaUrl ? (
+                      isVideo(mediaUrl) ? (
+                        <div className={styles.scheduleThumbnailVideo}>
+                          <i className="ti ti-player-play" />
+                        </div>
+                      ) : (
+                        <img
+                          src={mediaUrl}
+                          alt=""
+                          className={styles.scheduleThumbnail}
+                          onError={e => { e.target.style.display = 'none' }}
+                        />
+                      )
+                    ) : (
+                      <div className={styles.scheduleThumbnailVideo}>
+                        <i className="ti ti-photo" />
+                      </div>
+                    )}
+                    <div className={styles.scheduleDate}>
+                      <div className={styles.scheduleDateLabel}>{label}</div>
+                      <div className={styles.scheduleDateNum}>{day}</div>
+                    </div>
+                    <div className={styles.scheduleBar} style={{ background: color }} />
+                    <div className={styles.scheduleInfo}>
+                      <div className={styles.scheduleName}>{e.title || e.post_name || 'Untitled'}</div>
+                      <div className={styles.schedulePlatform} style={{ color }}>{e.notes || 'Post'}</div>
+                    </div>
+                    <i className="ti ti-arrow-right" style={{ fontSize: '12px', color: 'var(--text3)', flexShrink: 0 }} />
+                  </div>
+                )
+              })}
+            </>
           )}
         </div>
 
-        {/* Right col -- content progress */}
         <div className={styles.card}>
           <div
             className={styles.cardTitle}
