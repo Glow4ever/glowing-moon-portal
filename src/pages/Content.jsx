@@ -107,6 +107,26 @@ export default function Content() {
     await loadFolder(currentPath)
   }
 
+async function handleDownloadFolder(folder) {
+    try {
+      const res = await fetch('/api/dropbox-zip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: folder.path_lower })
+      })
+      if (!res.ok) throw new Error('Download failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${folder.name}.zip`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Folder download error:', err)
+    }
+  }
+  
   async function handleDownload(file) {
     const link = await getDownloadLink(file.path_lower)
     if (link) {
@@ -271,6 +291,14 @@ export default function Content() {
                 <div className={styles.folderName}>{f.name}</div>
                 <div className={styles.folderCount}>Click to browse</div>
               </div>
+              <button
+                className={styles.folderDelete}
+                onClick={e => { e.stopPropagation(); handleDownloadFolder(f) }}
+                title="Download folder as zip"
+                style={{ background: 'var(--surface3)', borderColor: 'var(--border2)', color: 'var(--text2)', marginRight: '4px' }}
+              >
+                <i className="ti ti-download" />
+              </button>
               {role === 'admin' && (
                 <button
                   className={styles.folderDelete}
