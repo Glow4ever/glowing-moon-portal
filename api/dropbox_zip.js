@@ -22,12 +22,14 @@ module.exports = async function handler(req, res) {
     const tokenData = await tokenRes.json()
     const accessToken = tokenData.access_token
 
+    const rootNamespace = process.env.DROPBOX_ROOT_NAMESPACE
     const zipRes = await fetch('https://content.dropboxapi.com/2/files/download_zip', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Dropbox-API-Arg': JSON.stringify({ path }),
-        'Content-Type': 'text/plain'
+        'Content-Type': 'text/plain',
+        ...(rootNamespace ? { 'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'namespace_id', 'namespace_id': rootNamespace }) } : {})
       }
     })
 
