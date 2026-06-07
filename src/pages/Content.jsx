@@ -293,20 +293,19 @@ async function handleDownloadFolder(folder) {
                 <div className={styles.folderCount}>Click to browse</div>
               </div>
               <button
-                className={styles.folderDelete}
+                className={styles.folderAction}
                 onClick={e => { e.stopPropagation(); handleDownloadFolder(f) }}
                 title="Download folder as zip"
-                style={{ background: 'var(--surface3)', borderColor: 'var(--border2)', color: 'var(--text2)', marginRight: '4px' }}
               >
-                <i className="ti ti-download" />
+                <i className="ti ti-download" style={{ fontSize: '11px' }} />
               </button>
               {role === 'admin' && (
                 <button
-                  className={styles.folderDelete}
+                  className={styles.folderAction}
                   onClick={e => { e.stopPropagation(); handleDeleteFolder(f) }}
                   title="Delete folder"
                 >
-                  <i className="ti ti-trash" />
+                  <i className="ti ti-trash" style={{ fontSize: '11px' }} />
                 </button>
               )}
             </div>
