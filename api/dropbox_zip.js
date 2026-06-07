@@ -47,8 +47,7 @@ module.exports = async function handler(req, res) {
     if (!shareData?.url) {
       return res.status(500).json({ error: 'Could not generate share link' })
     }
-    const original = shareData.url
-    const zipUrl = original.replace('www.dropbox.com',d1.dropboxusercontent.com').replace('?d1=0', '?d1=1')
+    const zipUrl = shareData.url.split('?')[0] + '?d1=1'
     return res.status(200).json({ url: zipUrl })
   } catch (err) {
     res.status(500).json({ error: err.message })
