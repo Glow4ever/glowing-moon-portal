@@ -109,7 +109,7 @@ export default function Content() {
 
 async function handleDownloadFolder(folder) {
     try {
-      const res = await fetch('/api/dropbox-zip', {
+      const res = await fetch('/api/dropbox_zip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: folder.path_lower })
