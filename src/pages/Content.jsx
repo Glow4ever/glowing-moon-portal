@@ -27,7 +27,13 @@ export default function Content() {
   const clientName = client?.name || 'Glowing Moon Media'
   const ROOT = `/Glowing Moon Portal/${clientName}/Content`
 
-  const [stack, setStack] = useState([{ name: 'Content', path: ROOT }])
+  const [stack, setStack] = useState(null)
+
+  useEffect(() => {
+    if (client) {
+      setStack([{ name: 'Content', path: `/Glowing Moon Portal/${client.name}/Content` }])
+    }
+  }, [client?.name])
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
@@ -41,13 +47,13 @@ export default function Content() {
   const [localStatus, setLocalStatus] = useState(null)
   const fileRef = useRef()
 
-  const currentPath = stack[stack.length - 1].path
+  const currentPath = stack ? stack[stack.length - 1].path : null
   const approvalStatus = localStatus ?? client?.approval_status
   const isPending = approvalStatus === 'pending'
   const approvalMonth = client?.approval_month
 
   useEffect(() => {
-    loadFolder(currentPath)
+    if (currentPath) loadFolder(currentPath)
   }, [currentPath])
 
   async function loadFolder(path) {
@@ -205,7 +211,7 @@ async function handleDownloadFolder(folder) {
         <div>
           <h1 className={styles.title}>Content Library</h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-            {stack.map((crumb, i) => (
+            {(stack || []).map((crumb, i) => (
               <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {i < stack.length - 1 ? (
                   <button
