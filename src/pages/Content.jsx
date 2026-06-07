@@ -120,9 +120,12 @@ async function handleDownloadFolder(folder) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: folder.path_display || folder.path_lower })
       })
-      if (!res.ok) throw new Error('Failed to get download link')
-      const { url } = await res.json()
-      if (url) window.open(url, '_blank')
+      const data = await res.json()
+      if (data.url) {
+        window.open(data.url, '_blank')
+      } else {
+        console.error('No URL returned:', data)
+      }
     } catch (err) {
       console.error('Folder download error:', err)
     }
