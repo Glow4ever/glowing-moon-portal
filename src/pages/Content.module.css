@@ -64,3 +64,5 @@
 .thumbActionBtn:hover { color: var(--gold-light); }
 .lightboxActions { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
 .lightboxName { font-size: 11px; color: rgba(255,255,255,0.4); }
+.folderAction { background: none; border: none; border-left: 1px solid var(--border); padding: 0 12px; color: var(--text3); cursor: pointer; transition: all 0.15s; font-size: 11px; }
+.folderAction:hover { color: var(--gold-light); box-shadow: 0 0 10px var(--brand-primary-40, rgba(201,168,76,0.25)); background: var(--gold-bg); }
