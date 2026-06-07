@@ -22,25 +22,45 @@ module.exports = async function handler(req, res) {
     const tokenData = await tokenRes.json()
     const accessToken = tokenData.access_token
 
-    const zipRes = await fetch('https://content.dropboxapi.com/2/files/download_zip', {
+    // Create a shared link for the folder
+    const shareRes = await fetch('https://api.dropboxapi.com/2/sharing/create_shared_link_with_settings', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
-        'Dropbox-API-Arg': JSON.stringify({ path }),
-        'Content-Type': 'text/plain',
-'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'namespace_id', 'namespace_id': '13502300579' })
+        'Content-Type': 'application/json',
+        'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'namespace_id', 'namespace_id': '13502300579' })
+      },
+      body: JSON.stringify({
+        path,
+        settings: { requested_visibility: 'public' }
+      })
+    })
 
-    if (!zipRes.ok) {
-      const err = await zipRes.text()
-      return res.status(500).json({ error: err })
+    let shareData = await shareRes.json()
+
+    // If link already exists, fetch it
+    if (shareData.error?.['.tag'] === 'shared_link_already_exists') {
+      const existingRes = await fetch('https://api.dropboxapi.com/2/sharing/list_shared_links', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'namespace_id', 'namespace_id': '13502300579' })
+        },
+        body: JSON.stringify({ path, direct_only: true })
+      })
+      const existingData = await existingRes.json()
+      shareData = existingData.links?.[0]
     }
 
-    const folderName = path.split('/').pop()
-    res.setHeader('Content-Type', 'application/zip')
-    res.setHeader('Content-Disposition', `attachment; filename="${folderName}.zip"`)
+    if (!shareData?.url) {
+      return res.status(500).json({ error: 'Could not generate share link' })
+    }
 
-    const buffer = await zipRes.arrayBuffer()
-    res.send(Buffer.from(buffer))
+    // Convert share URL to direct zip download
+    const zipUrl = shareData.url.replace('www.dropbox.com', 'dl.dropboxusercontent.com').replace('?dl=0', '?dl=1') + '&dl=1'
+
+    return res.status(200).json({ url: zipUrl })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
