@@ -30,7 +30,9 @@ module.exports = async function handler(req, res) {
         settings: { requested_visibility: 'public' }
       })
     })
-    let shareData = await shareRes.json()
+    const shareText = await shareRes.text()
+    let shareData
+    try { shareData = JSON.parse(shareText) } catch(e) { return res.status(500).json({ error: 'Dropbox response: ' + shareText.slice(0, 300) }) }
     if (shareData.error?.['.tag'] === 'shared_link_already_exists') {
       const existingRes = await fetch('https://api.dropboxapi.com/2/sharing/list_shared_links', {
         method: 'POST',
