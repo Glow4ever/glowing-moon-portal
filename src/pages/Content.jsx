@@ -120,14 +120,9 @@ async function handleDownloadFolder(folder) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: folder.path_display || folder.path_lower })
       })
-      if (!res.ok) throw new Error('Download failed')
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${folder.name}.zip`
-      a.click()
-      URL.revokeObjectURL(url)
+      if (!res.ok) throw new Error('Failed to get download link')
+      const { url } = await res.json()
+      if (url) window.open(url, '_blank')
     } catch (err) {
       console.error('Folder download error:', err)
     }
