@@ -46,7 +46,7 @@ module.exports = async function handler(req, res) {
         'Content-Type': 'application/json',
        'Dropbox-API-Path-Root': JSON.stringify({
   '.tag': 'namespace_id',
-  'namespace_id': '13502300579'
+  'namespace_id': '13502790915'
 }),
       },
       body: JSON.stringify(body)
