@@ -58,7 +58,7 @@ module.exports = async function handler(req, res) {
     }
 
     // Convert share URL to direct zip download
-    const zipUrl = shareData.url.replace('www.dropbox.com', 'dl.dropboxusercontent.com').replace('?dl=0', '?dl=1') + '&dl=1'
+    const zipUrl = shareData.url.replace('www.dropbox.com', 'dl.dropboxusercontent.com').replace('?dl=0', '?dl=1')
 
     return res.status(200).json({ url: zipUrl })
   } catch (err) {
