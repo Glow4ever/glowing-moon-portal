@@ -112,7 +112,7 @@ async function handleDownloadFolder(folder) {
       const res = await fetch('/api/dropbox_zip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: folder.path_lower })
+        body: JSON.stringify({ path: folder.path_display || folder.path_lower })
       })
       if (!res.ok) throw new Error('Download failed')
       const blob = await res.blob()
