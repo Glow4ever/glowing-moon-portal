@@ -1,4 +1,5 @@
-import { NavLink, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { NavLink } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { useClient } from '../lib/ClientContext'
 import styles from './Sidebar.module.css'
@@ -15,11 +16,11 @@ const navItems = [
 export default function Sidebar() {
   const { signOut, user } = useAuth()
   const { role, client } = useClient()
-  const navigate = useNavigate()
+  const [mobileOpen, setMobileOpen] = useState(false)
   const primaryColor = client?.primary_color || '#c9a84c'
 
-  return (
-    <aside className={styles.sidebar}>
+  const navContent = (
+    <>
       <div className={styles.section}>Menu</div>
       {navItems.map(item => (
         <NavLink
@@ -32,12 +33,12 @@ export default function Sidebar() {
             color: primaryColor,
             borderColor: primaryColor + '40'
           } : {}}
+          onClick={() => setMobileOpen(false)}
         >
           <i className={`ti ${item.icon}`} aria-hidden="true" />
           {item.label}
         </NavLink>
       ))}
-
       {role === 'admin' && (
         <>
           <div className={styles.section} style={{ marginTop: '12px' }}>Admin</div>
@@ -49,30 +50,55 @@ export default function Sidebar() {
               color: primaryColor,
               borderColor: primaryColor + '40'
             } : {}}
+            onClick={() => setMobileOpen(false)}
           >
             <i className="ti ti-settings" aria-hidden="true" />
             Admin Panel
           </NavLink>
         </>
       )}
-
       <div style={{ flex: 1 }} />
-
       <div className={styles.poweredBy}>
         Powered by <strong>Glowing Moon Media</strong>
       </div>
-
       <div className={styles.userBlock}>
         <div className={styles.userEmail}>{user?.email}</div>
         <button className={styles.signOut} onClick={signOut}>
           <i className="ti ti-logout" aria-hidden="true" /> Sign out
         </button>
       </div>
-
       <div className={styles.supportCard}>
         <div className={styles.supportTitle}>Support</div>
         Reach your account manager anytime.
       </div>
-    </aside>
+    </>
+  )
+
+  return (
+    <>
+      {/* Mobile hamburger button */}
+      <button
+        className={styles.hamburger}
+        onClick={() => setMobileOpen(p => !p)}
+        aria-label="Toggle menu"
+      >
+        <i className={`ti ${mobileOpen ? 'ti-x' : 'ti-menu-2'}`} />
+      </button>
+
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div className={styles.overlay} onClick={() => setMobileOpen(false)} />
+      )}
+
+      {/* Desktop sidebar */}
+      <aside className={styles.sidebar}>
+        {navContent}
+      </aside>
+
+      {/* Mobile drawer */}
+      <aside className={`${styles.drawer} ${mobileOpen ? styles.drawerOpen : ''}`}>
+        {navContent}
+      </aside>
+    </>
   )
 }
