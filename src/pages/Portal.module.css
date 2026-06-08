@@ -19,5 +19,5 @@
 
 @media (max-width: 768px) {
   .layout { flex-direction: column; }
-  .main { padding-top: 54px; }
+  .main { padding-top: 0; }
 }
