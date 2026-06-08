@@ -26,8 +26,7 @@
 .scheduleDateNum { font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 600; color: var(--text); line-height: 1; }
 .scheduleBar { width: 3px; height: 36px; border-radius: 2px; flex-shrink: 0; }
 .scheduleInfo { flex: 1; min-width: 0; }
-.scheduleName { font-size: 12px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.schedulePlatform { font-size: 11px; margin-top: 2px; }
+.scheduleName { font-size: 13px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }.schedulePlatform { font-size: 11px; margin-top: 2px; }
 .empty { padding: 24px; text-align: center; color: var(--text3); font-size: 12px; display: flex; flex-direction: column; align-items: center; }
 @media (max-width: 768px) {
   .page { padding: 16px 12px 48px; }
@@ -38,4 +37,7 @@
   .statVal { font-size: 22px; }
   .statSub { display: none; }
   .grid { grid-template-columns: 1fr; gap: 10px; }
+  .card { overflow: hidden; max-width: 100%; }
+  .scheduleInfo { min-width: 0; overflow: hidden; }
+  .schedulePlatform { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
