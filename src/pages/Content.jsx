@@ -120,12 +120,18 @@ async function handleDownloadFolder(folder) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: folder.path_display || folder.path_lower })
       })
-      const data = await res.json()
-      if (data.url) {
-        window.open(data.url, '_blank')
-      } else {
-        console.error('No URL returned:', data)
+      if (!res.ok) {
+        const err = await res.json()
+        console.error('Zip error:', err)
+        return
       }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = folder.name + '.zip'
+      a.click()
+      URL.revokeObjectURL(url)
     } catch (err) {
       console.error('Folder download error:', err)
     }
