@@ -301,22 +301,25 @@ async function handleDownloadFolder(folder) {
                 <div className={styles.folderName}>{f.name}</div>
                 <div className={styles.folderCount}>Click to browse</div>
               </div>
-              <button
-                className={styles.folderAction}
-                onClick={e => { e.stopPropagation(); handleDownloadFolder(f) }}
-                title="Download folder as zip"
-              >
-                <i className="ti ti-download" style={{ fontSize: '11px' }} />
-              </button>
-              {role === 'admin' && (
+              <div className={styles.folderActions}>
                 <button
                   className={styles.folderAction}
-                  onClick={e => { e.stopPropagation(); handleDeleteFolder(f) }}
-                  title="Delete folder"
+                  onClick={e => { e.stopPropagation(); handleDownloadFolder(f) }}
+                  title="Download folder as zip"
                 >
-                  <i className="ti ti-trash" style={{ fontSize: '11px' }} />
+                  <i className="ti ti-download" />
                 </button>
-              )}
+                {role === 'admin' && (
+                  <button
+                    className={styles.folderAction}
+                    onClick={e => { e.stopPropagation(); handleDeleteFolder(f) }}
+                    title="Delete folder"
+                    style={{ color: 'var(--coral)' }}
+                  >
+                    <i className="ti ti-trash" />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
