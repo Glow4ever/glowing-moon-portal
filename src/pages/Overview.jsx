@@ -226,6 +226,15 @@ export default function Overview() {
 
       <div className={styles.grid}>
 
+        <div className={styles.card}>
+          <div
+            className={styles.cardTitle}
+            onClick={() => setProgressOpen(p => !p)}
+            style={{ cursor: 'pointer', justifyContent: 'space-between' }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+              <span className={styles.goldLine} />Content Progress
+            </span>
             <i className={`ti ti-chevron-${progressOpen ? 'up' : 'down'}`} style={{ fontSize: '13px' }} />
           </div>
           {progressOpen && (
@@ -241,7 +250,6 @@ export default function Overview() {
                 const hasScheduled = scheduled > 0
                 const progress = planned > 0 ? Math.min(Math.round((uploaded / planned) * 100), 100) : 0
                 const status = getStatusLabel(row)
-
                 return (
                   <div key={key} style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
@@ -343,69 +351,6 @@ export default function Overview() {
           )}
         </div>
 
-        <div className={styles.card}>
-          <div
-            className={styles.cardTitle}
-            onClick={() => setProgressOpen(p => !p)}
-            style={{ cursor: 'pointer', justifyContent: 'space-between' }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-              <span className={styles.goldLine} />Content Progress
-            </span>
-            <i className={`ti ti-chevron-${progressOpen ? 'up' : 'down'}`} style={{ fontSize: '13px' }} />
-          </div>
-          {progressOpen && (
-            <>
-              {loading && <div className={styles.empty}>Loading...</div>}
-              {!loading && rollingMonths.map(({ month, year }) => {
-                const key = `${month} ${year}`
-                const row = contentMonths.find(r => r.month === month && r.year === year)
-                const planned = row?.planned || 0
-                const uploaded = monthUploads[key] || 0
-                const approved = row?.approval_status === 'approved' ? planned : 0
-                const scheduled = monthScheduled[key] || 0
-                const hasScheduled = scheduled > 0
-                const progress = planned > 0 ? Math.min(Math.round((uploaded / planned) * 100), 100) : 0
-                const status = getStatusLabel(row)
-
-                return (
-                  <div key={key} style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--gold-dim)', flexShrink: 0 }} />
-                        <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text)' }}>{key}</span>
-                      </div>
-                      <span style={{ fontSize: '11px', padding: '2px 9px', borderRadius: '20px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
-                    </div>
-                    <div style={{ display: 'flex', gap: '20px', marginBottom: '10px' }}>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '18px', fontWeight: '500', color: 'var(--text)', fontFamily: "'Cormorant Garamond', serif" }}>{planned}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>Planned</div>
-                      </div>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '18px', fontWeight: '500', color: 'var(--text)', fontFamily: "'Cormorant Garamond', serif" }}>{uploaded}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>Uploaded</div>
-                      </div>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: '18px', fontWeight: '500', color: 'var(--text)', fontFamily: "'Cormorant Garamond', serif" }}>{approved}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>Approved</div>
-                      </div>
-                      {hasScheduled && (
-                        <div style={{ textAlign: 'center' }}>
-                          <div style={{ fontSize: '18px', fontWeight: '500', color: 'var(--text)', fontFamily: "'Cormorant Garamond', serif" }}>{scheduled}</div>
-                          <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>Scheduled</div>
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ height: '3px', background: 'var(--border)', borderRadius: '99px' }}>
-                      <div style={{ width: `${progress}%`, height: '3px', background: 'var(--gold-dim)', borderRadius: '99px', transition: 'width 0.4s ease' }} />
-                    </div>
-                  </div>
-                )
-              })}
-            </>
-          )}
-        </div>
       </div>
     </div>
   )
