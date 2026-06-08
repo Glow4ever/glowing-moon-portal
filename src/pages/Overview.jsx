@@ -226,15 +226,6 @@ export default function Overview() {
 
       <div className={styles.grid}>
 
-        <div className={styles.card}>
-          <div
-            className={styles.cardTitle}
-            onClick={() => setProgressOpen(p => !p)}
-            style={{ cursor: 'pointer', justifyContent: 'space-between' }}
-          >
-            <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-              <span className={styles.goldLine} />Content Progress
-            </span>
             <i className={`ti ti-chevron-${progressOpen ? 'up' : 'down'}`} style={{ fontSize: '13px' }} />
           </div>
           {progressOpen && (
