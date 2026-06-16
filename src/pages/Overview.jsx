@@ -18,12 +18,12 @@ async function listDropboxFolder(path) {
 async function countDropboxFiles(path) {
   try {
     const entries = await listDropboxFolder(path)
-    let count = 0
-    for (const entry of entries) {
-      if (entry['.tag'] === 'file') count++
-      else if (entry['.tag'] === 'folder') count += await countDropboxFiles(entry.path_lower)
-    }
-    return count
+    const counts = await Promise.all(entries.map(async entry => {
+      if (entry['.tag'] === 'file') return 1
+      if (entry['.tag'] === 'folder') return countDropboxFiles(entry.path_lower)
+      return 0
+    }))
+    return counts.reduce((sum, n) => sum + n, 0)
   } catch { return 0 }
 }
 
@@ -63,7 +63,9 @@ export default function Overview() {
   const navigate = useNavigate()
   const { client } = useClient()
   const [stats, setStats] = useState({ assets: 0, content: 0, events: 0 })
-  const [loading, setLoading] = useState(true)
+  const [statsLoading, setStatsLoading] = useState(true)
+  const [progressLoading, setProgressLoading] = useState(true)
+  const [scheduleLoading, setScheduleLoading] = useState(true)
   const [contentMonths, setContentMonths] = useState([])
   const [monthUploads, setMonthUploads] = useState({})
   const [monthScheduled, setMonthScheduled] = useState({})
@@ -96,27 +98,33 @@ export default function Overview() {
 
   async function loadDashboard() {
     if (!client) return
-    setLoading(true)
+    setStatsLoading(true)
+    setProgressLoading(true)
+    setScheduleLoading(true)
 
     const clientName = client.name
     const basePath = `/Glowing Moon Portal/${clientName}`
     const rollingMonths = getRollingMonths()
 
-    const [assetCount, contentCount] = await Promise.all([
-      countDropboxFiles(`${basePath}/Assets`),
-      countDropboxFiles(`${basePath}/Content`)
-    ])
-
     const today = new Date().toISOString().split('T')[0]
     const weekEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-    const { count } = await supabase
-      .from('calendar_events')
-      .select('*', { count: 'exact', head: true })
-      .eq('client_id', client.id)
-      .gte('date', today)
+    // Stat tiles: assets, content, upcoming events — render as soon as these resolve
+    Promise.all([
+      countDropboxFiles(`${basePath}/Assets`),
+      countDropboxFiles(`${basePath}/Content`),
+      supabase
+        .from('calendar_events')
+        .select('*', { count: 'exact', head: true })
+        .eq('client_id', client.id)
+        .gte('date', today)
+    ]).then(([assetCount, contentCount, eventsResult]) => {
+      setStats({ assets: assetCount, content: contentCount, events: eventsResult.count || 0 })
+      setStatsLoading(false)
+    })
 
-    const { data: weekData } = await supabase
+    // This week's schedule — independent of stats/progress, render as soon as it resolves
+    supabase
       .from('calendar_events')
       .select('*')
       .eq('client_id', client.id)
@@ -124,42 +132,50 @@ export default function Overview() {
       .lte('date', weekEnd)
       .order('date', { ascending: true })
       .limit(6)
+      .then(({ data: weekData }) => {
+        setWeekEvents(weekData || [])
+        setScheduleLoading(false)
+      })
 
-    const { data: monthRows } = await supabase
+    // Content progress card — heaviest section (3 parallel month walks), render independently
+    const monthRowsPromise = supabase
       .from('content_months')
       .select('*')
       .eq('client_id', client.id)
       .in('month', rollingMonths.map(m => m.month))
       .in('year', rollingMonths.map(m => m.year))
 
-    const uploadsMap = {}
-    const scheduledMap = {}
-
-    await Promise.all(rollingMonths.map(async ({ month, year }) => {
+    const monthDataPromise = Promise.all(rollingMonths.map(async ({ month, year }) => {
       const key = `${month} ${year}`
       const folderPath = `${basePath}/Content/${year}/${month}`
-      const uploaded = await countDropboxFiles(folderPath).catch(() => 0)
-      uploadsMap[key] = uploaded
-
       const startDate = `${year}-${String(MONTH_NAMES.indexOf(month) + 1).padStart(2,'0')}-01`
       const endDate = new Date(year, MONTH_NAMES.indexOf(month) + 1, 0).toISOString().split('T')[0]
 
-      const { count: sched } = await supabase
-        .from('calendar_events')
-        .select('*', { count: 'exact', head: true })
-        .eq('client_id', client.id)
-        .gte('date', startDate)
-        .lte('date', endDate)
+      const [uploaded, schedResult] = await Promise.all([
+        countDropboxFiles(folderPath).catch(() => 0),
+        supabase
+          .from('calendar_events')
+          .select('*', { count: 'exact', head: true })
+          .eq('client_id', client.id)
+          .gte('date', startDate)
+          .lte('date', endDate)
+      ])
 
-      scheduledMap[key] = sched || 0
+      return { key, uploaded, scheduled: schedResult.count || 0 }
     }))
 
-    setStats({ assets: assetCount, content: contentCount, events: count || 0 })
-    setWeekEvents(weekData || [])
-    setContentMonths(monthRows || [])
-    setMonthUploads(uploadsMap)
-    setMonthScheduled(scheduledMap)
-    setLoading(false)
+    Promise.all([monthRowsPromise, monthDataPromise]).then(([{ data: monthRows }, monthData]) => {
+      const uploadsMap = {}
+      const scheduledMap = {}
+      monthData.forEach(({ key, uploaded, scheduled }) => {
+        uploadsMap[key] = uploaded
+        scheduledMap[key] = scheduled
+      })
+      setContentMonths(monthRows || [])
+      setMonthUploads(uploadsMap)
+      setMonthScheduled(scheduledMap)
+      setProgressLoading(false)
+    })
   }
 
   const rollingMonths = getRollingMonths()
@@ -200,7 +216,7 @@ export default function Overview() {
             <i className="ti ti-folder" style={{ fontSize: '13px', color: 'var(--gold-light)' }} />
             Asset Library
           </div>
-          <div className={styles.statVal}>{loading ? '—' : stats.assets}</div>
+          <div className={styles.statVal}>{statsLoading ? '—' : stats.assets}</div>
           <div className={styles.statSub}>Brand files & templates</div>
           <div className={styles.statLink}>View library →</div>
         </div>
@@ -209,7 +225,7 @@ export default function Overview() {
             <i className="ti ti-photo" style={{ fontSize: '13px', color: 'var(--teal)' }} />
             Content Library
           </div>
-          <div className={styles.statVal}>{loading ? '—' : stats.content}</div>
+          <div className={styles.statVal}>{statsLoading ? '—' : stats.content}</div>
           <div className={styles.statSub}>Photos & videos</div>
           <div className={styles.statLink} style={{ color: 'var(--teal)' }}>Review content →</div>
         </div>
@@ -218,7 +234,7 @@ export default function Overview() {
             <i className="ti ti-calendar" style={{ fontSize: '13px', color: 'var(--text2)' }} />
             Upcoming Posts
           </div>
-          <div className={styles.statVal}>{loading ? '—' : stats.events}</div>
+          <div className={styles.statVal}>{statsLoading ? '—' : stats.events}</div>
           <div className={styles.statSub}>Scheduled ahead</div>
           <div className={styles.statLink} style={{ color: 'var(--text2)' }}>View calendar →</div>
         </div>
@@ -239,8 +255,8 @@ export default function Overview() {
           </div>
           {progressOpen && (
             <>
-              {loading && <div className={styles.empty}>Loading...</div>}
-              {!loading && rollingMonths.map(({ month, year }) => {
+              {progressLoading && <div className={styles.empty}>Loading...</div>}
+              {!progressLoading && rollingMonths.map(({ month, year }) => {
                 const key = `${month} ${year}`
                 const row = contentMonths.find(r => r.month === month && r.year === year)
                 const planned = row?.planned || 0
@@ -302,8 +318,8 @@ export default function Overview() {
           </div>
           {scheduleOpen && (
             <>
-              {loading && <div className={styles.empty}>Loading...</div>}
-              {!loading && weekEvents.length === 0 && (
+              {scheduleLoading && <div className={styles.empty}>Loading...</div>}
+              {!scheduleLoading && weekEvents.length === 0 && (
                 <div className={styles.empty}>
                   <i className="ti ti-calendar-off" style={{ fontSize: '24px', marginBottom: '8px', color: 'var(--text3)' }} />
                   No posts scheduled this week
@@ -355,3 +371,4 @@ export default function Overview() {
     </div>
   )
 }
+
