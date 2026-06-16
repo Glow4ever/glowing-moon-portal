@@ -5,6 +5,7 @@ import {
   createFolder, deleteFolder, getFileType, formatBytes, formatDate
 } from '../lib/dropbox'
 import { logAction } from '../lib/audit'
+import { incrementFileCount, countDropboxFilesRecursive } from '../lib/fileCounts'
 import { supabase } from '../lib/supabase'
 import styles from './Content.module.css'
 
@@ -92,17 +93,27 @@ export default function Content() {
     }
     await loadFolder(currentPath)
     setUploading(false)
+    // Update stored count: each uploaded file adds one to content_count
+    if (client?.id) incrementFileCount(client.id, 'content', selected.length)
   }
 
   async function handleDeleteFile(file) {
     await deleteFile(file.path_lower)
     await logAction('delete', 'content', { fileName: file.name, path: file.path_lower })
     setEntries(prev => prev.filter(e => e.id !== file.id))
+    // Update stored count: one file removed
+    if (client?.id) incrementFileCount(client.id, 'content', -1)
   }
 
   async function handleDeleteFolder(folder) {
+    // Folder may contain any number of files — count them before deleting
+    // so the stored total stays accurate, not just decremented by 1.
+    const filesInFolder = await countDropboxFilesRecursive(folder.path_lower)
     await deleteFolder(folder.path_lower)
     setEntries(prev => prev.filter(e => e.id !== folder.id))
+    if (client?.id && filesInFolder > 0) {
+      incrementFileCount(client.id, 'content', -filesInFolder)
+    }
   }
 
   async function handleCreateFolder() {
@@ -480,3 +491,4 @@ async function handleDownloadFolder(folder) {
     </div>
   )
 }
+
