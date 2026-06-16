@@ -109,19 +109,24 @@ export default function Overview() {
     const today = new Date().toISOString().split('T')[0]
     const weekEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
 
-    // Stat tiles: assets, content, upcoming events — render as soon as these resolve
-    Promise.all([
-      countDropboxFiles(`${basePath}/Assets`),
-      countDropboxFiles(`${basePath}/Content`),
-      supabase
-        .from('calendar_events')
-        .select('*', { count: 'exact', head: true })
-        .eq('client_id', client.id)
-        .gte('date', today)
-    ]).then(([assetCount, contentCount, eventsResult]) => {
-      setStats({ assets: assetCount, content: contentCount, events: eventsResult.count || 0 })
-      setStatsLoading(false)
+    // Stat tiles: assets and content now read from stored Supabase counters
+    // instead of walking Dropbox on every load. Counters are kept current by
+    // incrementFileCount() calls in Content.jsx / Assets.jsx upload/delete handlers.
+    setStats({
+      assets: client.asset_count || 0,
+      content: client.content_count || 0,
+      events: 0
     })
+
+    supabase
+      .from('calendar_events')
+      .select('*', { count: 'exact', head: true })
+      .eq('client_id', client.id)
+      .gte('date', today)
+      .then(({ count }) => {
+        setStats(prev => ({ ...prev, events: count || 0 }))
+        setStatsLoading(false)
+      })
 
     // This week's schedule — independent of stats/progress, render as soon as it resolves
     supabase
