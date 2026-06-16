@@ -2,6 +2,7 @@ import { logAction } from '../lib/audit'
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { useClient } from '../lib/ClientContext'
+import { reconcileClientCounts } from '../lib/fileCounts'
 import styles from './Admin.module.css'
 
 export default function Admin() {
@@ -21,6 +22,7 @@ export default function Admin() {
   const [expandedReview, setExpandedReview] = useState({})
   const [comments, setComments] = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
+  const [resyncing, setResyncing] = useState({})
 
   const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
   const currentYear = new Date().getFullYear()
@@ -64,6 +66,14 @@ export default function Admin() {
   function showToast(msg) {
     setToast(msg)
     setTimeout(() => setToast(''), 3000)
+  }
+
+  async function resyncFiles(client) {
+    setResyncing(p => ({ ...p, [client.id]: true }))
+    const { assetCount, contentCount } = await reconcileClientCounts(client.id, client.name)
+    await loadUserContext()
+    showToast(`${client.name} resynced — ${assetCount} assets, ${contentCount} content files`)
+    setResyncing(p => ({ ...p, [client.id]: false }))
   }
 
   async function onboardClient() {
@@ -214,6 +224,14 @@ export default function Admin() {
                       {c.approval_month && getStatusBadge(c.approval_status)}
                     </div>
                     <div className={styles.clientActions} style={{ flexDirection: 'row', gap: '6px' }}>
+                      <button
+                        className={styles.editBtn}
+                        onClick={() => resyncFiles(c)}
+                        disabled={resyncing[c.id]}
+                        title="Recount files from Dropbox after manual changes"
+                      >
+                        <i className={`ti ti-refresh${resyncing[c.id] ? ' spin' : ''}`} aria-hidden="true" /> {resyncing[c.id] ? 'Resyncing...' : 'Resync Files'}
+                      </button>
                       <button
                         className={styles.editBtn}
                         onClick={() => setExpandedReview(p => ({ ...p, [c.id]: !p[c.id] }))}
