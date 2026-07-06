@@ -5,6 +5,7 @@ import { ClientProvider, useClient } from './lib/ClientContext'
 import { useEffect } from 'react'
 import Login from './pages/Login'
 import Portal from './pages/Portal'
+import { useIdleTimer } from './lib/useIdleTimer.jsx'
 
 function BrandingInjector() {
   const { client } = useClient()
@@ -26,6 +27,7 @@ function BrandingInjector() {
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
+  useIdleTimer()
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#080807' }}>
       <div style={{ textAlign:'center' }}>
