@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { supabase } from './supabase'
 
-const IDLE_TIMEOUT = 30 * 60 * 1000 // 30 minutes
+const IDLE_TIMEOUT = 4 * 60 * 60 * 1000 // 4 hours
 
 export function useIdleTimer() {
   const timer = useRef(null)
