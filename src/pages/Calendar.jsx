@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useClient } from '../lib/ClientContext'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isSameDay, parseISO } from 'date-fns'
 import styles from './Calendar.module.css'
+import { apiFetch } from '../lib/apiFetch'
 
 const EVENT_TYPES = [
   { value: 'photo',    label: 'Photo',    color: '#5DCAA5' },
@@ -51,7 +52,7 @@ export default function Calendar() {
 
   async function loadMetricoolPosts() {
     try {
-      const res = await fetch('/api/metricool')
+      const res = await apiFetch('/api/metricool')
       if (!res.ok) return
       const data = await res.json()
       setMetricoolPosts(data.data || [])
