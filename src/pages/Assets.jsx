@@ -6,13 +6,11 @@ import {
 import styles from './Assets.module.css'
 import { logAction } from '../lib/audit'
 import { incrementFileCount } from '../lib/fileCounts'
+import { apiFetch } from '../lib/apiFetch'
 
 async function listDropboxFolder(path) {
-  import { apiFetch } from '../lib/apiFetch'
-// ...
-const res = await apiFetch('/api/dropbox', { ... })
+  const res = await apiFetch('/api/dropbox', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       endpoint: 'files/list_folder',
       body: { path, include_deleted: false }
@@ -80,25 +78,23 @@ export default function Assets() {
     }
     await loadFolder(currentPath)
     setUploading(false)
-    // Update stored count: each uploaded file adds one to asset_count
     if (client?.id) incrementFileCount(client.id, 'asset', selected.length)
   }
 
-async function handleDownload(file) {
-  const link = await getDownloadLink(file.path_lower)
-  if (link) {
-    window.open(link, '_blank')
-    await logAction('download', 'assets', { fileName: file.name, path: file.path_lower })
+  async function handleDownload(file) {
+    const link = await getDownloadLink(file.path_lower)
+    if (link) {
+      window.open(link, '_blank')
+      await logAction('download', 'assets', { fileName: file.name, path: file.path_lower })
+    }
   }
-}
 
- async function handleDeleteFile(file) {
-  await deleteFile(file.path_lower)
-  await logAction('delete', 'assets', { fileName: file.name, path: file.path_lower })
-  setEntries(prev => prev.filter(e => e.id !== file.id))
-  // Update stored count: one file removed
-  if (client?.id) incrementFileCount(client.id, 'asset', -1)
-}
+  async function handleDeleteFile(file) {
+    await deleteFile(file.path_lower)
+    await logAction('delete', 'assets', { fileName: file.name, path: file.path_lower })
+    setEntries(prev => prev.filter(e => e.id !== file.id))
+    if (client?.id) incrementFileCount(client.id, 'asset', -1)
+  }
 
   const folders = entries.filter(e => e.type === 'folder')
   const files = entries.filter(e => e.type !== 'folder')
@@ -108,7 +104,6 @@ async function handleDownload(file) {
       <div className={styles.header}>
         <div>
           <h1 className={styles.title}>Asset Library</h1>
-          {/* Breadcrumb */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
             {stack.map((crumb, i) => (
               <span key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -151,7 +146,6 @@ async function handleDownload(file) {
         </div>
       )}
 
-      {/* Folders */}
       {folders.length > 0 && (
         <div className={styles.folderGrid}>
           {folders.map(f => (
@@ -166,7 +160,6 @@ async function handleDownload(file) {
         </div>
       )}
 
-      {/* Files */}
       {files.length > 0 && (
         <div className={styles.fileList}>
           <div className={styles.fileListHeader}>
@@ -203,4 +196,3 @@ async function handleDownload(file) {
     </div>
   )
 }
-
