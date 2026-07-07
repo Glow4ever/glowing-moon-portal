@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { useClient } from '../lib/ClientContext'
 import { supabase } from '../lib/supabase'
 import styles from './Overview.module.css'
+import { apiFetch } from '../lib/apiFetch'
 
 async function listDropboxFolder(path) {
-  const res = await fetch('/api/dropbox', {
+  const res = await apiFetch('/api/dropbox', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ endpoint: 'files/list_folder', body: { path, include_deleted: false } })
