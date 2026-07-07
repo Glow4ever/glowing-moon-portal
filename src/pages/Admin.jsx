@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useClient } from '../lib/ClientContext'
 import { reconcileClientCounts } from '../lib/fileCounts'
 import styles from './Admin.module.css'
+import { apiFetch } from '../lib/apiFetch'
 
 export default function Admin() {
   const { allClients, updateClientBranding, loadUserContext } = useClient()
@@ -146,17 +147,15 @@ export default function Admin() {
       planned: plannedPosts[client.id] || 0,
       approval_status: 'pending'
     }, { onConflict: 'client_id,month,year' })
-    const res = await fetch('/api/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        type: 'review',
-        clientName: client.name,
-        month,
-        portalLink: 'https://portal.glowingmoonmedia.com',
-        notificationEmail: client.notification_email
-      })
-    })
+    const res = await apiFetch('/api/send-email', {
+  method: 'POST',
+  body: JSON.stringify({
+    type: 'review',
+    clientName: c.name,
+    month: reviewMonth[c.id],
+    notificationEmail: c.notification_email
+  })
+})
     if (res.ok) {
       await loadUserContext()
       setExpandedReview(p => ({ ...p, [client.id]: false }))
