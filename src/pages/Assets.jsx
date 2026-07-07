@@ -8,7 +8,9 @@ import { logAction } from '../lib/audit'
 import { incrementFileCount } from '../lib/fileCounts'
 
 async function listDropboxFolder(path) {
-  const res = await fetch('/api/dropbox', {
+  import { apiFetch } from '../lib/apiFetch'
+// ...
+const res = await apiFetch('/api/dropbox', { ... })
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
