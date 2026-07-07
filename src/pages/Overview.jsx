@@ -79,15 +79,15 @@ export default function Overview() {
   useEffect(() => { loadMetricoolPosts() }, [])
 
   async function loadMetricoolPosts() {
-    try {
-      const res = await fetch('/api/metricool')
-      if (!res.ok) return
-      const data = await res.json()
-      setMetricoolPosts(data.data || [])
-    } catch (err) {
-      console.error('Metricool error:', err)
-    }
+  try {
+    const res = await apiFetch('/api/metricool')
+    if (!res.ok) return
+    const data = await res.json()
+    setMetricoolPosts(data.data || [])
+  } catch (err) {
+    console.error('Metricool error:', err)
   }
+}
 
   function getMediaForDate(dateStr) {
     const match = metricoolPosts.find(post => {
