@@ -8,11 +8,11 @@ import { logAction } from '../lib/audit'
 import { incrementFileCount, countDropboxFilesRecursive } from '../lib/fileCounts'
 import { supabase } from '../lib/supabase'
 import styles from './Content.module.css'
+import { apiFetch } from '../lib/apiFetch'
 
 async function listDropboxFolder(path) {
-  const res = await fetch('/api/dropbox', {
+  const res = await apiFetch('/api/dropbox', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       endpoint: 'files/list_folder',
       body: { path, include_deleted: false }
@@ -93,7 +93,6 @@ export default function Content() {
     }
     await loadFolder(currentPath)
     setUploading(false)
-    // Update stored count: each uploaded file adds one to content_count
     if (client?.id) incrementFileCount(client.id, 'content', selected.length)
   }
 
@@ -101,13 +100,10 @@ export default function Content() {
     await deleteFile(file.path_lower)
     await logAction('delete', 'content', { fileName: file.name, path: file.path_lower })
     setEntries(prev => prev.filter(e => e.id !== file.id))
-    // Update stored count: one file removed
     if (client?.id) incrementFileCount(client.id, 'content', -1)
   }
 
   async function handleDeleteFolder(folder) {
-    // Folder may contain any number of files — count them before deleting
-    // so the stored total stays accurate, not just decremented by 1.
     const filesInFolder = await countDropboxFilesRecursive(folder.path_lower)
     await deleteFolder(folder.path_lower)
     setEntries(prev => prev.filter(e => e.id !== folder.id))
@@ -124,11 +120,10 @@ export default function Content() {
     await loadFolder(currentPath)
   }
 
-async function handleDownloadFolder(folder) {
+  async function handleDownloadFolder(folder) {
     try {
-      const res = await fetch('/api/dropbox_zip', {
+      const res = await apiFetch('/api/dropbox_zip', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: folder.path_display || folder.path_lower })
       })
       if (!res.ok) {
@@ -147,7 +142,7 @@ async function handleDownloadFolder(folder) {
       console.error('Folder download error:', err)
     }
   }
-  
+
   async function handleDownload(file) {
     const link = await getDownloadLink(file.path_lower)
     if (link) {
@@ -165,9 +160,8 @@ async function handleDownloadFolder(folder) {
       comment: commentText.trim(),
       read: false
     })
-    await fetch('/api/send-email', {
+    await apiFetch('/api/send-email', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         type: 'comment',
         clientName: client.name,
@@ -186,14 +180,13 @@ async function handleDownloadFolder(folder) {
       await supabase.from('clients').update({
         approval_status: 'approved'
       }).eq('id', client.id)
-      
+
       await supabase.from('content_months').update({
         approval_status: 'approved'
       }).eq('client_id', client.id).eq('month', client.approval_month?.split(' ')[0]).eq('year', parseInt(client.approval_month?.split(' ')[1]))
 
-      await fetch('/api/send-email', {
+      await apiFetch('/api/send-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'approved',
           clientName: client.name,
@@ -289,8 +282,6 @@ async function handleDownloadFolder(folder) {
           </button>
         </div>
       )}
-
-  
 
       {loading && <div className={styles.emptyState}>Loading...</div>}
 
@@ -491,4 +482,3 @@ async function handleDownloadFolder(folder) {
     </div>
   )
 }
-
