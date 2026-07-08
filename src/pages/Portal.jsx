@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useClient } from '../lib/ClientContext'
 import Topbar from '../components/Topbar'
 import Sidebar from '../components/Sidebar'
@@ -10,6 +10,12 @@ import Admin from './Admin'
 import Settings from './Settings.jsx'
 import Messages from './Messages.jsx'
 import styles from './Portal.module.css'
+
+function AdminRoute({ children }) {
+  const { role } = useClient()
+  if (role !== 'admin') return <Navigate to="/" replace />
+  return children
+}
 
 export default function Portal() {
   const { loading, client } = useClient()
@@ -33,7 +39,7 @@ export default function Portal() {
             <Route path="/content"  element={<Content />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/messages" element={<Messages />} />
-            <Route path="/admin"    element={<Admin />} />
+            <Route path="/admin"    element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
