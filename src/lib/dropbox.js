@@ -1,11 +1,10 @@
+import { apiFetch } from './apiFetch'
+
 const BASE_PATH = '/Glowing Moon Portal'
 
 async function dbxFetch(endpoint, body) {
-  const res = await fetch('/api/dropbox', {
+  const res = await apiFetch('/api/dropbox', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({ endpoint, body })
   })
 
@@ -81,17 +80,33 @@ export async function getPreviewLink(pathLower) {
 
 export async function uploadFile(relativePath, fileData) {
   try {
-    const res = await fetch('/api/dropbox-upload', {
+    const tokenRes = await apiFetch('/api/dropbox-upload-token', { method: 'POST' })
+    if (!tokenRes.ok) throw new Error('Could not get upload token')
+    const { accessToken, namespaceId } = await tokenRes.json()
+
+    const res = await fetch('https://content.dropboxapi.com/2/files/upload', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/octet-stream',
+        'Dropbox-API-Arg': JSON.stringify({
+          path: `${BASE_PATH}/${relativePath}`,
+          mode: 'add',
+          autorename: true,
+          mute: false
+        }),
+        'Dropbox-API-Path-Root': JSON.stringify({
+          '.tag': 'namespace_id',
+          namespace_id: namespaceId
+        })
       },
-      body: JSON.stringify({
-        path: `${BASE_PATH}/${relativePath}`,
-        fileData: Array.from(new Uint8Array(fileData))
-      })
+      body: fileData
     })
-    if (!res.ok) throw new Error(`Upload error: ${res.status}`)
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Upload error: ${res.status} ${text}`)
+    }
     return await res.json()
   } catch (err) {
     console.error('uploadFile error:', err)
