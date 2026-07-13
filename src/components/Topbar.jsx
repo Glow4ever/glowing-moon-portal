@@ -68,28 +68,28 @@ export default function Topbar() {
   }
 
   async function markOneRead(n) {
-  if (n.read) return
-  const table = n.source === 'comment' ? 'file_comments' : 'notifications'
-  await supabase.from(table).update({ read: true }).eq('id', n.id)
-  await loadNotifications()
-}
+    if (n.read) return
+    const table = n.source === 'comment' ? 'file_comments' : 'notifications'
+    await supabase.from(table).update({ read: true }).eq('id', n.id)
+    await loadNotifications()
+  }
 
   async function loadLogo() {
-  const extensions = ['png', 'jpg', 'jpeg', 'svg', 'webp']
-  for (const ext of extensions) {
-    const path = `${logoPath}.${ext}`
-    const { data } = supabase.storage.from('portal-assets').getPublicUrl(path)
-    const url = data.publicUrl
-    try {
-      const res = await fetch(url, { method: 'HEAD' })
-      if (res.ok) {
-        setLogoUrl(url + '?t=' + Date.now())
-        return
-      }
-    } catch {}
+    const extensions = ['png', 'jpg', 'jpeg', 'svg', 'webp']
+    for (const ext of extensions) {
+      const path = `${logoPath}.${ext}`
+      const { data } = supabase.storage.from('portal-assets').getPublicUrl(path)
+      const url = data.publicUrl
+      try {
+        const res = await fetch(url, { method: 'HEAD' })
+        if (res.ok) {
+          setLogoUrl(url + '?t=' + Date.now())
+          return
+        }
+      } catch {}
+    }
+    setLogoUrl(null)
   }
-  setLogoUrl(null)
-}
 
   async function handleLogoUpload(e) {
     const file = e.target.files[0]
@@ -245,26 +245,30 @@ export default function Topbar() {
                 )}
 
                 {notifications.map((n, i) => (
-  <div
-    key={i}
-    onClick={() => markOneRead(n)}
-    style={{
-      display: 'flex', gap: '10px', padding: '10px 0',
-      borderBottom: '1px solid var(--border)',
-      opacity: n.read ? 0.5 : 1,
-      cursor: 'pointer'
-    }}
-  >
-    <div style={{
-      width: '8px', height: '8px', borderRadius: '50', flexShrink: 0, marginTop: '4px',
-      background: n.type === 'approval' ? 'var(--teal)' : '#D3C9A7'
-    }} />
-    <div style={{ flex: 1 }}>
-      <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.4' }}>{n.message}</div>
-      <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '3px' }}>{timeAgo(n.created_at)}</div>
-    </div>
-  </div>
-))}
+                  <div
+                    key={i}
+                    onClick={() => markOneRead(n)}
+                    style={{
+                      display: 'flex', gap: '10px', padding: '10px 0',
+                      borderBottom: '1px solid var(--border)',
+                      opacity: n.read ? 0.5 : 1,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <div style={{
+                      width: '8px', height: '8px', borderRadius: '50', flexShrink: 0, marginTop: '4px',
+                      background: n.type === 'approval' ? 'var(--teal)' : '#D3C9A7'
+                    }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.4' }}>{n.message}</div>
+                      <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '3px' }}>{timeAgo(n.created_at)}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {role !== 'admin' && (
           <button className={styles.iconBtn} aria-label="Notifications">
