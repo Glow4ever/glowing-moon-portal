@@ -67,6 +67,13 @@ export default function Topbar() {
     await loadNotifications()
   }
 
+  async function markOneRead(n) {
+  if (n.read) return
+  const table = n.source === 'comment' ? 'file_comments' : 'notifications'
+  await supabase.from(table).update({ read: true }).eq('id', n.id)
+  await loadNotifications()
+}
+
   async function loadLogo() {
   const extensions = ['png', 'jpg', 'jpeg', 'svg', 'webp']
   for (const ext of extensions) {
@@ -238,25 +245,26 @@ export default function Topbar() {
                 )}
 
                 {notifications.map((n, i) => (
-                  <div key={i} style={{
-                    display: 'flex', gap: '10px', padding: '10px 0',
-                    borderBottom: '1px solid var(--border)',
-                    opacity: n.read ? 0.5 : 1
-                  }}>
-                    <div style={{
-                      width: '8px', height: '8px', borderRadius: '50', flexShrink: 0, marginTop: '4px',
-                      background: n.type === 'approval' ? 'var(--teal)' : '#D3C9A7'
-                    }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.4' }}>{n.message}</div>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '3px' }}>{timeAgo(n.created_at)}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+  <div
+    key={i}
+    onClick={() => markOneRead(n)}
+    style={{
+      display: 'flex', gap: '10px', padding: '10px 0',
+      borderBottom: '1px solid var(--border)',
+      opacity: n.read ? 0.5 : 1,
+      cursor: 'pointer'
+    }}
+  >
+    <div style={{
+      width: '8px', height: '8px', borderRadius: '50', flexShrink: 0, marginTop: '4px',
+      background: n.type === 'approval' ? 'var(--teal)' : '#D3C9A7'
+    }} />
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.4' }}>{n.message}</div>
+      <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '3px' }}>{timeAgo(n.created_at)}</div>
+    </div>
+  </div>
+))}
 
         {role !== 'admin' && (
           <button className={styles.iconBtn} aria-label="Notifications">
