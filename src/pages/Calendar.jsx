@@ -34,7 +34,7 @@ function truncate(str, n) {
 
 export default function Calendar() {
   const { client } = useClient()
-  const [currentDate, setCurrentDate] = useState(new Date(2026, 5, 1))
+  const [currentDate, setCurrentDate] = useState(new Date())
   const [events, setEvents] = useState([])
   const [metricoolPosts, setMetricoolPosts] = useState([])
   const [modal, setModal] = useState(null)
