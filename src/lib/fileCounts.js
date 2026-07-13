@@ -1,13 +1,6 @@
 import { supabase } from './supabase'
+import { apiFetch } from './apiFetch'
 
-/**
- * Atomically increment or decrement a client's file count in Supabase.
- * type: 'asset' | 'content'
- * delta: positive to add, negative to subtract
- *
- * Uses an RPC call to a Postgres function so concurrent uploads/deletes
- * never race against each other (no read-then-write from the client).
- */
 export async function incrementFileCount(clientId, type, delta) {
   if (!clientId || !delta) return
   try {
@@ -22,16 +15,10 @@ export async function incrementFileCount(clientId, type, delta) {
   }
 }
 
-/**
- * Recursively count files in a Dropbox folder tree.
- * Used for backfilling/reconciling the stored counts against ground truth.
- * Counts subfolders in parallel.
- */
 export async function countDropboxFilesRecursive(path) {
   try {
-    const res = await fetch('/api/dropbox', {
+    const res = await apiFetch('/api/dropbox', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ endpoint: 'files/list_folder', body: { path, include_deleted: false } })
     })
     if (!res.ok) return 0
@@ -48,11 +35,6 @@ export async function countDropboxFilesRecursive(path) {
   }
 }
 
-/**
- * Reconcile a single client's stored counts against actual Dropbox contents.
- * Call this from an admin "resync" button to correct any drift from manual
- * Dropbox edits made outside the portal.
- */
 export async function reconcileClientCounts(clientId, clientName) {
   const basePath = `/Glowing Moon Portal/${clientName}`
   const [assetCount, contentCount] = await Promise.all([
