@@ -38,6 +38,15 @@ export default function Admin() {
     if (data) setTeamMembers(data)
   }
 
+  async function removeTeamMember(member) {
+    if (member.role === 'admin') return showToast('Cannot remove admin accounts from here')
+    const confirmed = window.confirm(`Remove portal access for ${member.email || 'this user'}? They will no longer be able to log in.`)
+    if (!confirmed) return
+    await supabase.from('user_roles').delete().eq('id', member.id)
+    await loadTeam()
+    showToast('Portal access removed')
+  }
+
   async function loadAuditLogs() {
     setLoadingLogs(true)
     const { data } = await supabase
@@ -111,6 +120,7 @@ export default function Admin() {
     setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
     setNewMember({ email: '', password: '', client_id: '', role: 'member' })
     await loadUserContext()
+    await loadTeam()
     showToast('Client onboarded!')
     setSaving(false)
   }
@@ -148,14 +158,14 @@ export default function Admin() {
       approval_status: 'pending'
     }, { onConflict: 'client_id,month,year' })
     const res = await apiFetch('/api/send-email', {
-  method: 'POST',
-  body: JSON.stringify({
-    type: 'review',
-    clientName: c.name,
-    month: reviewMonth[c.id],
-    notificationEmail: c.notification_email
-  })
-})
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'review',
+        clientName: client.name,
+        month: reviewMonth[client.id],
+        notificationEmail: client.notification_email
+      })
+    })
     if (res.ok) {
       await loadUserContext()
       setExpandedReview(p => ({ ...p, [client.id]: false }))
@@ -315,55 +325,81 @@ export default function Admin() {
                           </div>
                         </div>
                       </div>
-                      {!teamMembers.find(m => m.client_id === editingClient.id) && (
-                          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
-                            <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>Portal Access</div>
-                            <div className={styles.formGrid}>
-                              <div className={styles.field}>
-                                <label className={styles.label}>Login Email</label>
-                                <input
-                                  className={styles.input}
-                                  type="email"
-                                  value={newMember.email}
-                                  onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
-                                  placeholder="client@example.com"
-                                />
+
+                      {/* Existing team members for this client */}
+                      {teamMembers.filter(m => m.client_id === editingClient.id).length > 0 && (
+                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
+                          <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '10px' }}>Current Portal Access</div>
+                          {teamMembers.filter(m => m.client_id === editingClient.id).map(m => (
+                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                              <i className="ti ti-user" style={{ fontSize: '14px', color: 'var(--text3)' }} />
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '13px', color: 'var(--text)' }}>{m.email || 'No email on file'}</div>
                               </div>
-                              <div className={styles.field}>
-                                <label className={styles.label}>Temporary Password</label>
-                                <input
-                                  className={styles.input}
-                                  type="password"
-                                  value={newMember.password}
-                                  onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
-                                  placeholder="Min 8 characters"
-                                />
-                              </div>
+                              <button
+                                className={styles.editBtn}
+                                onClick={() => removeTeamMember(m)}
+                                title="Remove portal access"
+                                style={{ color: 'var(--coral, #e0845a)', fontSize: '11px' }}
+                              >
+                                <i className="ti ti-trash" /> Remove
+                              </button>
                             </div>
-                            <button
-                              className="btn btn-gold"
-                              style={{ fontSize: '12px' }}
-                              onClick={async () => {
-                                if (!newMember.email || !newMember.password) return showToast('Enter email and password')
-                                setSaving(true)
-                                const { data, error } = await supabase.functions.invoke('create-user', {
-                                  body: { email: newMember.email, password: newMember.password, client_id: editingClient.id, role: 'member' }
-                                })
-                                if (error || data?.error) {
-                                  showToast(data?.error || 'Failed to create user.')
-                                } else {
-                                  showToast('Portal access created!')
-                                  setNewMember({ email: '', password: '', client_id: '', role: 'member' })
-                                  await loadTeam()
-                                }
-                                setSaving(false)
-                              }}
-                              disabled={saving}
-                            >
-                              <i className="ti ti-user-plus" aria-hidden="true" /> Add Portal Access
-                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Add another team member */}
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
+                        <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>
+                          {teamMembers.filter(m => m.client_id === editingClient.id).length > 0 ? 'Add Another Team Member' : 'Portal Access'}
+                        </div>
+                        <div className={styles.formGrid}>
+                          <div className={styles.field}>
+                            <label className={styles.label}>Login Email</label>
+                            <input
+                              className={styles.input}
+                              type="email"
+                              value={newMember.email}
+                              onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
+                              placeholder="teammate@example.com"
+                            />
                           </div>
-                        )}
+                          <div className={styles.field}>
+                            <label className={styles.label}>Temporary Password</label>
+                            <input
+                              className={styles.input}
+                              type="password"
+                              value={newMember.password}
+                              onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
+                              placeholder="Min 8 characters"
+                            />
+                          </div>
+                        </div>
+                        <button
+                          className="btn btn-gold"
+                          style={{ fontSize: '12px' }}
+                          onClick={async () => {
+                            if (!newMember.email || !newMember.password) return showToast('Enter email and password')
+                            setSaving(true)
+                            const { data, error } = await supabase.functions.invoke('create-user', {
+                              body: { email: newMember.email, password: newMember.password, client_id: editingClient.id, role: 'member' }
+                            })
+                            if (error || data?.error) {
+                              showToast(data?.error || 'Failed to create user.')
+                            } else {
+                              showToast('Portal access created!')
+                              setNewMember({ email: '', password: '', client_id: '', role: 'member' })
+                              await loadTeam()
+                            }
+                            setSaving(false)
+                          }}
+                          disabled={saving}
+                        >
+                          <i className="ti ti-user-plus" aria-hidden="true" /> Add Portal Access
+                        </button>
+                      </div>
+
                       <div className={styles.formActions}>
                         <button className="btn" onClick={() => setEditingClient(null)}>Cancel</button>
                         <button className="btn btn-gold" onClick={saveClientBranding} disabled={saving}>Save Branding</button>
@@ -442,11 +478,23 @@ export default function Admin() {
                   {m.role === 'admin' ? <i className="ti ti-shield" aria-hidden="true" /> : <i className="ti ti-user" aria-hidden="true" />}
                 </div>
                 <div className={styles.teamInfo}>
-                  <div className={styles.teamRole}>{m.role === 'admin' ? 'Admin' : 'Client Member'}</div>
-                  <div className={styles.teamClient}>{m.clients?.name || 'All clients (admin)'}</div>
+                  <div className={styles.teamRole}>{m.email || 'No email on file'}</div>
+                  <div className={styles.teamClient}>{m.role === 'admin' ? 'Admin' : m.clients?.name || 'Unassigned'}</div>
                 </div>
-                <div className={styles.teamBadge} style={{ background: m.role === 'admin' ? 'var(--gold-bg)' : 'var(--teal-bg)', color: m.role === 'admin' ? 'var(--gold-light)' : 'var(--teal)' }}>
-                  {m.role}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className={styles.teamBadge} style={{ background: m.role === 'admin' ? 'var(--gold-bg)' : 'var(--teal-bg)', color: m.role === 'admin' ? 'var(--gold-light)' : 'var(--teal)' }}>
+                    {m.role}
+                  </div>
+                  {m.role !== 'admin' && (
+                    <button
+                      className={styles.editBtn}
+                      onClick={() => removeTeamMember(m)}
+                      title="Remove portal access"
+                      style={{ color: 'var(--coral, #e0845a)', fontSize: '11px' }}
+                    >
+                      <i className="ti ti-trash" />
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -543,3 +591,4 @@ export default function Admin() {
     </div>
   )
 }
+
