@@ -17,16 +17,9 @@ export default function Admin() {
   const [toast, setToast] = useState('')
   const [auditLogs, setAuditLogs] = useState([])
   const [loadingLogs, setLoadingLogs] = useState(false)
-  const [reviewMonth, setReviewMonth] = useState({})
-  const [plannedPosts, setPlannedPosts] = useState({})
-  const [sendingReview, setSendingReview] = useState({})
-  const [expandedReview, setExpandedReview] = useState({})
   const [comments, setComments] = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
   const [resyncing, setResyncing] = useState({})
-
-  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
-  const currentYear = new Date().getFullYear()
 
   function generatePassword() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
@@ -175,42 +168,6 @@ export default function Admin() {
     setSaving(false)
   }
 
-  async function sendForReview(client) {
-    const month = reviewMonth[client.id]
-    if (!month) return showToast('Select a month first')
-    if (!client.notification_email) return showToast('No notification email set for this client')
-    setSendingReview(p => ({ ...p, [client.id]: true }))
-    const [monthName, year] = month.split(' ')
-    await supabase.from('clients').update({
-      approval_status: 'pending',
-      approval_month: month
-    }).eq('id', client.id)
-    await supabase.from('content_months').upsert({
-      client_id: client.id,
-      month: monthName,
-      year: parseInt(year),
-      planned: plannedPosts[client.id] || 0,
-      approval_status: 'pending'
-    }, { onConflict: 'client_id,month,year' })
-    const res = await apiFetch('/api/send-email', {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'review',
-        clientName: client.name,
-        month: reviewMonth[client.id],
-        notificationEmail: client.notification_email
-      })
-    })
-    if (res.ok) {
-      await loadUserContext()
-      setExpandedReview(p => ({ ...p, [client.id]: false }))
-      showToast(`Review email sent to ${client.notification_email}`)
-    } else {
-      showToast('Email failed — check Vercel logs')
-    }
-    setSendingReview(p => ({ ...p, [client.id]: false }))
-  }
-
   function getStatusBadge(status) {
     if (!status || status === 'none') return null
     const map = {
@@ -276,57 +233,19 @@ export default function Admin() {
                       >
                         <i className={`ti ti-refresh${resyncing[c.id] ? ' spin' : ''}`} aria-hidden="true" /> {resyncing[c.id] ? 'Resyncing...' : 'Resync Files'}
                       </button>
-                      <button
+                      <a
+                        href="/content"
                         className={styles.editBtn}
-                        onClick={() => setExpandedReview(p => ({ ...p, [c.id]: !p[c.id] }))}
+                        title="Send for Review is now started from inside the folder you want to submit, in Content Library"
+                        style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
                       >
                         <i className="ti ti-send" aria-hidden="true" /> Send for Review
-                      </button>
+                      </a>
                       <button className={styles.editBtn} onClick={() => setEditingClient({...c})}>
                         <i className="ti ti-pencil" aria-hidden="true" /> Edit
                       </button>
                     </div>
                   </div>
-
-                  {expandedReview[c.id] && (
-                    <div className={styles.clientReviewForm}>
-                      <select
-                        className={styles.input}
-                        style={{ width: '150px', padding: '6px 8px', fontSize: '12px' }}
-                        value={reviewMonth[c.id] || ''}
-                        onChange={e => setReviewMonth(p => ({ ...p, [c.id]: e.target.value }))}
-                      >
-                        <option value="">Select month...</option>
-                        {MONTHS.map(m => (
-                          <option key={m} value={`${m} ${currentYear}`}>{m} {currentYear}</option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        className={styles.input}
-                        style={{ width: '80px', padding: '6px 8px', fontSize: '12px' }}
-                        value={plannedPosts[c.id] || ''}
-                        onChange={e => setPlannedPosts(p => ({ ...p, [c.id]: parseInt(e.target.value) || 0 }))}
-                        placeholder="# posts"
-                        min="0"
-                      />
-                      <button
-                        className="btn btn-gold"
-                        style={{ fontSize: '12px', padding: '6px 14px' }}
-                        onClick={() => sendForReview(c)}
-                        disabled={sendingReview[c.id] || !reviewMonth[c.id]}
-                      >
-                        {sendingReview[c.id] ? 'Sending...' : 'Send for Review'}
-                      </button>
-                      <button
-                        className="btn"
-                        style={{ fontSize: '12px', padding: '6px 10px' }}
-                        onClick={() => setExpandedReview(p => ({ ...p, [c.id]: false }))}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
 
                   {editingClient?.id === c.id && (
                     <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '16px' }}>
@@ -642,6 +561,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
