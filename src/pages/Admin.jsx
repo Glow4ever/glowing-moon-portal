@@ -47,8 +47,21 @@ export default function Admin() {
 
   async function removeTeamMember(member) {
     if (member.role === 'admin') return showToast('Cannot remove admin accounts from here')
-    const confirmed = window.confirm(`Remove portal access for ${member.email || 'this user'}? They will no longer be able to log in.`)
+    const confirmed = window.confirm(`Remove portal access for ${member.email || 'this user'}? This deletes their login entirely — they'll need to be re-invited to regain access.`)
     if (!confirmed) return
+    const { data, error } = await supabase.functions.invoke('delete-user', {
+      body: { user_id: member.user_id }
+    })
+    if (error || data?.error) {
+      let message = 'Failed to remove user.'
+      try {
+        const body = await error?.context?.json()
+        if (body?.error) message = body.error
+      } catch {}
+      if (data?.error) message = data.error
+      showToast(message)
+      return
+    }
     await supabase.from('user_roles').delete().eq('id', member.id)
     await loadTeam()
     showToast('Portal access removed')
@@ -629,6 +642,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
