@@ -1,608 +1,188 @@
-import { logAction } from '../lib/audit'
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import { useClient } from '../lib/ClientContext'
-import { reconcileClientCounts } from '../lib/fileCounts'
-import styles from './Admin.module.css'
-import { apiFetch } from '../lib/apiFetch'
+const { requireAuth } = require('./_auth')
+const { Resend } = require('resend')
 
-export default function Admin() {
-  const { allClients, updateClientBranding, loadUserContext } = useClient()
-  const [tab, setTab] = useState('clients')
-  const [teamMembers, setTeamMembers] = useState([])
-  const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
-  const [newMember, setNewMember] = useState({ email: '', password: '', client_id: '', role: 'member' })
-  const [editingClient, setEditingClient] = useState(null)
-  const [saving, setSaving] = useState(false)
-  const [toast, setToast] = useState('')
-  const [auditLogs, setAuditLogs] = useState([])
-  const [loadingLogs, setLoadingLogs] = useState(false)
-  const [reviewMonth, setReviewMonth] = useState({})
-  const [plannedPosts, setPlannedPosts] = useState({})
-  const [sendingReview, setSendingReview] = useState({})
-  const [expandedReview, setExpandedReview] = useState({})
-  const [comments, setComments] = useState([])
-  const [loadingComments, setLoadingComments] = useState(false)
-  const [resyncing, setResyncing] = useState({})
+const resend = new Resend(process.env.RESEND_API_KEY)
 
-  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
-  const currentYear = new Date().getFullYear()
-
-  useEffect(() => { loadTeam() }, [])
-
-  async function loadTeam() {
-    const { data } = await supabase
-      .from('user_roles')
-      .select('*, clients(name)')
-      .order('created_at')
-    if (data) setTeamMembers(data)
-  }
-
-  async function removeTeamMember(member) {
-    if (member.role === 'admin') return showToast('Cannot remove admin accounts from here')
-    const confirmed = window.confirm(`Remove portal access for ${member.email || 'this user'}? They will no longer be able to log in.`)
-    if (!confirmed) return
-    await supabase.from('user_roles').delete().eq('id', member.id)
-    await loadTeam()
-    showToast('Portal access removed')
-  }
-
-  async function loadAuditLogs() {
-    setLoadingLogs(true)
-    const { data } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(100)
-    if (data) setAuditLogs(data)
-    setLoadingLogs(false)
-  }
-
-  async function loadComments() {
-    setLoadingComments(true)
-    const { data } = await supabase
-      .from('file_comments')
-      .select('*, clients(name, primary_color)')
-      .order('created_at', { ascending: false })
-    if (data) setComments(data)
-    setLoadingComments(false)
-  }
-
-  async function dismissComment(id) {
-    await supabase.from('file_comments').delete().eq('id', id)
-    setComments(prev => prev.filter(c => c.id !== id))
-  }
-
-  function showToast(msg) {
-    setToast(msg)
-    setTimeout(() => setToast(''), 3000)
-  }
-
-  async function resyncFiles(client) {
-    setResyncing(p => ({ ...p, [client.id]: true }))
-    const { assetCount, contentCount } = await reconcileClientCounts(client.id, client.name)
-    await loadUserContext()
-    showToast(`${client.name} resynced — ${assetCount} assets, ${contentCount} content files`)
-    setResyncing(p => ({ ...p, [client.id]: false }))
-  }
-
-  async function onboardClient() {
-    if (!newClient.name.trim()) return
-    setSaving(true)
-    const slug = newClient.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    const { data: clientData, error: clientError } = await supabase.from('clients').insert({
-      name: newClient.name.trim(),
-      slug,
-      primary_color: newClient.primary_color,
-      secondary_color: newClient.secondary_color,
-      active: true
-    }).select().single()
-    if (clientError) {
-      showToast('Failed to create client.')
-      setSaving(false)
-      return
-    }
-    if (newMember.email && newMember.password) {
-      const { data, error } = await supabase.functions.invoke('create-user', {
-        body: {
-          email: newMember.email,
-          password: newMember.password,
-          client_id: clientData.id,
-          role: 'member'
-        }
-      })
-      if (error || data?.error) {
-        let message = 'Client created but user account failed. Add manually.'
-        try {
-          const body = await error?.context?.json()
-          if (body?.error) message = `Client created, but: ${body.error}`
-        } catch {}
-        if (data?.error) message = `Client created, but: ${data.error}`
-        showToast(message)
-        setSaving(false)
-        return
-      }
-    }
-    setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
-    setNewMember({ email: '', password: '', client_id: '', role: 'member' })
-    await loadUserContext()
-    await loadTeam()
-    showToast('Client onboarded!')
-    setSaving(false)
-  }
-
-  async function saveClientBranding() {
-    if (!editingClient) return
-    setSaving(true)
-    await updateClientBranding(editingClient.id, {
-      name: editingClient.name,
-      primary_color: editingClient.primary_color,
-      secondary_color: editingClient.secondary_color,
-      notification_email: editingClient.notification_email || null,
-      cover_url: editingClient.cover_url || null,
-    })
-    setEditingClient(null)
-    showToast('Branding saved!')
-    setSaving(false)
-  }
-
-  async function sendForReview(client) {
-    const month = reviewMonth[client.id]
-    if (!month) return showToast('Select a month first')
-    if (!client.notification_email) return showToast('No notification email set for this client')
-    setSendingReview(p => ({ ...p, [client.id]: true }))
-    const [monthName, year] = month.split(' ')
-    await supabase.from('clients').update({
-      approval_status: 'pending',
-      approval_month: month
-    }).eq('id', client.id)
-    await supabase.from('content_months').upsert({
-      client_id: client.id,
-      month: monthName,
-      year: parseInt(year),
-      planned: plannedPosts[client.id] || 0,
-      approval_status: 'pending'
-    }, { onConflict: 'client_id,month,year' })
-    const res = await apiFetch('/api/send-email', {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'review',
-        clientName: client.name,
-        month: reviewMonth[client.id],
-        notificationEmail: client.notification_email
-      })
-    })
-    if (res.ok) {
-      await loadUserContext()
-      setExpandedReview(p => ({ ...p, [client.id]: false }))
-      showToast(`Review email sent to ${client.notification_email}`)
-    } else {
-      showToast('Email failed — check Vercel logs')
-    }
-    setSendingReview(p => ({ ...p, [client.id]: false }))
-  }
-
-  function getStatusBadge(status) {
-    if (!status || status === 'none') return null
-    const map = {
-      pending: { bg: 'var(--gold-bg)', color: 'var(--gold-light)', label: 'Pending Review' },
-      approved: { bg: 'var(--teal-bg)', color: 'var(--teal)', label: 'Approved' },
-      revision: { bg: '#2a1a1a', color: '#ff6b6b', label: 'Revision Requested' }
-    }
-    const s = map[status]
-    if (!s) return null
-    return <span className={styles.teamBadge} style={{ background: s.bg, color: s.color }}>{s.label}</span>
-  }
-
-  const commentsByClient = comments.reduce((acc, c) => {
-    const name = c.clients?.name || 'Unknown'
-    if (!acc[name]) acc[name] = { color: c.clients?.primary_color, items: [] }
-    acc[name].items.push(c)
-    return acc
-  }, {})
-
-  return (
-    <div className={styles.page}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>Admin Panel</h1>
-        <p className={styles.sub}>Manage clients, branding, and team access</p>
-      </div>
-
-      <div className={styles.tabs}>
-        {['clients','team','revisions','audit'].map(t => (
-          <button
-            key={t}
-            className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`}
-            onClick={() => {
-              setTab(t)
-              if (t === 'audit') loadAuditLogs()
-              if (t === 'revisions') loadComments()
-            }}
-          >
-            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : t === 'revisions' ? 'Revisions' : 'Audit Log'}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'clients' && (
-        <div className={styles.adminLayout}>
-          <div>
-            <div className={styles.sectionLabel}>Active Clients ({allClients.length})</div>
-            <div className={styles.clientGrid}>
-              {allClients.map(c => (
-                <div key={c.id} className={styles.clientCard}>
-                  <div className={styles.clientCardMain}>
-                    <div className={styles.clientSwatch} style={{ background: c.primary_color }} />
-                    <div className={styles.clientInfo}>
-                      <div className={styles.clientName}>{c.name}</div>
-                      <div className={styles.clientSlug}>/{c.slug}</div>
-                      {c.approval_month && getStatusBadge(c.approval_status)}
-                    </div>
-                    <div className={styles.clientActions} style={{ flexDirection: 'row', gap: '6px' }}>
-                      <button
-                        className={styles.editBtn}
-                        onClick={() => resyncFiles(c)}
-                        disabled={resyncing[c.id]}
-                        title="Recount files from Dropbox after manual changes"
-                      >
-                        <i className={`ti ti-refresh${resyncing[c.id] ? ' spin' : ''}`} aria-hidden="true" /> {resyncing[c.id] ? 'Resyncing...' : 'Resync Files'}
-                      </button>
-                      <button
-                        className={styles.editBtn}
-                        onClick={() => setExpandedReview(p => ({ ...p, [c.id]: !p[c.id] }))}
-                      >
-                        <i className="ti ti-send" aria-hidden="true" /> Send for Review
-                      </button>
-                      <button className={styles.editBtn} onClick={() => setEditingClient({...c})}>
-                        <i className="ti ti-pencil" aria-hidden="true" /> Edit
-                      </button>
-                    </div>
-                  </div>
-
-                  {expandedReview[c.id] && (
-                    <div className={styles.clientReviewForm}>
-                      <select
-                        className={styles.input}
-                        style={{ width: '150px', padding: '6px 8px', fontSize: '12px' }}
-                        value={reviewMonth[c.id] || ''}
-                        onChange={e => setReviewMonth(p => ({ ...p, [c.id]: e.target.value }))}
-                      >
-                        <option value="">Select month...</option>
-                        {MONTHS.map(m => (
-                          <option key={m} value={`${m} ${currentYear}`}>{m} {currentYear}</option>
-                        ))}
-                      </select>
-                      <input
-                        type="number"
-                        className={styles.input}
-                        style={{ width: '80px', padding: '6px 8px', fontSize: '12px' }}
-                        value={plannedPosts[c.id] || ''}
-                        onChange={e => setPlannedPosts(p => ({ ...p, [c.id]: parseInt(e.target.value) || 0 }))}
-                        placeholder="# posts"
-                        min="0"
-                      />
-                      <button
-                        className="btn btn-gold"
-                        style={{ fontSize: '12px', padding: '6px 14px' }}
-                        onClick={() => sendForReview(c)}
-                        disabled={sendingReview[c.id] || !reviewMonth[c.id]}
-                      >
-                        {sendingReview[c.id] ? 'Sending...' : 'Send for Review'}
-                      </button>
-                      <button
-                        className="btn"
-                        style={{ fontSize: '12px', padding: '6px 10px' }}
-                        onClick={() => setExpandedReview(p => ({ ...p, [c.id]: false }))}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
-
-                  {editingClient?.id === c.id && (
-                    <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '16px' }}>
-                      <div className={styles.formGrid}>
-                        <div className={styles.field}>
-                          <label className={styles.label}>Client Name</label>
-                          <input className={styles.input} value={editingClient.name} onChange={e => setEditingClient(p => ({...p, name: e.target.value}))} />
-                        </div>
-                        <div className={styles.field}>
-                          <label className={styles.label}>Notification Email</label>
-                          <input
-                            className={styles.input}
-                            type="email"
-                            value={editingClient.notification_email || ''}
-                            onChange={e => setEditingClient(p => ({...p, notification_email: e.target.value}))}
-                            placeholder="client@example.com"
-                          />
-                        </div>
-                        <div className={styles.field}>
-                          <label className={styles.label}>Primary Accent</label>
-                          <div className={styles.colorRow}>
-                            <input type="color" className={styles.colorPicker} value={editingClient.primary_color} onChange={e => setEditingClient(p => ({...p, primary_color: e.target.value}))} />
-                            <input className={styles.input} value={editingClient.primary_color} onChange={e => setEditingClient(p => ({...p, primary_color: e.target.value}))} />
-                          </div>
-                        </div>
-                        <div className={styles.field}>
-                          <label className={styles.label}>Secondary Accent</label>
-                          <div className={styles.colorRow}>
-                            <input type="color" className={styles.colorPicker} value={editingClient.secondary_color} onChange={e => setEditingClient(p => ({...p, secondary_color: e.target.value}))} />
-                            <input className={styles.input} value={editingClient.secondary_color} onChange={e => setEditingClient(p => ({...p, secondary_color: e.target.value}))} />
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Existing team members for this client */}
-                      {teamMembers.filter(m => m.client_id === editingClient.id).length > 0 && (
-                        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
-                          <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '10px' }}>Current Portal Access</div>
-                          {teamMembers.filter(m => m.client_id === editingClient.id).map(m => (
-                            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                              <i className="ti ti-user" style={{ fontSize: '14px', color: 'var(--text3)' }} />
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '13px', color: 'var(--text)' }}>{m.email || 'No email on file'}</div>
-                              </div>
-                              <button
-                                className={styles.editBtn}
-                                onClick={() => removeTeamMember(m)}
-                                title="Remove portal access"
-                                style={{ color: 'var(--coral, #e0845a)', fontSize: '11px' }}
-                              >
-                                <i className="ti ti-trash" /> Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Add another team member */}
-                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
-                        <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>
-                          {teamMembers.filter(m => m.client_id === editingClient.id).length > 0 ? 'Add Another Team Member' : 'Portal Access'}
-                        </div>
-                        <div className={styles.formGrid}>
-                          <div className={styles.field}>
-                            <label className={styles.label}>Login Email</label>
-                            <input
-                              className={styles.input}
-                              type="email"
-                              value={newMember.email}
-                              onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
-                              placeholder="teammate@example.com"
-                            />
-                          </div>
-                          <div className={styles.field}>
-                            <label className={styles.label}>Temporary Password</label>
-                            <input
-                              className={styles.input}
-                              type="password"
-                              value={newMember.password}
-                              onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
-                              placeholder="Min 8 characters"
-                            />
-                          </div>
-                        </div>
-                        <button
-                          className="btn btn-gold"
-                          style={{ fontSize: '12px' }}
-                          onClick={async () => {
-                            if (!newMember.email || !newMember.password) return showToast('Enter email and password')
-                            setSaving(true)
-                            const { data, error } = await supabase.functions.invoke('create-user', {
-                              body: { email: newMember.email, password: newMember.password, client_id: editingClient.id, role: 'member' }
-                            })
-                            if (error) {
-                              let message = 'Failed to create user.'
-                              try {
-                                const body = await error.context?.json()
-                                if (body?.error) message = body.error
-                              } catch {}
-                              showToast(message)
-                            } else if (data?.error) {
-                              showToast(data.error)
-                            } else {
-                              showToast('Portal access created!')
-                              setNewMember({ email: '', password: '', client_id: '', role: 'member' })
-                              await loadTeam()
-                            }
-                            setSaving(false)
-                          }}
-                          disabled={saving}
-                        >
-                          <i className="ti ti-user-plus" aria-hidden="true" /> Add Portal Access
-                        </button>
-                      </div>
-
-                      <div className={styles.formActions}>
-                        <button className="btn" onClick={() => setEditingClient(null)}>Cancel</button>
-                        <button className="btn btn-gold" onClick={saveClientBranding} disabled={saving}>Save Branding</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className={styles.sectionLabel}>Onboard New Client</div>
-            <div className={styles.formCard}>
-              <div className={styles.field} style={{ marginBottom: '12px' }}>
-                <label className={styles.label}>Client Name</label>
-                <input className={styles.input} value={newClient.name} onChange={e => setNewClient(p => ({...p, name: e.target.value}))} placeholder="e.g. Acme Brand Co." />
-              </div>
-              <div className={styles.field} style={{ marginBottom: '12px' }}>
-                <label className={styles.label}>Primary Accent</label>
-                <div className={styles.colorRow}>
-                  <input type="color" className={styles.colorPicker} value={newClient.primary_color} onChange={e => setNewClient(p => ({...p, primary_color: e.target.value}))} />
-                  <input className={styles.input} value={newClient.primary_color} onChange={e => setNewClient(p => ({...p, primary_color: e.target.value}))} />
-                </div>
-              </div>
-              <div className={styles.field} style={{ marginBottom: '12px' }}>
-                <label className={styles.label}>Secondary Accent</label>
-                <div className={styles.colorRow}>
-                  <input type="color" className={styles.colorPicker} value={newClient.secondary_color} onChange={e => setNewClient(p => ({...p, secondary_color: e.target.value}))} />
-                  <input className={styles.input} value={newClient.secondary_color} onChange={e => setNewClient(p => ({...p, secondary_color: e.target.value}))} />
-                </div>
-              </div>
-              <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginBottom: '12px' }}>
-                <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>Portal Access</div>
-                <div className={styles.field} style={{ marginBottom: '12px' }}>
-                  <label className={styles.label}>Login Email</label>
-                  <input
-                    className={styles.input}
-                    type="email"
-                    value={newMember.email}
-                    onChange={e => setNewMember(p => ({...p, email: e.target.value}))}
-                    placeholder="client@example.com"
-                  />
-                </div>
-                <div className={styles.field}>
-                  <label className={styles.label}>Temporary Password</label>
-                  <input
-                    className={styles.input}
-                    type="password"
-                    value={newMember.password}
-                    onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
-                    placeholder="Min 8 characters"
-                  />
-                </div>
-              </div>
-              <button
-                className="btn btn-gold"
-                style={{ width: '100%', justifyContent: 'center', marginTop: '4px' }}
-                onClick={onboardClient}
-                disabled={saving || !newClient.name.trim()}
-              >
-                <i className="ti ti-user-plus" aria-hidden="true" /> Onboard Client
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'team' && (
-        <div>
-          <div className={styles.sectionLabel}>Portal Accounts</div>
-          <div className={styles.teamList}>
-            {teamMembers.map((m, i) => (
-              <div key={i} className={styles.teamRow}>
-                <div className={styles.teamAvatar}>
-                  {m.role === 'admin' ? <i className="ti ti-shield" aria-hidden="true" /> : <i className="ti ti-user" aria-hidden="true" />}
-                </div>
-                <div className={styles.teamInfo}>
-                  <div className={styles.teamRole}>{m.email || 'No email on file'}</div>
-                  <div className={styles.teamClient}>{m.role === 'admin' ? 'Admin' : m.clients?.name || 'Unassigned'}</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div className={styles.teamBadge} style={{ background: m.role === 'admin' ? 'var(--gold-bg)' : 'var(--teal-bg)', color: m.role === 'admin' ? 'var(--gold-light)' : 'var(--teal)' }}>
-                    {m.role}
-                  </div>
-                  {m.role !== 'admin' && (
-                    <button
-                      className={styles.editBtn}
-                      onClick={() => removeTeamMember(m)}
-                      title="Remove portal access"
-                      style={{ color: 'var(--coral, #e0845a)', fontSize: '11px' }}
-                    >
-                      <i className="ti ti-trash" />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {teamMembers.length === 0 && (
-              <div className={styles.empty}>No accounts yet</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {tab === 'revisions' && (
-        <div>
-          <div className={styles.sectionLabel}>Client Revision Notes</div>
-          {loadingComments && <div className={styles.empty}>Loading...</div>}
-          {!loadingComments && comments.length === 0 && (
-            <div className={styles.empty}>No revision notes yet</div>
-          )}
-          {Object.entries(commentsByClient).map(([clientName, { color, items }]) => (
-            <div key={clientName} style={{ marginBottom: '28px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: color || 'var(--gold)' }} />
-                <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{clientName}</div>
-                <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{items.length} note{items.length !== 1 ? 's' : ''}</div>
-              </div>
-              <div className={styles.teamList}>
-                {items.map(c => (
-                  <div key={c.id} className={styles.teamRow} style={{ alignItems: 'flex-start', gap: '12px' }}>
-                    <div className={styles.teamAvatar} style={{ marginTop: '2px' }}>
-                      <i className="ti ti-message" />
-                    </div>
-                    <div className={styles.teamInfo} style={{ flex: 1 }}>
-                      <div className={styles.teamRole} style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>
-                        {c.file_path.split('/').pop()}
-                      </div>
-                      <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: '1.5' }}>{c.comment}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>
-                        {new Date(c.created_at).toLocaleString()}
-                      </div>
-                    </div>
-                    <button
-                      className={styles.editBtn}
-                      onClick={() => dismissComment(c.id)}
-                      title="Dismiss"
-                      style={{ marginTop: '2px', flexShrink: 0 }}
-                    >
-                      <i className="ti ti-check" /> Done
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === 'audit' && (
-        <div>
-          <div className={styles.sectionLabel}>Recent Activity (last 100 events)</div>
-          {loadingLogs && <div className={styles.empty}>Loading audit logs...</div>}
-          {!loadingLogs && auditLogs.length === 0 && (
-            <div className={styles.empty}>No activity logged yet</div>
-          )}
-          <div className={styles.teamList}>
-            {auditLogs.map((log, i) => (
-              <div key={i} className={styles.teamRow}>
-                <div className={styles.teamAvatar}>
-                  {log.action === 'login' && <i className="ti ti-login" />}
-                  {log.action === 'download' && <i className="ti ti-download" />}
-                  {log.action === 'delete' && <i className="ti ti-trash" />}
-                  {log.action === 'upload' && <i className="ti ti-upload" />}
-                  {!['login','download','delete','upload'].includes(log.action) && <i className="ti ti-activity" />}
-                </div>
-                <div className={styles.teamInfo}>
-                  <div className={styles.teamRole}>{log.user_email}</div>
-                  <div className={styles.teamClient}>
-                    {log.action} · {log.resource}
-                    {log.details?.fileName ? ` · ${log.details.fileName}` : ''}
-                  </div>
-                </div>
-                <div className={styles.teamBadge} style={{ background: 'var(--gold-bg)', color: 'var(--gold-light)', fontSize: '11px' }}>
-                  {new Date(log.created_at).toLocaleString()}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {toast && (
-        <div className={styles.toast}>
-          <i className="ti ti-check" aria-hidden="true" /> {toast}
-        </div>
-      )}
-    </div>
-  )
+function sanitize(str) {
+  if (typeof str !== 'string') return ''
+  return str.replace(/[<>]/g, '').trim().slice(0, 2000)
 }
 
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', 'https://portal.glowingmoonmedia.com')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
+  if (req.method === 'OPTIONS') return res.status(200).end()
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  const user = await requireAuth(req, res)
+  if (!user) return
+
+  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail } = req.body
+
+  const safeClient = sanitize(clientName)
+  const safeMonth = sanitize(month)
+  const safeEmail = sanitize(notificationEmail)
+  const safeFile = sanitize(fileName)
+  const safeComment = sanitize(comment)
+  const safeRecipient = sanitize(recipientEmail)
+
+  const portalLink = 'https://portal.glowingmoonmedia.com/content'
+  const loginLink = 'https://portal.glowingmoonmedia.com/login'
+
+  try {
+    if (type === 'review') {
+      await resend.emails.send({
+        from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+        to: safeEmail,
+        subject: `Your ${safeMonth} content is ready for review`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+                  <tr>
+                    <td style="background:#111113;border-radius:12px 12px 0 0;padding:36px 40px;text-align:center;border-bottom:2px solid #D3C9A7;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;">Glowing Moon Media</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background:#111113;padding:40px 40px 32px;">
+                      <h1 style="margin:0 0 8px;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">Your ${safeMonth} content<br>is ready to review</h1>
+                      <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">Hi ${safeClient}, your content package for <strong style="color:#fff;">${safeMonth}</strong> has been uploaded to your portal. Take a look, leave any revision notes on specific files, and approve when everything looks good.</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background:#111113;padding:0 40px 40px;text-align:center;">
+                      <a href="${portalLink}" style="display:inline-block;background:#D3C9A7;color:#000000;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Review My Content</a>
+                    </td>
+                  </tr>
+                  <tr><td style="background:#111113;padding:0 40px;"><div style="border-top:1px solid #222;"></div></td></tr>
+                  <tr>
+                    <td style="background:#111113;border-radius:0 0 12px 12px;padding:24px 40px;text-align:center;">
+                      <p style="margin:0;font-size:12px;color:#444;line-height:1.6;">You're receiving this because you're a Glowing Moon Media client.<br>Questions? Reply to this email or contact us at <a href="mailto:contact@glowingmoonmedia.com" style="color:#D3C9A7;text-decoration:none;">contact@glowingmoonmedia.com</a></p>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
+        `
+      })
+    }
+
+    if (type === 'approved') {
+      await resend.emails.send({
+        from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+        to: 'hector@glowingmoonmedia.com',
+        subject: `${safeClient} approved ${safeMonth} content`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #D3C9A7;">
+                  <tr>
+                    <td style="padding:40px;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+                      <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Content Approved</h1>
+                      <p style="margin:0;font-size:15px;color:#888;line-height:1.6;"><strong style="color:#fff;">${safeClient}</strong> has approved all content for <strong style="color:#fff;">${safeMonth}</strong>. You're clear to schedule and publish.</p>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
+        `
+      })
+    }
+
+    if (type === 'comment') {
+      await resend.emails.send({
+        from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+        to: 'hector@glowingmoonmedia.com',
+        subject: `${safeClient} requested a revision`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #ff6b6b;">
+                  <tr>
+                    <td style="padding:40px;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+                      <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Revision Requested</h1>
+                      <p style="margin:0 0 24px;font-size:15px;color:#888;line-height:1.6;"><strong style="color:#fff;">${safeClient}</strong> left a note on <strong style="color:#fff;">${safeFile}</strong>:</p>
+                      <div style="background:#1a1a1c;border-left:3px solid #D3C9A7;border-radius:4px;padding:16px 20px;">
+                        <p style="margin:0;font-size:15px;color:#fff;line-height:1.6;">${safeComment}</p>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
+        `
+      })
+    }
+
+    if (type === 'welcome') {
+      await resend.emails.send({
+        from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+        to: safeRecipient,
+        subject: `You've been added to the ${safeClient} portal`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+                  <tr>
+                    <td style="background:#111113;border-radius:12px 12px 0 0;padding:36px 40px;text-align:center;border-bottom:2px solid #D3C9A7;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;">Glowing Moon Media</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background:#111113;padding:40px 40px 32px;">
+                      <h1 style="margin:0 0 8px;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">Welcome to the<br>${safeClient} portal</h1>
+                      <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">You now have access to ${safeClient}'s client portal, where you can view assets, review content, check the schedule, and message the team.</p>
+                      <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">To get started, go to the login page below and click <strong style="color:#fff;">Forgot Password</strong> to set your own password.</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background:#111113;padding:0 40px 40px;text-align:center;">
+                      <a href="${loginLink}" style="display:inline-block;background:#D3C9A7;color:#000000;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Go to Portal Login</a>
+                    </td>
+                  </tr>
+                  <tr><td style="background:#111113;padding:0 40px;"><div style="border-top:1px solid #222;"></div></td></tr>
+                  <tr>
+                    <td style="background:#111113;border-radius:0 0 12px 12px;padding:24px 40px;text-align:center;">
+                      <p style="margin:0;font-size:12px;color:#444;line-height:1.6;">Your login email is <strong style="color:#888;">${safeRecipient}</strong>.<br>Questions? Reply to this email or contact us at <a href="mailto:contact@glowingmoonmedia.com" style="color:#D3C9A7;text-decoration:none;">contact@glowingmoonmedia.com</a></p>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
+        `
+      })
+    }
+
+    return res.status(200).json({ success: true })
+  } catch (err) {
+    console.error('Email error:', err)
+    return res.status(500).json({ error: err.message })
+  }
+}
