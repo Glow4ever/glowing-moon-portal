@@ -19,15 +19,17 @@ module.exports = async function handler(req, res) {
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const { type, clientName, month, notificationEmail, fileName, comment } = req.body
+  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail } = req.body
 
   const safeClient = sanitize(clientName)
   const safeMonth = sanitize(month)
   const safeEmail = sanitize(notificationEmail)
   const safeFile = sanitize(fileName)
   const safeComment = sanitize(comment)
+  const safeRecipient = sanitize(recipientEmail)
 
   const portalLink = 'https://portal.glowingmoonmedia.com/content'
+  const loginLink = 'https://portal.glowingmoonmedia.com/login'
 
   try {
     if (type === 'review') {
@@ -122,6 +124,51 @@ module.exports = async function handler(req, res) {
                       <div style="background:#1a1a1c;border-left:3px solid #D3C9A7;border-radius:4px;padding:16px 20px;">
                         <p style="margin:0;font-size:15px;color:#fff;line-height:1.6;">${safeComment}</p>
                       </div>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
+        `
+      })
+    }
+
+    if (type === 'welcome') {
+      await resend.emails.send({
+        from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+        to: safeRecipient,
+        subject: `You've been added to the ${safeClient} portal`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+                  <tr>
+                    <td style="background:#111113;border-radius:12px 12px 0 0;padding:36px 40px;text-align:center;border-bottom:2px solid #D3C9A7;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;">Glowing Moon Media</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background:#111113;padding:40px 40px 32px;">
+                      <h1 style="margin:0 0 8px;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">Welcome to the<br>${safeClient} portal</h1>
+                      <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">You now have access to ${safeClient}'s client portal, where you can view assets, review content, check the schedule, and message the team.</p>
+                      <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">To get started, go to the login page below and click <strong style="color:#fff;">Forgot Password</strong> to set your own password.</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background:#111113;padding:0 40px 40px;text-align:center;">
+                      <a href="${loginLink}" style="display:inline-block;background:#D3C9A7;color:#000000;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:6px;letter-spacing:0.5px;">Go to Portal Login</a>
+                    </td>
+                  </tr>
+                  <tr><td style="background:#111113;padding:0 40px;"><div style="border-top:1px solid #222;"></div></td></tr>
+                  <tr>
+                    <td style="background:#111113;border-radius:0 0 12px 12px;padding:24px 40px;text-align:center;">
+                      <p style="margin:0;font-size:12px;color:#444;line-height:1.6;">Your login email is <strong style="color:#888;">${safeRecipient}</strong>.<br>Questions? Reply to this email or contact us at <a href="mailto:contact@glowingmoonmedia.com" style="color:#D3C9A7;text-decoration:none;">contact@glowingmoonmedia.com</a></p>
                     </td>
                   </tr>
                 </table>
