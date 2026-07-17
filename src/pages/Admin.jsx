@@ -112,7 +112,13 @@ export default function Admin() {
         }
       })
       if (error || data?.error) {
-        showToast('Client created but user account failed. Add manually.')
+        let message = 'Client created but user account failed. Add manually.'
+        try {
+          const body = await error?.context?.json()
+          if (body?.error) message = `Client created, but: ${body.error}`
+        } catch {}
+        if (data?.error) message = `Client created, but: ${data.error}`
+        showToast(message)
         setSaving(false)
         return
       }
@@ -385,8 +391,15 @@ export default function Admin() {
                             const { data, error } = await supabase.functions.invoke('create-user', {
                               body: { email: newMember.email, password: newMember.password, client_id: editingClient.id, role: 'member' }
                             })
-                            if (error || data?.error) {
-                              showToast(data?.error || 'Failed to create user.')
+                            if (error) {
+                              let message = 'Failed to create user.'
+                              try {
+                                const body = await error.context?.json()
+                                if (body?.error) message = body.error
+                              } catch {}
+                              showToast(message)
+                            } else if (data?.error) {
+                              showToast(data.error)
                             } else {
                               showToast('Portal access created!')
                               setNewMember({ email: '', password: '', client_id: '', role: 'member' })
@@ -591,4 +604,5 @@ export default function Admin() {
     </div>
   )
 }
+
 
