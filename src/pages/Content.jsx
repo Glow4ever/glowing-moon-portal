@@ -23,6 +23,27 @@ async function listDropboxFolder(path) {
   return data.entries || []
 }
 
+const STATUS_STYLES = {
+  approved:      { bg: 'var(--teal-bg)',  color: 'var(--teal)',       icon: 'ti-check',  label: 'Approved' },
+  revision:      { bg: '#2a1a1a',          color: '#F0997B',           icon: 'ti-message', label: 'Revision sent' },
+  in_review:     { bg: 'var(--gold-bg)',  color: 'var(--gold-light)', icon: 'ti-eye',     label: 'In review' },
+  in_production: { bg: 'rgba(136,135,128,0.14)', color: 'var(--text3)', icon: 'ti-lock',  label: 'In production' }
+}
+
+function StatusBadge({ status }) {
+  const s = STATUS_STYLES[status] || STATUS_STYLES.in_review
+  return (
+    <div style={{
+      display: 'inline-flex', alignItems: 'center', gap: '4px',
+      background: s.bg, color: s.color, fontSize: '11px',
+      padding: '3px 8px', borderRadius: '20px'
+    }}>
+      <i className={`ti ${s.icon}`} style={{ fontSize: '12px' }} aria-hidden="true" />
+      {s.label}
+    </div>
+  )
+}
+
 export default function Content() {
   const { client, role, loadUserContext } = useClient()
   const clientName = client?.name || 'Glowing Moon Media'
@@ -46,6 +67,10 @@ export default function Content() {
   const [submittingComment, setSubmittingComment] = useState(false)
   const [approving, setApproving] = useState(false)
   const [localStatus, setLocalStatus] = useState(null)
+  const [fileStatuses, setFileStatuses] = useState({})
+  const [revisionPaths, setRevisionPaths] = useState({})
+  const [bulkApproving, setBulkApproving] = useState(false)
+  const [fileApproving, setFileApproving] = useState({})
   const fileRef = useRef()
 
   const currentPath = stack ? stack[stack.length - 1].path : null
@@ -56,6 +81,30 @@ export default function Content() {
   useEffect(() => {
     if (currentPath) loadFolder(currentPath)
   }, [currentPath])
+
+  useEffect(() => {
+    if (client?.id) loadStatusData()
+  }, [client?.id])
+
+  async function loadStatusData() {
+    const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
+      supabase.from('file_status').select('file_path, status').eq('client_id', client.id),
+      supabase.from('file_comments').select('file_path').eq('client_id', client.id)
+    ])
+    const statusMap = {}
+    ;(statusRows || []).forEach(r => { statusMap[r.file_path] = r.status })
+    setFileStatuses(statusMap)
+    const revMap = {}
+    ;(commentRows || []).forEach(r => { revMap[r.file_path] = true })
+    setRevisionPaths(revMap)
+  }
+
+  function getFileDisplayStatus(pathLower) {
+    if (revisionPaths[pathLower]) return 'revision'
+    if (fileStatuses[pathLower] === 'approved') return 'approved'
+    if (fileStatuses[pathLower] === 'in_production') return 'in_production'
+    return 'in_review'
+  }
 
   async function loadFolder(path) {
     setLoading(true)
@@ -169,6 +218,7 @@ export default function Content() {
         comment: commentText.trim()
       })
     })
+    setRevisionPaths(prev => ({ ...prev, [commentModal.path_lower]: true }))
     setCommentText('')
     setCommentModal(null)
     setSubmittingComment(false)
@@ -208,10 +258,68 @@ export default function Content() {
     setApproving(false)
   }
 
+  async function upsertApproved(files) {
+    if (!client?.id || !files.length) return
+    const isBulk = files.length > 1
+    if (isBulk) setBulkApproving(true)
+    else setFileApproving(p => ({ ...p, [files[0].path_lower]: true }))
+
+    const rows = files.map(f => ({
+      client_id: client.id,
+      file_path: f.path_lower,
+      status: 'approved',
+      updated_at: new Date().toISOString()
+    }))
+    const { error } = await supabase.from('file_status').upsert(rows, { onConflict: 'client_id,file_path' })
+
+    if (error) {
+      console.error('Approve file error:', error)
+      if (isBulk) setBulkApproving(false)
+      else setFileApproving(p => ({ ...p, [files[0].path_lower]: false }))
+      return
+    }
+
+    const nextStatuses = { ...fileStatuses }
+    files.forEach(f => { nextStatuses[f.path_lower] = 'approved' })
+    setFileStatuses(nextStatuses)
+
+    if (isBulk) setBulkApproving(false)
+    else setFileApproving(p => ({ ...p, [files[0].path_lower]: false }))
+
+    const allEntries = entries.filter(e => e.type !== 'folder')
+    const allResolved = allEntries.length > 0 && allEntries.every(f => {
+      if (revisionPaths[f.path_lower]) return false
+      return nextStatuses[f.path_lower] === 'approved'
+    })
+    if (allResolved && isPending) {
+      await handleApprove()
+    }
+  }
+
+  async function approveFile(file) {
+    await upsertApproved([file])
+  }
+
+  async function approveAllRemaining() {
+    const targets = entries
+      .filter(e => e.type !== 'folder')
+      .filter(f => getFileDisplayStatus(f.path_lower) === 'in_review')
+    if (targets.length) await upsertApproved(targets)
+  }
+
   const folders = entries.filter(e => e.type === 'folder')
   const photos = entries.filter(e => e.type === 'photo')
   const videos = entries.filter(e => e.type === 'video')
   const others = entries.filter(e => e.type !== 'folder' && e.type !== 'photo' && e.type !== 'video')
+  const allFiles = [...photos, ...videos, ...others]
+
+  const statusCounts = allFiles.reduce((acc, f) => {
+    const s = getFileDisplayStatus(f.path_lower)
+    acc[s] = (acc[s] || 0) + 1
+    return acc
+  }, {})
+  const totalFiles = allFiles.length
+  const remainingCount = statusCounts.in_review || 0
 
   return (
     <div className={styles.page}>
@@ -257,29 +365,71 @@ export default function Content() {
           border: '1px solid var(--gold-border)',
           borderRadius: '10px',
           padding: '16px 20px',
-          marginBottom: '24px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-          flexWrap: 'wrap'
+          marginBottom: '24px'
         }}>
-          <div>
-            <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--gold-light)', marginBottom: '4px' }}>
-              {approvalMonth} content is ready for your review
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: '16px', flexWrap: 'wrap', marginBottom: totalFiles > 0 ? '14px' : 0
+          }}>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--gold-light)', marginBottom: '4px' }}>
+                {approvalMonth} content is ready for your review
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
+                Leave a comment on any file that needs changes, then approve the rest in one click.
+              </div>
             </div>
-            <div style={{ fontSize: '12px', color: 'var(--text2)' }}>
-              Leave a comment on any file that needs changes, then approve when everything looks good.
-            </div>
+            {role === 'member' && remainingCount > 0 && (
+              <button
+                className="btn btn-gold"
+                onClick={approveAllRemaining}
+                disabled={bulkApproving}
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                <i className="ti ti-checks" /> {bulkApproving ? 'Approving...' : `Approve all remaining (${remainingCount})`}
+              </button>
+            )}
           </div>
-          <button
-            className="btn btn-gold"
-            onClick={handleApprove}
-            disabled={approving}
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            <i className="ti ti-circle-check" /> {approving ? 'Approving...' : `Approve ${approvalMonth}`}
-          </button>
+
+          {totalFiles > 0 && (
+            <>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                {statusCounts.approved > 0 && (
+                  <div style={{ background: 'var(--teal-bg)', color: 'var(--teal)', fontSize: '12px', padding: '4px 10px', borderRadius: '20px' }}>
+                    {statusCounts.approved} approved
+                  </div>
+                )}
+                {statusCounts.in_review > 0 && (
+                  <div style={{ background: 'var(--gold-bg)', color: 'var(--gold-light)', fontSize: '12px', padding: '4px 10px', borderRadius: '20px' }}>
+                    {statusCounts.in_review} in review
+                  </div>
+                )}
+                {statusCounts.revision > 0 && (
+                  <div style={{ background: '#2a1a1a', color: '#F0997B', fontSize: '12px', padding: '4px 10px', borderRadius: '20px' }}>
+                    {statusCounts.revision} revision requested
+                  </div>
+                )}
+                {statusCounts.in_production > 0 && (
+                  <div style={{ background: 'rgba(136,135,128,0.14)', color: 'var(--text3)', fontSize: '12px', padding: '4px 10px', borderRadius: '20px' }}>
+                    {statusCounts.in_production} in production
+                  </div>
+                )}
+              </div>
+              <div style={{ height: '4px', background: 'var(--border)', borderRadius: '2px', overflow: 'hidden', display: 'flex' }}>
+                {['approved', 'in_review', 'revision', 'in_production'].map(s => (
+                  statusCounts[s] > 0 && (
+                    <div
+                      key={s}
+                      style={{
+                        width: `${(statusCounts[s] / totalFiles) * 100}%`,
+                        background: STATUS_STYLES[s].color
+                      }}
+                    />
+                  )
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -331,28 +481,50 @@ export default function Content() {
         <section className={styles.section}>
           <div className={styles.sectionLabel}>Photos ({photos.length})</div>
           <div className={styles.mediaGrid}>
-            {photos.map(f => (
-              <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
-                <div className={styles.thumbImgWrap}>
-                  {f.url
-                    ? <img src={f.url} alt={f.name} className={styles.thumbImg} onError={e => { e.target.style.display = 'none' }} />
-                    : <div className={styles.thumbFallback}><i className="ti ti-photo" style={{ fontSize: '28px', color: 'var(--teal)' }} /></div>
-                  }
-                </div>
-                <div className={styles.thumbFooter}>
-                  <div className={styles.thumbLabel}>{f.name}</div>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
-                    {isPending && role === 'member' && (
-                      <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); setCommentModal(f); setCommentText('') }} title="Request revision">
-                        <i className="ti ti-message" />
-                      </button>
+            {photos.map(f => {
+              const status = getFileDisplayStatus(f.path_lower)
+              return (
+                <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
+                  <div className={styles.thumbImgWrap}>
+                    {f.url
+                      ? <img src={f.url} alt={f.name} className={styles.thumbImg} onError={e => { e.target.style.display = 'none' }} />
+                      : <div className={styles.thumbFallback}><i className="ti ti-photo" style={{ fontSize: '28px', color: 'var(--teal)' }} /></div>
+                    }
+                  </div>
+                  <div className={styles.thumbFooter}>
+                    <div className={styles.thumbLabel}>{f.name}</div>
+                    {isPending ? (
+                      <div onClick={e => e.stopPropagation()}>
+                        {role === 'member' && status === 'in_review' ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              onClick={() => approveFile(f)}
+                              disabled={fileApproving[f.path_lower]}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => { setCommentModal(f); setCommentText('') }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              Revise
+                            </button>
+                          </div>
+                        ) : (
+                          <StatusBadge status={status} />
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
+                        {role === 'admin' && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
+                      </div>
                     )}
-                    {role === 'admin' && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
@@ -361,29 +533,51 @@ export default function Content() {
         <section className={styles.section}>
           <div className={styles.sectionLabel}>Videos & Reels ({videos.length})</div>
           <div className={styles.mediaGrid}>
-            {videos.map(f => (
-              <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
-                <div className={styles.thumbImgWrap}>
-                  {f.url
-                    ? <video src={f.url} className={styles.thumbImg} preload="metadata" muted />
-                    : <div className={styles.thumbFallback}><i className="ti ti-video" style={{ fontSize: '28px', color: 'var(--gold-light)' }} /></div>
-                  }
-                  <div className={styles.playBadge}><i className="ti ti-player-play" /></div>
-                </div>
-                <div className={styles.thumbFooter}>
-                  <div className={styles.thumbLabel}>{f.name}</div>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
-                    {isPending && role === 'member' && (
-                      <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); setCommentModal(f); setCommentText('') }} title="Request revision">
-                        <i className="ti ti-message" />
-                      </button>
+            {videos.map(f => {
+              const status = getFileDisplayStatus(f.path_lower)
+              return (
+                <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
+                  <div className={styles.thumbImgWrap}>
+                    {f.url
+                      ? <video src={f.url} className={styles.thumbImg} preload="metadata" muted />
+                      : <div className={styles.thumbFallback}><i className="ti ti-video" style={{ fontSize: '28px', color: 'var(--gold-light)' }} /></div>
+                    }
+                    <div className={styles.playBadge}><i className="ti ti-player-play" /></div>
+                  </div>
+                  <div className={styles.thumbFooter}>
+                    <div className={styles.thumbLabel}>{f.name}</div>
+                    {isPending ? (
+                      <div onClick={e => e.stopPropagation()}>
+                        {role === 'member' && status === 'in_review' ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              onClick={() => approveFile(f)}
+                              disabled={fileApproving[f.path_lower]}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => { setCommentModal(f); setCommentText('') }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              Revise
+                            </button>
+                          </div>
+                        ) : (
+                          <StatusBadge status={status} />
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
+                        {role === 'admin' && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
+                      </div>
                     )}
-                    {role === 'admin' && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
@@ -392,24 +586,46 @@ export default function Content() {
         <section className={styles.section}>
           <div className={styles.sectionLabel}>Other Files ({others.length})</div>
           <div className={styles.mediaGrid}>
-            {others.map(f => (
-              <div key={f.id} className={styles.thumb}>
-                <div className={styles.thumbImgWrap}>
-                  <div className={styles.thumbFallback}><i className="ti ti-file" style={{ fontSize: '28px', color: 'var(--text3)' }} /></div>
-                </div>
-                <div className={styles.thumbFooter}>
-                  <div className={styles.thumbLabel}>{f.name}</div>
-                  <div style={{ display: 'flex', gap: '4px' }}>
-                    <button className={styles.thumbActionBtn} onClick={() => handleDownload(f)}><i className="ti ti-download" /></button>
-                    {isPending && role === 'member' && (
-                      <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); setCommentModal(f); setCommentText('') }} title="Request revision">
-                        <i className="ti ti-message" />
-                      </button>
+            {others.map(f => {
+              const status = getFileDisplayStatus(f.path_lower)
+              return (
+                <div key={f.id} className={styles.thumb}>
+                  <div className={styles.thumbImgWrap}>
+                    <div className={styles.thumbFallback}><i className="ti ti-file" style={{ fontSize: '28px', color: 'var(--text3)' }} /></div>
+                  </div>
+                  <div className={styles.thumbFooter}>
+                    <div className={styles.thumbLabel}>{f.name}</div>
+                    {isPending ? (
+                      <div>
+                        {role === 'member' && status === 'in_review' ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              onClick={() => approveFile(f)}
+                              disabled={fileApproving[f.path_lower]}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => { setCommentModal(f); setCommentText('') }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              Revise
+                            </button>
+                          </div>
+                        ) : (
+                          <StatusBadge status={status} />
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <button className={styles.thumbActionBtn} onClick={() => handleDownload(f)}><i className="ti ti-download" /></button>
+                      </div>
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
@@ -482,3 +698,4 @@ export default function Content() {
     </div>
   )
 }
+
