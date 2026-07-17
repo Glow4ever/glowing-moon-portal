@@ -71,12 +71,19 @@ export default function Content() {
   const [revisionPaths, setRevisionPaths] = useState({})
   const [bulkApproving, setBulkApproving] = useState(false)
   const [fileApproving, setFileApproving] = useState({})
+  const [localApprovalFolderPath, setLocalApprovalFolderPath] = useState(null)
+  const [localApprovalMonth, setLocalApprovalMonth] = useState(null)
+  const [sendReviewModal, setSendReviewModal] = useState(false)
+  const [sendReviewPlanned, setSendReviewPlanned] = useState('')
+  const [sendingReview, setSendingReview] = useState(false)
   const fileRef = useRef()
 
   const currentPath = stack ? stack[stack.length - 1].path : null
   const approvalStatus = localStatus ?? client?.approval_status
   const isPending = approvalStatus === 'pending'
-  const approvalMonth = client?.approval_month
+  const approvalMonth = localApprovalMonth ?? client?.approval_month
+  const approvalFolderPath = localApprovalFolderPath ?? client?.approval_folder_path
+  const isViewingReviewFolder = !!approvalFolderPath && currentPath === approvalFolderPath
 
   useEffect(() => {
     if (currentPath) loadFolder(currentPath)
@@ -130,6 +137,79 @@ export default function Content() {
 
   function goBack(index) {
     setStack(prev => prev.slice(0, index + 1))
+  }
+
+  function buildStackFromPath(fullPath) {
+    if (!fullPath || !client) return null
+    const parts = fullPath.split('/').filter(Boolean)
+    const contentIdx = parts.findIndex(p => p.toLowerCase() === 'content')
+    if (contentIdx === -1) return null
+    let cumulative = ''
+    parts.slice(0, contentIdx + 1).forEach(p => { cumulative += '/' + p })
+    const result = [{ name: 'Content', path: cumulative }]
+    for (let i = contentIdx + 1; i < parts.length; i++) {
+      cumulative += '/' + parts[i]
+      result.push({ name: parts[i], path: cumulative })
+    }
+    return result
+  }
+
+  function jumpToReviewFolder() {
+    const newStack = buildStackFromPath(approvalFolderPath)
+    if (newStack) setStack(newStack)
+  }
+
+  async function sendForReview() {
+    if (!client?.id || !currentPath || !stack) return
+    setSendingReview(true)
+    const folderLabel = stack[stack.length - 1].name
+
+    try {
+      await supabase.from('clients').update({
+        approval_status: 'pending',
+        approval_month: folderLabel,
+        approval_folder_path: currentPath
+      }).eq('id', client.id)
+
+      const yearMatch = folderLabel.match(/\d{4}/)
+      if (yearMatch) {
+        const year = parseInt(yearMatch[0])
+        const monthName = folderLabel.replace(yearMatch[0], '').trim() || folderLabel
+        try {
+          await supabase.from('content_months').upsert({
+            client_id: client.id,
+            month: monthName,
+            year,
+            planned: parseInt(sendReviewPlanned) || 0,
+            approval_status: 'pending'
+          }, { onConflict: 'client_id,month,year' })
+        } catch (err) {
+          console.error('content_months upsert skipped:', err)
+        }
+      }
+
+      if (client.notification_email) {
+        await apiFetch('/api/send-email', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'review',
+            clientName: client.name,
+            month: folderLabel,
+            notificationEmail: client.notification_email
+          })
+        })
+      }
+
+      setLocalStatus('pending')
+      setLocalApprovalMonth(folderLabel)
+      setLocalApprovalFolderPath(currentPath)
+      setSendReviewModal(false)
+      setSendReviewPlanned('')
+      await loadUserContext()
+    } catch (err) {
+      console.error('Send for review error:', err)
+    }
+    setSendingReview(false)
   }
 
   async function handleUpload(e) {
@@ -348,6 +428,11 @@ export default function Content() {
         </div>
         {role === 'admin' && (
           <div style={{ display: 'flex', gap: '8px' }}>
+            {allFiles.length > 0 && !(isPending && isViewingReviewFolder) && (
+              <button className="btn btn-gold" onClick={() => setSendReviewModal(true)}>
+                <i className="ti ti-send" /> Send for Review
+              </button>
+            )}
             <button className="btn btn-gold" onClick={() => setNewFolderModal(true)}>
               <i className="ti ti-folder-plus" /> New Folder
             </button>
@@ -359,7 +444,29 @@ export default function Content() {
         )}
       </div>
 
-      {isPending && (
+      {isPending && !isViewingReviewFolder && (
+        <div style={{
+          background: 'var(--gold-bg)',
+          border: '1px solid var(--gold-border)',
+          borderRadius: '10px',
+          padding: '14px 20px',
+          marginBottom: '24px',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: '16px', flexWrap: 'wrap'
+        }}>
+          <div style={{ fontSize: '13px', color: 'var(--gold-light)' }}>
+            <i className="ti ti-bell" style={{ marginRight: '6px' }} />
+            {approvalMonth ? `${approvalMonth} content` : 'Content'} is waiting for your review
+          </div>
+          {approvalFolderPath && (
+            <button className="btn btn-gold" onClick={jumpToReviewFolder} style={{ whiteSpace: 'nowrap' }}>
+              Go to content <i className="ti ti-arrow-right" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {isPending && isViewingReviewFolder && (
         <div style={{
           background: 'var(--gold-bg)',
           border: '1px solid var(--gold-border)',
@@ -653,6 +760,34 @@ export default function Content() {
         </div>
       )}
 
+      {sendReviewModal && (
+        <div className={styles.overlay} onClick={() => setSendReviewModal(false)}>
+          <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={styles.modalTitle}>Send for Review</div>
+            <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '16px' }}>
+              Sending <strong style={{ color: 'var(--text1)' }}>{stack?.[stack.length - 1]?.name}</strong> ({allFiles.length} file{allFiles.length !== 1 ? 's' : ''}) to {client?.name} for review.
+            </div>
+            <div className={styles.field}>
+              <label className={styles.label}>Planned Deliverables (optional)</label>
+              <input
+                type="number"
+                className={styles.input}
+                value={sendReviewPlanned}
+                onChange={e => setSendReviewPlanned(e.target.value)}
+                placeholder="e.g. 10"
+                min="0"
+              />
+            </div>
+            <div className={styles.modalActions}>
+              <button className="btn" onClick={() => setSendReviewModal(false)}>Cancel</button>
+              <button className="btn btn-gold" onClick={sendForReview} disabled={sendingReview}>
+                {sendingReview ? 'Sending...' : 'Send for Review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {commentModal && (
         <div className={styles.overlay} onClick={() => setCommentModal(null)}>
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -698,4 +833,5 @@ export default function Content() {
     </div>
   )
 }
+
 
