@@ -400,6 +400,11 @@ export default function Content() {
   }, {})
   const totalFiles = allFiles.length
   const remainingCount = statusCounts.in_review || 0
+  const showHeroReview = role === 'member' && isPending && isViewingReviewFolder
+  const allApproved = totalFiles > 0 && statusCounts.approved === totalFiles
+  const approvedFraction = totalFiles > 0 ? statusCounts.approved / totalFiles : 0
+  const ringCircumference = 264
+  const ringOffset = Math.round(ringCircumference - ringCircumference * approvedFraction)
 
   return (
     <div className={styles.page}>
@@ -444,6 +449,122 @@ export default function Content() {
         )}
       </div>
 
+      {showHeroReview && (
+        <div style={{ background: '#0E0E0F', borderRadius: '14px', overflow: 'hidden', marginBottom: '24px' }}>
+          <div style={{ padding: '34px 34px 30px', borderBottom: '0.5px solid #2B2B2E' }}>
+            <div style={{ fontSize: '11px', letterSpacing: '2.5px', color: '#D3C9A7', marginBottom: '14px' }}>
+              {allApproved ? "THAT'S A WRAP" : 'READY FOR REVIEW'}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '240px' }}>
+                <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: '30px', lineHeight: '1.15', color: '#F4EEE2', marginBottom: '12px' }}>
+                  {allApproved
+                    ? <>That's a wrap on<br />{approvalMonth}</>
+                    : <>Your {approvalMonth}<br />content has arrived</>
+                  }
+                </div>
+                <div style={{ fontSize: '13px', color: '#8a8880', lineHeight: '1.6', maxWidth: '360px' }}>
+                  {allApproved
+                    ? 'Everything here has been approved. Thanks for the quick turnaround.'
+                    : `${totalFiles} new piece${totalFiles !== 1 ? 's' : ''}, crafted for ${client?.name}. Take your time, flag anything that needs a tweak, and approve when it feels right.`
+                  }
+                </div>
+              </div>
+
+              {!allApproved && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ position: 'relative', width: '96px', height: '96px' }}>
+                    <svg width="96" height="96" viewBox="0 0 96 96" style={{ transform: 'rotate(-90deg)' }}>
+                      <circle cx="48" cy="48" r="42" fill="none" stroke="#2B2B2E" strokeWidth="7" />
+                      <circle
+                        cx="48" cy="48" r="42" fill="none" stroke="#D3C9A7" strokeWidth="7"
+                        strokeLinecap="round" strokeDasharray={ringCircumference}
+                        strokeDashoffset={ringOffset}
+                        style={{ transition: 'stroke-dashoffset 0.4s ease' }}
+                      />
+                    </svg>
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ fontSize: '22px', color: '#F4EEE2', fontWeight: '500', lineHeight: '1' }}>
+                        {statusCounts.approved || 0}<span style={{ fontSize: '13px', color: '#8a8880' }}>/{totalFiles}</span>
+                      </div>
+                      <div style={{ fontSize: '10px', color: '#8a8880', marginTop: '2px' }}>approved</div>
+                    </div>
+                  </div>
+                  {remainingCount > 0 && (
+                    <button
+                      onClick={approveAllRemaining}
+                      disabled={bulkApproving}
+                      style={{ background: '#D3C9A7', color: '#0E0E0F', border: 'none', borderRadius: '7px', padding: '9px 18px', fontSize: '13px', fontWeight: '500', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      {bulkApproving ? 'Approving...' : 'Approve all remaining'}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div style={{ padding: '26px 34px 34px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px,1fr))', gap: '16px' }}>
+              {allFiles.map(f => {
+                const status = getFileDisplayStatus(f.path_lower)
+                const borderColor = status === 'approved' ? 'rgba(29,158,117,0.4)' : status === 'revision' ? 'rgba(216,90,48,0.45)' : '#2B2B2E'
+                return (
+                  <div key={f.id} style={{ background: '#151517', border: `0.5px solid ${borderColor}`, borderRadius: '12px', overflow: 'hidden' }}>
+                    <div onClick={() => setLightbox(f)} style={{ height: '130px', background: '#1e1e22', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3a3a3e', position: 'relative', cursor: 'pointer' }}>
+                      {f.type === 'photo' && f.url && <img src={f.url} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { e.target.style.display = 'none' }} />}
+                      {f.type === 'video' && f.url && <video src={f.url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} preload="metadata" muted />}
+                      {!f.url && <i className={`ti ${f.type === 'video' ? 'ti-video' : 'ti-photo'}`} style={{ fontSize: '30px' }} aria-hidden="true" />}
+                      {f.type === 'video' && (
+                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'rgba(14,14,15,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <i className="ti ti-player-play" style={{ fontSize: '16px', color: '#F4EEE2' }} />
+                          </div>
+                        </div>
+                      )}
+                      {status === 'approved' && (
+                        <div style={{ position: 'absolute', top: '10px', right: '10px', width: '24px', height: '24px', borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <i className="ti ti-check" style={{ fontSize: '14px', color: '#0E0E0F' }} />
+                        </div>
+                      )}
+                      {status === 'revision' && (
+                        <div style={{ position: 'absolute', top: '10px', right: '10px', width: '24px', height: '24px', borderRadius: '50%', background: '#D85A30', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <i className="ti ti-message" style={{ fontSize: '13px', color: '#0E0E0F' }} />
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ padding: '13px 14px' }}>
+                      <div style={{ fontSize: '12px', color: '#F4EEE2', marginBottom: status === 'in_review' ? '10px' : '8px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</div>
+                      {status === 'in_review' && (
+                        <div style={{ display: 'flex', gap: '7px' }}>
+                          <button
+                            onClick={() => approveFile(f)}
+                            disabled={fileApproving[f.path_lower]}
+                            style={{ flex: 1, background: '#1D9E75', border: 'none', color: '#0E0E0F', borderRadius: '6px', padding: '7px 0', fontSize: '11px', fontWeight: '500', cursor: 'pointer' }}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={() => { setCommentModal(f); setCommentText('') }}
+                            style={{ flex: 1, background: 'transparent', border: '0.5px solid #3a3a3e', color: '#b4b2a9', borderRadius: '6px', padding: '7px 0', fontSize: '11px', cursor: 'pointer' }}
+                          >
+                            Revise
+                          </button>
+                        </div>
+                      )}
+                      {status === 'approved' && <div style={{ fontSize: '11px', color: '#5DCAA5' }}>Approved</div>}
+                      {status === 'revision' && <div style={{ fontSize: '11px', color: '#F0997B' }}>Revision sent</div>}
+                      {status === 'in_production' && <div style={{ fontSize: '11px', color: '#8a8880' }}>In production</div>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!showHeroReview && (<>
       {isPending && !isViewingReviewFolder && (
         <div style={{
           background: 'var(--gold-bg)',
@@ -736,6 +857,7 @@ export default function Content() {
           </div>
         </section>
       )}
+      </>)}
 
       {newFolderModal && (
         <div className={styles.overlay} onClick={() => setNewFolderModal(false)}>
@@ -833,5 +955,6 @@ export default function Content() {
     </div>
   )
 }
+
 
 
