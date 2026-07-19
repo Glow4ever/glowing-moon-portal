@@ -43,9 +43,15 @@ export function ClientProvider({ children }) {
         .eq('active', true)
         .order('name')
       setAllClients(clients || [])
-      // Admin defaults to GMM client
-      const gmm = clients?.find(c => c.slug === 'glowing-moon-media')
-      setClient(gmm || clients?.[0] || null)
+      // Preserve whichever client is currently active (e.g. after Switch Client),
+      // refreshed with the latest data. Only fall back to GMM on first load.
+      setClient(prevClient => {
+        if (prevClient && clients?.some(c => c.id === prevClient.id)) {
+          return clients.find(c => c.id === prevClient.id)
+        }
+        const gmm = clients?.find(c => c.slug === 'glowing-moon-media')
+        return gmm || clients?.[0] || null
+      })
 } else {
       // Regular member — get their client fresh from clients table
       setRole('member')
@@ -93,3 +99,4 @@ export function ClientProvider({ children }) {
 }
 
 export const useClient = () => useContext(ClientContext)
+
