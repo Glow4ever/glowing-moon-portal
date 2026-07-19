@@ -1,10 +1,12 @@
 import { useRef, useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useClient } from '../lib/ClientContext'
 import styles from './Topbar.module.css'
 
 export default function Topbar() {
   const { client, role, allClients, switchClient } = useClient()
+  const navigate = useNavigate()
   const [logoUrl, setLogoUrl] = useState(null)
   const [uploading, setUploading] = useState(false)
   const [toast, setToast] = useState('')
@@ -51,6 +53,8 @@ export default function Topbar() {
         read: c.read,
         created_at: c.created_at,
         clients: c.clients,
+        client_id: c.client_id,
+        file_path: c.file_path,
         source: 'comment'
       }))
     ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 20)
@@ -72,6 +76,16 @@ export default function Topbar() {
     const table = n.source === 'comment' ? 'file_comments' : 'notifications'
     await supabase.from(table).update({ read: true }).eq('id', n.id)
     await loadNotifications()
+  }
+
+  function goToNotification(n) {
+    markOneRead(n)
+    if (n.source === 'comment' && n.file_path && n.client_id) {
+      switchClient(n.client_id)
+      const folderPath = n.file_path.substring(0, n.file_path.lastIndexOf('/'))
+      navigate('/content', { state: { jumpToFolderPath: folderPath } })
+    }
+    setShowNotifications(false)
   }
 
   async function loadLogo() {
@@ -247,7 +261,7 @@ export default function Topbar() {
                 {notifications.map((n, i) => (
                   <div
                     key={i}
-                    onClick={() => markOneRead(n)}
+                    onClick={() => goToNotification(n)}
                     style={{
                       display: 'flex', gap: '10px', padding: '10px 0',
                       borderBottom: '1px solid var(--border)',
@@ -289,3 +303,4 @@ export default function Topbar() {
     </header>
   )
 }
+
