@@ -1,5 +1,6 @@
 import { logAction } from '../lib/audit'
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useClient } from '../lib/ClientContext'
 import { reconcileClientCounts } from '../lib/fileCounts'
@@ -7,7 +8,8 @@ import styles from './Admin.module.css'
 import { apiFetch } from '../lib/apiFetch'
 
 export default function Admin() {
-  const { allClients, updateClientBranding, loadUserContext } = useClient()
+  const { allClients, updateClientBranding, loadUserContext, switchClient } = useClient()
+  const navigate = useNavigate()
   const [tab, setTab] = useState('clients')
   const [teamMembers, setTeamMembers] = useState([])
   const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
@@ -233,14 +235,13 @@ export default function Admin() {
                       >
                         <i className={`ti ti-refresh${resyncing[c.id] ? ' spin' : ''}`} aria-hidden="true" /> {resyncing[c.id] ? 'Resyncing...' : 'Resync Files'}
                       </button>
-                      <a
-                        href="/content"
+                      <button
                         className={styles.editBtn}
-                        title="Send for Review is now started from inside the folder you want to submit, in Content Library"
-                        style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                        onClick={() => { switchClient(c.id); navigate('/content') }}
+                        title="Browse to the folder you want to submit and click Send for Review there"
                       >
                         <i className="ti ti-send" aria-hidden="true" /> Send for Review
-                      </a>
+                      </button>
                       <button className={styles.editBtn} onClick={() => setEditingClient({...c})}>
                         <i className="ti ti-pencil" aria-hidden="true" /> Edit
                       </button>
@@ -561,6 +562,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
