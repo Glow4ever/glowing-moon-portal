@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useClient } from '../lib/ClientContext'
 import {
   getDownloadLink, getPreviewLink, uploadFile, deleteFile,
@@ -46,15 +47,24 @@ function StatusBadge({ status }) {
 
 export default function Content() {
   const { client, role, loadUserContext } = useClient()
+  const location = useLocation()
   const clientName = client?.name || 'Glowing Moon Media'
   const ROOT = `/Glowing Moon Portal/${clientName}/Content`
 
   const [stack, setStack] = useState(null)
 
   useEffect(() => {
-    if (client) {
-      setStack([{ name: 'Content', path: `/Glowing Moon Portal/${client.name}/Content` }])
+    if (!client) return
+    const jumpPath = location.state?.jumpToFolderPath
+    if (jumpPath) {
+      const jumpStack = buildStackFromPath(jumpPath)
+      if (jumpStack) {
+        setStack(jumpStack)
+        window.history.replaceState({}, document.title)
+        return
+      }
     }
+    setStack([{ name: 'Content', path: `/Glowing Moon Portal/${client.name}/Content` }])
   }, [client?.name])
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
@@ -302,6 +312,15 @@ export default function Content() {
     setCommentText('')
     setCommentModal(null)
     setSubmittingComment(false)
+  }
+
+  async function resolveRevision(file) {
+    await supabase.from('file_comments').delete().eq('client_id', client.id).eq('file_path', file.path_lower)
+    setRevisionPaths(prev => {
+      const next = { ...prev }
+      delete next[file.path_lower]
+      return next
+    })
   }
 
   async function handleApprove() {
@@ -740,7 +759,17 @@ export default function Content() {
                             </button>
                           </div>
                         ) : (
-                          <StatusBadge status={status} />
+                          <>
+                            <StatusBadge status={status} />
+                            {role === 'admin' && status === 'revision' && (
+                              <button
+                                onClick={() => resolveRevision(f)}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                              >
+                                Mark Resolved
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     ) : (
@@ -793,7 +822,17 @@ export default function Content() {
                             </button>
                           </div>
                         ) : (
-                          <StatusBadge status={status} />
+                          <>
+                            <StatusBadge status={status} />
+                            {role === 'admin' && status === 'revision' && (
+                              <button
+                                onClick={() => resolveRevision(f)}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                              >
+                                Mark Resolved
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     ) : (
@@ -842,7 +881,17 @@ export default function Content() {
                             </button>
                           </div>
                         ) : (
-                          <StatusBadge status={status} />
+                          <>
+                            <StatusBadge status={status} />
+                            {role === 'admin' && status === 'revision' && (
+                              <button
+                                onClick={() => resolveRevision(f)}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                              >
+                                Mark Resolved
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     ) : (
@@ -955,6 +1004,7 @@ export default function Content() {
     </div>
   )
 }
+
 
 
 
