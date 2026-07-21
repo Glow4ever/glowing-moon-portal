@@ -61,18 +61,17 @@ export default function Calendar() {
     }
   }
 
-  function getMediaForEvent(ev) {
-    if (!ev || !metricoolPosts.length) return null
-    const match = metricoolPosts.find(post => {
-      const postDate = post.publicationDate?.dateTime?.split('T')[0]
-      return postDate === ev.date
-    })
-    return match?.media?.[0] || null
-  }
-
-  function isVideo(url) {
-    return url && (url.endsWith('.mp4') || url.includes('/video/'))
-  }
+function getMediaForEvent(ev) {
+  if (!ev || !metricoolPosts.length) return null
+  const network = (ev.notes || '').toLowerCase()
+  const match = metricoolPosts.find(post => {
+    const postDate = post.publicationDate?.dateTime?.split('T')[0]
+    if (postDate !== ev.date) return false
+    if (!network) return true
+    return post.providers?.some(p => p.network?.toLowerCase() === network)
+  })
+  return match?.media?.[0] || null
+}
 
   async function saveEvent() {
     if (!form.title || !form.date) return
