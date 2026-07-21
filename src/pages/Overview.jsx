@@ -89,10 +89,12 @@ export default function Overview() {
   }
 }
 
-  function getMediaForDate(dateStr) {
+  function getMediaForDate(dateStr, network) {
     const match = metricoolPosts.find(post => {
       const postDate = post.publicationDate?.dateTime?.split('T')[0]
-      return postDate === dateStr
+      if (postDate !== dateStr) return false
+      if (!network) return true
+      return post.providers?.some(p => p.network?.toLowerCase() === network.toLowerCase())
     })
     return match?.media?.[0] || null
   }
@@ -335,7 +337,7 @@ export default function Overview() {
                 const { label, day } = formatEventDate(e.date)
                 const platform = (e.notes || '').toLowerCase()
                 const color = PLATFORM_COLORS[platform] || 'var(--text3)'
-                const mediaUrl = getMediaForDate(e.date)
+                const mediaUrl = getMediaForDate(e.date, platform)
                 return (
                   <div key={i} className={styles.scheduleItem} onClick={() => navigate('/calendar')}>
                     {mediaUrl ? (
@@ -377,4 +379,5 @@ export default function Overview() {
     </div>
   )
 }
+
 
