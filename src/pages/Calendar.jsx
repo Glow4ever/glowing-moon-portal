@@ -4,6 +4,9 @@ import { useClient } from '../lib/ClientContext'
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameMonth, isSameDay, parseISO } from 'date-fns'
 import styles from './Calendar.module.css'
 import { apiFetch } from '../lib/apiFetch'
+function isVideo(url) {
+  return url && (url.endsWith('.mp4') || url.includes('/video/'))
+}
 
 const EVENT_TYPES = [
   { value: 'photo',    label: 'Photo',    color: '#5DCAA5' },
