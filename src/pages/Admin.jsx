@@ -12,6 +12,7 @@ export default function Admin() {
   const navigate = useNavigate()
   const [tab, setTab] = useState('clients')
   const [teamMembers, setTeamMembers] = useState([])
+  const [trackerRollup, setTrackerRollup] = useState({})
   const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
   const [newMember, setNewMember] = useState({ email: '', password: '', client_id: '', role: 'member' })
   const [editingClient, setEditingClient] = useState(null)
@@ -30,7 +31,7 @@ export default function Admin() {
     return Array.from(bytes, b => chars[b % chars.length]).join('')
   }
 
-  useEffect(() => { loadTeam() }, [])
+  useEffect(() => { loadTeam(); loadTrackerRollup() }, [])
 
   async function loadTeam() {
     const { data } = await supabase
@@ -38,6 +39,36 @@ export default function Admin() {
       .select('*, clients(name)')
       .order('created_at')
     if (data) setTeamMembers(data)
+  }
+
+  async function loadTrackerRollup() {
+    const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
+      supabase.from('file_status').select('client_id, status'),
+      supabase.from('file_comments').select('client_id, file_path')
+    ])
+
+    const rollup = {}
+
+    ;(statusRows || []).forEach(r => {
+      if (!rollup[r.client_id]) rollup[r.client_id] = { approved: 0, in_review: 0, revision: 0 }
+      if (r.status === 'approved') rollup[r.client_id].approved++
+      else rollup[r.client_id].in_review++
+    })
+
+    // revision overrides in_review — count unique file paths with comments
+    const revisionByClient = {}
+    ;(commentRows || []).forEach(r => {
+      if (!revisionByClient[r.client_id]) revisionByClient[r.client_id] = new Set()
+      revisionByClient[r.client_id].add(r.file_path)
+    })
+    Object.entries(revisionByClient).forEach(([clientId, paths]) => {
+      if (!rollup[clientId]) rollup[clientId] = { approved: 0, in_review: 0, revision: 0 }
+      rollup[clientId].revision = paths.size
+      // Those revision files were counted as in_review — subtract them
+      rollup[clientId].in_review = Math.max(0, rollup[clientId].in_review - paths.size)
+    })
+
+    setTrackerRollup(rollup)
   }
 
   async function removeTeamMember(member) {
@@ -249,6 +280,25 @@ export default function Admin() {
                       <div className={styles.clientName}>{c.name}</div>
                       <div className={styles.clientSlug}>/{c.slug}</div>
                       {c.approval_month && getStatusBadge(c.approval_status, c)}
+                      {trackerRollup[c.id] && (
+                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
+                          {trackerRollup[c.id].approved > 0 && (
+                            <span style={{ fontSize: '11px', background: 'var(--teal-bg)', color: 'var(--teal)', padding: '2px 8px', borderRadius: '20px' }}>
+                              {trackerRollup[c.id].approved} approved
+                            </span>
+                          )}
+                          {trackerRollup[c.id].in_review > 0 && (
+                            <span style={{ fontSize: '11px', background: 'var(--gold-bg)', color: 'var(--gold-light)', padding: '2px 8px', borderRadius: '20px' }}>
+                              {trackerRollup[c.id].in_review} in review
+                            </span>
+                          )}
+                          {trackerRollup[c.id].revision > 0 && (
+                            <span style={{ fontSize: '11px', background: '#2a1a1a', color: '#F0997B', padding: '2px 8px', borderRadius: '20px' }}>
+                              {trackerRollup[c.id].revision} revision
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className={styles.clientActions} style={{ flexDirection: 'row', gap: '6px' }}>
                       <button
