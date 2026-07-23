@@ -80,7 +80,7 @@ export default function Overview() {
 
   async function loadMetricoolPosts() {
   try {
-    const res = await apiFetch('/api/metricool')
+    const res = await apiFetch(`/api/metricool?clientId=${client?.id}`)
     if (!res.ok) return
     const data = await res.json()
     setMetricoolPosts(data.data || [])
@@ -379,5 +379,6 @@ export default function Overview() {
     </div>
   )
 }
+
 
 
