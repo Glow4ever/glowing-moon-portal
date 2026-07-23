@@ -78,7 +78,7 @@ export async function getPreviewLink(pathLower) {
   }
 }
 
-export async function uploadFile(relativePath, fileData) {
+export async function uploadFile(path, fileData) {
   try {
     const tokenRes = await apiFetch('/api/dropbox-upload-token', { method: 'POST' })
     if (!tokenRes.ok) throw new Error('Could not get upload token')
@@ -90,7 +90,7 @@ export async function uploadFile(relativePath, fileData) {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/octet-stream',
         'Dropbox-API-Arg': JSON.stringify({
-          path: `${BASE_PATH}/${relativePath}`,
+          path,
           mode: 'add',
           autorename: true,
           mute: false
