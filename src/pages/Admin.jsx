@@ -170,15 +170,39 @@ export default function Admin() {
     setSaving(false)
   }
 
-  function getStatusBadge(status) {
+  async function clearReview(client) {
+    const confirmed = window.confirm(`Clear the pending review for ${client.name}? This will remove the "Pending Review" status and the client's Next Steps banner.`)
+    if (!confirmed) return
+    await supabase.from('clients').update({
+      approval_status: null,
+      approval_month: null,
+      approval_folder_path: null
+    }).eq('id', client.id)
+    await loadUserContext()
+    showToast(`Review cleared for ${client.name}`)
+  }
+
+  function getStatusBadge(status, client) {
     if (!status || status === 'none') return null
     const map = {
-      pending: { bg: 'var(--gold-bg)', color: 'var(--gold-light)', label: 'Pending Review' },
+      pending: { bg: 'var(--gold-bg)', color: 'var(--gold-light)', label: 'Pending Review ×' },
       approved: { bg: 'var(--teal-bg)', color: 'var(--teal)', label: 'Approved' },
       revision: { bg: '#2a1a1a', color: '#ff6b6b', label: 'Revision Requested' }
     }
     const s = map[status]
     if (!s) return null
+    if (status === 'pending' && client) {
+      return (
+        <span
+          className={styles.teamBadge}
+          onClick={() => clearReview(client)}
+          style={{ background: s.bg, color: s.color, cursor: 'pointer' }}
+          title="Click to clear pending review"
+        >
+          {s.label}
+        </span>
+      )
+    }
     return <span className={styles.teamBadge} style={{ background: s.bg, color: s.color }}>{s.label}</span>
   }
 
@@ -224,7 +248,7 @@ export default function Admin() {
                     <div className={styles.clientInfo}>
                       <div className={styles.clientName}>{c.name}</div>
                       <div className={styles.clientSlug}>/{c.slug}</div>
-                      {c.approval_month && getStatusBadge(c.approval_status)}
+                      {c.approval_month && getStatusBadge(c.approval_status, c)}
                     </div>
                     <div className={styles.clientActions} style={{ flexDirection: 'row', gap: '6px' }}>
                       <button
