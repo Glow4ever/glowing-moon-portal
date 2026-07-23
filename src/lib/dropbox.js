@@ -134,10 +134,10 @@ export async function deleteFolder(pathLower) {
   }
 }
 
-export async function createFolder(relativePath) {
+export async function createFolder(path) {
   try {
     await dbxFetch('files/create_folder_v2', {
-      path: `${BASE_PATH}/${relativePath}`,
+      path,
       autorename: false
     })
     return true
