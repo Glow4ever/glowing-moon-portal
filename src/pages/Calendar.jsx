@@ -55,7 +55,7 @@ export default function Calendar() {
 
   async function loadMetricoolPosts() {
     try {
-      const res = await apiFetch('/api/metricool')
+      const res = await apiFetch(`/api/metricool?clientId=${client?.id}`)
       if (!res.ok) return
       const data = await res.json()
       setMetricoolPosts(data.data || [])
@@ -339,3 +339,4 @@ function getMediaForEvent(ev) {
     </div>
   )
 }
+
