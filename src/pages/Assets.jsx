@@ -127,7 +127,7 @@ export default function Assets() {
             ))}
           </div>
         </div>
-        {role === 'admin' && (
+        {(role === 'admin' || role === 'editor') && (
           <div>
             <input type="file" ref={fileRef} style={{ display: 'none' }} multiple onChange={handleUpload} />
             <button className="btn btn-gold" onClick={() => fileRef.current.click()} disabled={uploading}>
@@ -181,7 +181,7 @@ export default function Assets() {
                 <div className={styles.fileSize}>
                   {formatBytes(file.size)}
                   <i className="ti ti-download" style={{ fontSize: '13px', color: 'var(--text3)', marginLeft: '6px' }} />
-                  {role === 'admin' && (
+                  {(role === 'admin' || role === 'editor') && (
                     <i className="ti ti-trash"
                       style={{ fontSize: '13px', color: 'var(--text3)', marginLeft: '6px', cursor: 'pointer' }}
                       onClick={e => { e.stopPropagation(); handleDeleteFile(file) }}
@@ -196,3 +196,4 @@ export default function Assets() {
     </div>
   )
 }
+
