@@ -1,4 +1,7 @@
 const { requireAuth } = require('./_auth')
+const { createClient } = require('@supabase/supabase-js')
+
+const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
 async function getAccessToken() {
   const refresh_token = process.env.DROPBOX_REFRESH_TOKEN
@@ -27,7 +30,13 @@ module.exports = async function handler(req, res) {
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const isAdmin = user.app_metadata?.role === 'admin' || user.user_metadata?.role === 'admin'
+  const { data: roleRow } = await supabaseAdmin
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single()
+
+  const isAdmin = roleRow?.role === 'admin'
   if (!isAdmin) return res.status(403).json({ error: 'Forbidden' })
 
   try {
