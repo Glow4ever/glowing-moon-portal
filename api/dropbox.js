@@ -55,7 +55,7 @@ module.exports = async function handler(req, res) {
     .eq('user_id', user.id)
     .single()
 
-  const isAdmin = roleRow?.role === 'admin'
+  const isAdmin = roleRow?.role === 'admin' || roleRow?.role === 'editor'
 
   if (ADMIN_ONLY_ENDPOINTS.includes(endpoint) && !isAdmin) {
     return res.status(403).json({ error: 'Forbidden' })
