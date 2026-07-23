@@ -236,6 +236,7 @@ export default function Content() {
   }
 
   async function handleDeleteFile(file) {
+    if (!window.confirm(`Delete "${file.name}"? This cannot be undone.`)) return
     await deleteFile(file.path_lower)
     await logAction('delete', 'content', { fileName: file.name, path: file.path_lower })
     setEntries(prev => prev.filter(e => e.id !== file.id))
@@ -243,6 +244,7 @@ export default function Content() {
   }
 
   async function handleDeleteFolder(folder) {
+    if (!window.confirm(`Delete the folder "${folder.name}" and everything inside it? This cannot be undone.`)) return
     const filesInFolder = await countDropboxFilesRecursive(folder.path_lower)
     await deleteFolder(folder.path_lower)
     setEntries(prev => prev.filter(e => e.id !== folder.id))
