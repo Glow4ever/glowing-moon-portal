@@ -62,7 +62,7 @@ function isVideo(url) {
 
 export default function Overview() {
   const navigate = useNavigate()
-  const { client } = useClient()
+  const { client, role } = useClient()
   const [stats, setStats] = useState({ assets: 0, content: 0, events: 0 })
   const [statsLoading, setStatsLoading] = useState(true)
   const [progressLoading, setProgressLoading] = useState(true)
@@ -74,6 +74,7 @@ export default function Overview() {
   const [metricoolPosts, setMetricoolPosts] = useState([])
   const [scheduleOpen, setScheduleOpen] = useState(true)
   const [progressOpen, setProgressOpen] = useState(true)
+  const [nextSteps, setNextSteps] = useState(null)
 
   useEffect(() => { loadDashboard() }, [client])
   useEffect(() => { loadMetricoolPosts() }, [])
@@ -145,7 +146,22 @@ export default function Overview() {
         setScheduleLoading(false)
       })
 
-    // Content progress card — heaviest section (3 parallel month walks), render independently
+    // Next Steps — pending approvals + unread messages for member view
+    if (role === 'member') {
+      const [{ data: fileStatusRows }, { data: commentRows }, { data: unreadMessages }] = await Promise.all([
+        supabase.from('file_status').select('status').eq('client_id', client.id).eq('status', 'approved'),
+        supabase.from('file_comments').select('file_path').eq('client_id', client.id),
+        supabase.from('messages').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('sender', 'admin').eq('read', false)
+      ])
+      const isPendingReview = client.approval_status === 'pending'
+      const hasUnreadMessages = (unreadMessages?.count || 0) > 0
+      setNextSteps({
+        isPendingReview,
+        approvalFolderPath: client.approval_folder_path,
+        approvalMonth: client.approval_month,
+        hasUnreadMessages
+      })
+    }
     const monthRowsPromise = supabase
       .from('content_months')
       .select('*')
@@ -247,6 +263,69 @@ export default function Overview() {
           <div className={styles.statLink} style={{ color: 'var(--text2)' }}>View calendar →</div>
         </div>
       </div>
+
+      {role === 'member' && nextSteps && (nextSteps.isPendingReview || nextSteps.hasUnreadMessages) && (
+        <div style={{
+          background: 'var(--surface2)',
+          border: '1px solid var(--border)',
+          borderRadius: '10px',
+          padding: '20px 24px',
+          marginBottom: '20px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+            <span style={{ width: '3px', height: '14px', background: 'var(--gold-light)', borderRadius: '2px', display: 'inline-block' }} />
+            <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)' }}>Next Steps</div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {nextSteps.isPendingReview && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--gold-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <i className="ti ti-file-check" style={{ fontSize: '16px', color: 'var(--gold-light)' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: '500' }}>
+                      {nextSteps.approvalMonth} content is ready for your review
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+                      Approve files or leave revision notes
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => navigate('/content', { state: { jumpToFolderPath: nextSteps.approvalFolderPath } })}
+                  style={{ background: 'var(--gold-light)', color: '#0E0E0F', border: 'none', borderRadius: '6px', padding: '7px 14px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  Review content →
+                </button>
+              </div>
+            )}
+            {nextSteps.hasUnreadMessages && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--teal-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <i className="ti ti-message" style={{ fontSize: '16px', color: 'var(--teal)' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: '500' }}>
+                      New message from Glowing Moon Media
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+                      Check your messages for updates
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={() => navigate('/messages')}
+                  style={{ background: 'var(--teal)', color: '#0E0E0F', border: 'none', borderRadius: '6px', padding: '7px 14px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                >
+                  View messages →
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className={styles.grid}>
 
