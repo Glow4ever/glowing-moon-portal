@@ -76,7 +76,7 @@ export default function Overview() {
   const [progressOpen, setProgressOpen] = useState(true)
   const [nextSteps, setNextSteps] = useState(null)
 
-  useEffect(() => { loadDashboard() }, [client])
+  useEffect(() => { loadDashboard() }, [client?.id, client?.approval_status])
   useEffect(() => { loadMetricoolPosts() }, [])
 
   async function loadMetricoolPosts() {
@@ -267,10 +267,11 @@ export default function Overview() {
       {role === 'member' && nextSteps && (nextSteps.isPendingReview || nextSteps.hasUnreadMessages) && (
         <div style={{
           background: 'var(--surface2)',
-          border: '1px solid var(--border)',
+          border: `1px solid ${client?.primary_color || 'var(--gold-light)'}55`,
           borderRadius: '10px',
           padding: '20px 24px',
-          marginBottom: '20px'
+          marginBottom: '20px',
+          boxShadow: `0 0 18px 0 ${client?.primary_color || '#D3C9A7'}22`
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
             <span style={{ width: '3px', height: '14px', background: 'var(--gold-light)', borderRadius: '2px', display: 'inline-block' }} />
