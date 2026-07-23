@@ -440,38 +440,119 @@ export default function Admin() {
       )}
 
       {tab === 'team' && (
-        <div>
-          <div className={styles.sectionLabel}>Portal Accounts</div>
-          <div className={styles.teamList}>
-            {teamMembers.map((m, i) => (
-              <div key={i} className={styles.teamRow}>
-                <div className={styles.teamAvatar}>
-                  {m.role === 'admin' ? <i className="ti ti-shield" aria-hidden="true" /> : <i className="ti ti-user" aria-hidden="true" />}
-                </div>
-                <div className={styles.teamInfo}>
-                  <div className={styles.teamRole}>{m.email || 'No email on file'}</div>
-                  <div className={styles.teamClient}>{m.role === 'admin' ? 'Admin' : m.clients?.name || 'Unassigned'}</div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div className={styles.teamBadge} style={{ background: m.role === 'admin' ? 'var(--gold-bg)' : 'var(--teal-bg)', color: m.role === 'admin' ? 'var(--gold-light)' : 'var(--teal)' }}>
-                    {m.role}
+        <div className={styles.adminLayout}>
+          <div>
+            <div className={styles.sectionLabel}>Portal Accounts</div>
+            <div className={styles.teamList}>
+              {teamMembers.map((m, i) => (
+                <div key={i} className={styles.teamRow}>
+                  <div className={styles.teamAvatar}>
+                    {m.role === 'admin' ? <i className="ti ti-shield" aria-hidden="true" /> : m.role === 'editor' ? <i className="ti ti-pencil" aria-hidden="true" /> : <i className="ti ti-user" aria-hidden="true" />}
                   </div>
-                  {m.role !== 'admin' && (
-                    <button
-                      className={styles.editBtn}
-                      onClick={() => removeTeamMember(m)}
-                      title="Remove portal access"
-                      style={{ color: 'var(--coral, #e0845a)', fontSize: '11px' }}
-                    >
-                      <i className="ti ti-trash" />
-                    </button>
-                  )}
+                  <div className={styles.teamInfo}>
+                    <div className={styles.teamRole}>{m.email || 'No email on file'}</div>
+                    <div className={styles.teamClient}>{m.role === 'admin' ? 'Admin' : m.role === 'editor' ? 'Editor' : m.clients?.name || 'Unassigned'}</div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div className={styles.teamBadge} style={{
+                      background: m.role === 'admin' ? 'var(--gold-bg)' : m.role === 'editor' ? 'rgba(93,202,165,0.14)' : 'var(--teal-bg)',
+                      color: m.role === 'admin' ? 'var(--gold-light)' : m.role === 'editor' ? 'var(--teal)' : 'var(--teal)'
+                    }}>
+                      {m.role}
+                    </div>
+                    {m.role !== 'admin' && (
+                      <button
+                        className={styles.editBtn}
+                        onClick={() => removeTeamMember(m)}
+                        title="Remove portal access"
+                        style={{ color: 'var(--coral, #e0845a)', fontSize: '11px' }}
+                      >
+                        <i className="ti ti-trash" />
+                      </button>
+                    )}
+                  </div>
                 </div>
+              ))}
+              {teamMembers.length === 0 && (
+                <div className={styles.empty}>No accounts yet</div>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <div className={styles.sectionLabel}>Add Team Member</div>
+            <div className={styles.formCard}>
+              <div className={styles.field} style={{ marginBottom: '12px' }}>
+                <label className={styles.label}>Role</label>
+                <select
+                  className={styles.input}
+                  value={newMember.role === 'member' ? 'editor' : newMember.role}
+                  onChange={e => setNewMember(p => ({ ...p, role: e.target.value }))}
+                >
+                  <option value="editor">Editor — can manage files, send for review</option>
+                  <option value="admin">Admin — full access</option>
+                </select>
               </div>
-            ))}
-            {teamMembers.length === 0 && (
-              <div className={styles.empty}>No accounts yet</div>
-            )}
+              <div className={styles.field} style={{ marginBottom: '12px' }}>
+                <label className={styles.label}>Login Email</label>
+                <input
+                  className={styles.input}
+                  type="email"
+                  value={newMember.email}
+                  onChange={e => setNewMember(p => ({ ...p, email: e.target.value }))}
+                  placeholder="colleague@example.com"
+                />
+              </div>
+              <div className={styles.field} style={{ marginBottom: '16px' }}>
+                <label className={styles.label}>Temporary Password</label>
+                <input
+                  className={styles.input}
+                  type="password"
+                  value={newMember.password}
+                  onChange={e => setNewMember(p => ({ ...p, password: e.target.value }))}
+                  placeholder="Leave blank to auto-generate"
+                />
+              </div>
+              <button
+                className="btn btn-gold"
+                style={{ width: '100%', justifyContent: 'center' }}
+                disabled={saving || !newMember.email}
+                onClick={async () => {
+                  if (!newMember.email) return showToast('Enter an email')
+                  setSaving(true)
+                  const password = newMember.password || generatePassword()
+                  const role = newMember.role === 'member' ? 'editor' : newMember.role
+                  const { data, error } = await supabase.functions.invoke('create-user', {
+                    body: { email: newMember.email, password, role, client_id: null }
+                  })
+                  if (error) {
+                    let message = 'Failed to create user.'
+                    try {
+                      const body = await error.context?.json()
+                      if (body?.error) message = body.error
+                    } catch {}
+                    showToast(message)
+                  } else if (data?.error) {
+                    showToast(data.error)
+                  } else {
+                    await apiFetch('/api/send-email', {
+                      method: 'POST',
+                      body: JSON.stringify({
+                        type: 'welcome',
+                        clientName: 'Glowing Moon Media',
+                        recipientEmail: newMember.email
+                      })
+                    })
+                    showToast(`${role.charAt(0).toUpperCase() + role.slice(1)} account created — welcome email sent!`)
+                    setNewMember({ email: '', password: '', client_id: '', role: 'member' })
+                    await loadTeam()
+                  }
+                  setSaving(false)
+                }}
+              >
+                <i className="ti ti-user-plus" /> Add Team Member
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -562,6 +643,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
