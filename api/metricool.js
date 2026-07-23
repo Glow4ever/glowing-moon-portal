@@ -1,4 +1,7 @@
 const { requireAuth } = require('./_auth')
+const { createClient } = require('@supabase/supabase-js')
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', 'https://portal.glowingmoonmedia.com')
@@ -11,10 +14,22 @@ module.exports = async function handler(req, res) {
   if (!user) return
 
   const userId = process.env.METRICOOL_USER_ID
-  const blogId = process.env.METRICOOL_BLOG_ID
   const token = process.env.METRICOOL_API_TOKEN
 
-  if (!userId || !blogId || !token) return res.status(500).json({ error: 'Metricool env vars not set' })
+  if (!userId || !token) return res.status(500).json({ error: 'Metricool env vars not set' })
+
+  let blogId = req.query.blogId
+
+  if (!blogId && req.query.clientId) {
+    const { data: client } = await supabase
+      .from('clients')
+      .select('metricool_blog_id')
+      .eq('id', req.query.clientId)
+      .single()
+    blogId = client?.metricool_blog_id
+  }
+
+  if (!blogId) blogId = process.env.METRICOOL_BLOG_ID
 
   const { start, end } = req.query
   const startDate = start || new Date().toISOString().split('T')[0] + 'T00:00:00'
