@@ -452,7 +452,7 @@ export default function Content() {
             ))}
           </div>
         </div>
-        {role === 'admin' && (
+        {(role === 'admin' || role === 'editor') && (
           <div style={{ display: 'flex', gap: '8px' }}>
             {allFiles.length > 0 && !(isPending && isViewingReviewFolder) && (
               <button className="btn btn-gold" onClick={() => setSendReviewModal(true)}>
@@ -710,7 +710,7 @@ export default function Content() {
                 >
                   <i className="ti ti-download" />
                 </button>
-                {role === 'admin' && (
+                {(role === 'admin' || role === 'editor') && (
                   <button
                     className={styles.folderAction}
                     onClick={e => { e.stopPropagation(); handleDeleteFolder(f) }}
@@ -777,7 +777,7 @@ export default function Content() {
                     ) : (
                       <div style={{ display: 'flex', gap: '4px' }}>
                         <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
-                        {role === 'admin' && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
+                        {(role === 'admin' || role === 'editor') && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
                       </div>
                     )}
                   </div>
@@ -840,7 +840,7 @@ export default function Content() {
                     ) : (
                       <div style={{ display: 'flex', gap: '4px' }}>
                         <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
-                        {role === 'admin' && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
+                        {(role === 'admin' || role === 'editor') && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
                       </div>
                     )}
                   </div>
