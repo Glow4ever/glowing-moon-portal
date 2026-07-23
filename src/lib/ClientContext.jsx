@@ -31,20 +31,19 @@ export function ClientProvider({ children }) {
       return
     }
 
-    // Check if admin (has a role with null client_id)
+    // Check if admin or editor (has a role with null client_id)
     const adminRole = roleData.find(r => r.client_id === null && r.role === 'admin')
+    const editorRole = roleData.find(r => r.client_id === null && r.role === 'editor')
 
-    if (adminRole) {
-      setRole('admin')
-      // Load all clients for admin
+    if (adminRole || editorRole) {
+      setRole(adminRole ? 'admin' : 'editor')
+      // Load all clients for admin/editor
       const { data: clients } = await supabase
         .from('clients')
         .select('*')
         .eq('active', true)
         .order('name')
       setAllClients(clients || [])
-      // Preserve whichever client is currently active (e.g. after Switch Client),
-      // refreshed with the latest data. Only fall back to GMM on first load.
       setClient(prevClient => {
         if (prevClient && clients?.some(c => c.id === prevClient.id)) {
           return clients.find(c => c.id === prevClient.id)
@@ -69,7 +68,7 @@ export function ClientProvider({ children }) {
   }
 
   async function switchClient(clientId) {
-    if (role !== 'admin') return
+    if (role !== 'admin' && role !== 'editor') return
     const found = allClients.find(c => c.id === clientId)
     if (found) { setClient(found); setActiveClientId(clientId) }
   }
@@ -99,4 +98,5 @@ export function ClientProvider({ children }) {
 }
 
 export const useClient = () => useContext(ClientContext)
+
 
