@@ -175,6 +175,21 @@ export default function Content() {
     const folderLabel = stack[stack.length - 1].name
 
     try {
+      // Clear any existing file_status rows for files in this folder
+      // so a re-sent review starts fresh (prevents instant auto-approval)
+      const folderPrefix = currentPath.toLowerCase()
+      const { data: existingRows } = await supabase
+        .from('file_status')
+        .select('id, file_path')
+        .eq('client_id', client.id)
+      const rowsToDelete = (existingRows || []).filter(r => r.file_path.startsWith(folderPrefix))
+      if (rowsToDelete.length > 0) {
+        await supabase.from('file_status').delete().in('id', rowsToDelete.map(r => r.id))
+      }
+      // Also reset local file status state
+      setFileStatuses({})
+      setRevisionPaths({})
+
       await supabase.from('clients').update({
         approval_status: 'pending',
         approval_month: folderLabel,
