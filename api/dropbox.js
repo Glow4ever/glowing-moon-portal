@@ -1,5 +1,8 @@
 const { requireAuth } = require('./_auth')
 
+const { createClient } = require('@supabase/supabase-js')
+const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+
 const ALLOWED_ENDPOINTS = [
   'files/list_folder',
   'files/list_folder/continue',
@@ -46,8 +49,13 @@ module.exports = async function handler(req, res) {
 
   if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' })
 
-  const isAdmin = user.app_metadata?.role === 'admin' ||
-    user.user_metadata?.role === 'admin'
+  const { data: roleRow } = await supabaseAdmin
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single()
+
+  const isAdmin = roleRow?.role === 'admin'
 
   if (ADMIN_ONLY_ENDPOINTS.includes(endpoint) && !isAdmin) {
     return res.status(403).json({ error: 'Forbidden' })
