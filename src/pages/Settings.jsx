@@ -144,7 +144,7 @@ export default function Settings() {
               <img src={coverPreview || client.cover_url} alt="cover preview" style={{ width: '100%', height: '120px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border2)' }} />
               <button
                 className="btn btn-danger"
-                style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '11px', padding: '4px 10px' }}
+                style={{ position: 'absolute', top: '8px', right: '8px', fontSize: '12px', padding: '4px 10px' }}
                 onClick={handleCoverRemove}
                 disabled={coverSaving}
               >
@@ -185,3 +185,4 @@ export default function Settings() {
     </div>
   )
 }
+
