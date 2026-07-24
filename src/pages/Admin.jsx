@@ -381,7 +381,7 @@ export default function Admin() {
                     const currentStatus = c.approval_status || 'none'
                     return (
                       <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '18px' }}>
-                        <div style={{ fontSize: '10px', letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: '12px' }}>Production stage</div>
+                        <div style={{ fontSize: '12px', letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: '12px' }}>Production stage</div>
                         <div style={{ display: 'flex', gap: 0, marginBottom: '22px' }}>
                           {stages.map((s, i) => (
                             <div key={s.key} style={{ flex: 1, textAlign: 'center' }}>
@@ -390,8 +390,8 @@ export default function Admin() {
                                 background: activeIdx >= i && activeIdx !== -1 ? s.color : 'var(--border)',
                                 borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0
                               }} />
-                              <div style={{ marginTop: '8px', fontSize: '11px', color: activeIdx === i ? s.color : 'var(--text3)' }}>{s.label}</div>
-                              {activeIdx === i && <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>current</div>}
+                              <div style={{ marginTop: '8px', fontSize: '12px', color: activeIdx === i ? s.color : 'var(--text3)' }}>{s.label}</div>
+                              {activeIdx === i && <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '1px' }}>current</div>}
                             </div>
                           ))}
                         </div>
@@ -399,15 +399,15 @@ export default function Admin() {
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '18px' }}>
                           <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
                             <div style={{ fontSize: '22px', color: 'var(--teal)', lineHeight: 1 }}>{roll.approved}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '5px' }}>Approved</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '5px' }}>Approved</div>
                           </div>
                           <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
                             <div style={{ fontSize: '22px', color: 'var(--gold-light)', lineHeight: 1 }}>{roll.in_review}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '5px' }}>Awaiting client</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '5px' }}>Awaiting client</div>
                           </div>
                           <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
                             <div style={{ fontSize: '22px', color: '#F0997B', lineHeight: 1 }}>{roll.revision}</div>
-                            <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '5px' }}>Needs revision</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '5px' }}>Needs revision</div>
                           </div>
                         </div>
 
@@ -415,7 +415,7 @@ export default function Admin() {
                           <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '14px 16px', marginBottom: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                             <div>
                               <div style={{ fontSize: '12px', color: 'var(--text1)' }}>{c.approval_month}</div>
-                              <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>{c.approval_folder_path.replace('/Glowing Moon Portal/', '')}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>{c.approval_folder_path.replace('/Glowing Moon Portal/', '')}</div>
                             </div>
                             <button
                               className={styles.editBtn}
@@ -427,7 +427,7 @@ export default function Admin() {
                           </div>
                         )}
 
-                        <div style={{ fontSize: '10px', letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: '10px' }}>Set status</div>
+                        <div style={{ fontSize: '12px', letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: '10px' }}>Set status</div>
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
                           {statusOptions.map(opt => {
                             const active = currentStatus === opt.key
@@ -442,7 +442,7 @@ export default function Admin() {
                                   color: active ? 'var(--gold-light)' : 'var(--text2)',
                                   borderRadius: '20px',
                                   padding: '5px 14px',
-                                  fontSize: '11px',
+                                  fontSize: '12px',
                                   cursor: active ? 'default' : 'pointer'
                                 }}
                               >
@@ -517,7 +517,7 @@ export default function Admin() {
                       {/* Existing team members for this client */}
                       {teamMembers.filter(m => m.client_id === editingClient.id).length > 0 && (
                         <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
-                          <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '10px' }}>Current Portal Access</div>
+                          <div style={{ fontSize: '12px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '10px' }}>Current Portal Access</div>
                           {teamMembers.filter(m => m.client_id === editingClient.id).map(m => (
                             <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                               <i className="ti ti-user" style={{ fontSize: '14px', color: 'var(--text3)' }} />
@@ -528,7 +528,7 @@ export default function Admin() {
                                 className={styles.editBtn}
                                 onClick={() => removeTeamMember(m)}
                                 title="Remove portal access"
-                                style={{ color: 'var(--coral, #e0845a)', fontSize: '11px' }}
+                                style={{ color: 'var(--coral, #e0845a)', fontSize: '12px' }}
                               >
                                 <i className="ti ti-trash" /> Remove
                               </button>
@@ -539,7 +539,7 @@ export default function Admin() {
 
                       {/* Add another team member */}
                       <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginTop: '4px' }}>
-                        <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>
                           {teamMembers.filter(m => m.client_id === editingClient.id).length > 0 ? 'Add Another Team Member' : 'Portal Access'}
                         </div>
                         <div className={styles.formGrid}>
@@ -637,7 +637,7 @@ export default function Admin() {
                 </div>
               </div>
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: '14px', marginBottom: '12px' }}>
-                <div style={{ fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>Portal Access</div>
+                <div style={{ fontSize: '12px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)', marginBottom: '12px' }}>Portal Access</div>
                 <div className={styles.field} style={{ marginBottom: '12px' }}>
                   <label className={styles.label}>Login Email</label>
                   <input
@@ -698,7 +698,7 @@ export default function Admin() {
                         className={styles.editBtn}
                         onClick={() => removeTeamMember(m)}
                         title="Remove portal access"
-                        style={{ color: 'var(--coral, #e0845a)', fontSize: '11px' }}
+                        style={{ color: 'var(--coral, #e0845a)', fontSize: '12px' }}
                       >
                         <i className="ti ti-trash" />
                       </button>
@@ -802,7 +802,7 @@ export default function Admin() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: color || 'var(--gold)' }} />
                 <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{clientName}</div>
-                <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{items.length} note{items.length !== 1 ? 's' : ''}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text3)' }}>{items.length} note{items.length !== 1 ? 's' : ''}</div>
               </div>
               <div className={styles.teamList}>
                 {items.map(c => (
@@ -811,11 +811,11 @@ export default function Admin() {
                       <i className="ti ti-message" />
                     </div>
                     <div className={styles.teamInfo} style={{ flex: 1 }}>
-                      <div className={styles.teamRole} style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>
+                      <div className={styles.teamRole} style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '4px' }}>
                         {c.file_path.split('/').pop()}
                       </div>
                       <div style={{ fontSize: '13px', color: 'var(--text)', lineHeight: '1.5' }}>{c.comment}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '6px' }}>
                         {new Date(c.created_at).toLocaleString()}
                       </div>
                     </div>
@@ -859,7 +859,7 @@ export default function Admin() {
                     {log.details?.fileName ? ` · ${log.details.fileName}` : ''}
                   </div>
                 </div>
-                <div className={styles.teamBadge} style={{ background: 'var(--gold-bg)', color: 'var(--gold-light)', fontSize: '11px' }}>
+                <div className={styles.teamBadge} style={{ background: 'var(--gold-bg)', color: 'var(--gold-light)', fontSize: '12px' }}>
                   {new Date(log.created_at).toLocaleString()}
                 </div>
               </div>
@@ -876,6 +876,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
