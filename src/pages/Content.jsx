@@ -208,7 +208,8 @@ export default function Content() {
       await supabase.from('clients').update({
         approval_status: 'pending',
         approval_month: folderLabel,
-        approval_folder_path: currentPath
+        approval_folder_path: currentPath,
+        approval_sent_at: new Date().toISOString()
       }).eq('id', client.id)
 
       const yearMatch = folderLabel.match(/\d{4}/)
@@ -1156,6 +1157,7 @@ export default function Content() {
     </div>
   )
 }
+
 
 
 
