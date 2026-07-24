@@ -116,6 +116,12 @@ export default function Content() {
     setRevisionPaths(revMap)
   }
 
+  function isNew(file) {
+    if (!file?.client_modified) return false
+    const modified = new Date(file.client_modified).getTime()
+    return Date.now() - modified < 7 * 24 * 60 * 60 * 1000
+  }
+
   function getFileDisplayStatus(pathLower) {
     if (revisionPaths[pathLower]) return 'revision'
     if (fileStatuses[pathLower] === 'approved') return 'approved'
@@ -558,6 +564,11 @@ export default function Content() {
                           </div>
                         </div>
                       )}
+                      {isNew(f) && (
+                        <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
+                          NEW
+                        </div>
+                      )}
                       {status === 'approved' && (
                         <div style={{ position: 'absolute', top: '10px', right: '10px', width: '24px', height: '24px', borderRadius: '50%', background: '#1D9E75', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <i className="ti ti-check" style={{ fontSize: '14px', color: '#0E0E0F' }} />
@@ -764,7 +775,12 @@ export default function Content() {
               const status = getFileDisplayStatus(f.path_lower)
               return (
                 <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
-                  <div className={styles.thumbImgWrap}>
+                  <div className={styles.thumbImgWrap} style={{ position: 'relative' }}>
+                    {isNew(f) && (
+                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
+                        NEW
+                      </div>
+                    )}
                     {f.url
                       ? <img src={f.url} alt={f.name} className={styles.thumbImg} onError={e => { e.target.style.display = 'none' }} />
                       : <div className={styles.thumbFallback}><i className="ti ti-photo" style={{ fontSize: '28px', color: 'var(--teal)' }} /></div>
@@ -826,7 +842,12 @@ export default function Content() {
               const status = getFileDisplayStatus(f.path_lower)
               return (
                 <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
-                  <div className={styles.thumbImgWrap}>
+                  <div className={styles.thumbImgWrap} style={{ position: 'relative' }}>
+                    {isNew(f) && (
+                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
+                        NEW
+                      </div>
+                    )}
                     {f.url
                       ? <video src={f.url} className={styles.thumbImg} preload="metadata" muted />
                       : <div className={styles.thumbFallback}><i className="ti ti-video" style={{ fontSize: '28px', color: 'var(--gold-light)' }} /></div>
@@ -889,7 +910,12 @@ export default function Content() {
               const status = getFileDisplayStatus(f.path_lower)
               return (
                 <div key={f.id} className={styles.thumb}>
-                  <div className={styles.thumbImgWrap}>
+                  <div className={styles.thumbImgWrap} style={{ position: 'relative' }}>
+                    {isNew(f) && (
+                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
+                        NEW
+                      </div>
+                    )}
                     <div className={styles.thumbFallback}><i className="ti ti-file" style={{ fontSize: '28px', color: 'var(--text3)' }} /></div>
                   </div>
                   <div className={styles.thumbFooter}>
