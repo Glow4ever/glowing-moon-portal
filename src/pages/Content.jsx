@@ -36,7 +36,7 @@ function StatusBadge({ status }) {
   return (
     <div style={{
       display: 'inline-flex', alignItems: 'center', gap: '4px',
-      background: s.bg, color: s.color, fontSize: '11px',
+      background: s.bg, color: s.color, fontSize: '12px',
       padding: '3px 8px', borderRadius: '20px'
     }}>
       <i className={`ti ${s.icon}`} style={{ fontSize: '12px' }} aria-hidden="true" />
@@ -494,7 +494,7 @@ export default function Content() {
       {showHeroReview && (
         <div style={{ background: '#0E0E0F', borderRadius: '14px', overflow: 'hidden', marginBottom: '24px' }}>
           <div style={{ padding: '34px 34px 30px', borderBottom: '0.5px solid #2B2B2E' }}>
-            <div style={{ fontSize: '11px', letterSpacing: '2.5px', color: '#D3C9A7', marginBottom: '14px' }}>
+            <div style={{ fontSize: '12px', letterSpacing: '2.5px', color: '#D3C9A7', marginBottom: '14px' }}>
               {allApproved ? "THAT'S A WRAP" : 'READY FOR REVIEW'}
             </div>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap' }}>
@@ -529,7 +529,7 @@ export default function Content() {
                       <div style={{ fontSize: '22px', color: '#F4EEE2', fontWeight: '500', lineHeight: '1' }}>
                         {statusCounts.approved || 0}<span style={{ fontSize: '13px', color: '#8a8880' }}>/{totalFiles}</span>
                       </div>
-                      <div style={{ fontSize: '10px', color: '#8a8880', marginTop: '2px' }}>approved</div>
+                      <div style={{ fontSize: '12px', color: '#8a8880', marginTop: '2px' }}>approved</div>
                     </div>
                   </div>
                   {remainingCount > 0 && (
@@ -565,7 +565,7 @@ export default function Content() {
                         </div>
                       )}
                       {isNew(f) && (
-                        <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
+                        <div style={{ position: 'absolute', top: '10px', left: '10px', background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '12px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
                           NEW
                         </div>
                       )}
@@ -587,21 +587,21 @@ export default function Content() {
                           <button
                             onClick={() => approveFile(f)}
                             disabled={fileApproving[f.path_lower]}
-                            style={{ flex: 1, background: '#1D9E75', border: 'none', color: '#0E0E0F', borderRadius: '6px', padding: '7px 0', fontSize: '11px', fontWeight: '500', cursor: 'pointer' }}
+                            style={{ flex: 1, background: '#1D9E75', border: 'none', color: '#0E0E0F', borderRadius: '6px', padding: '7px 0', fontSize: '12px', fontWeight: '500', cursor: 'pointer' }}
                           >
                             Approve
                           </button>
                           <button
                             onClick={() => { setCommentModal(f); setCommentText('') }}
-                            style={{ flex: 1, background: 'transparent', border: '0.5px solid #3a3a3e', color: '#b4b2a9', borderRadius: '6px', padding: '7px 0', fontSize: '11px', cursor: 'pointer' }}
+                            style={{ flex: 1, background: 'transparent', border: '0.5px solid #3a3a3e', color: '#b4b2a9', borderRadius: '6px', padding: '7px 0', fontSize: '12px', cursor: 'pointer' }}
                           >
                             Revise
                           </button>
                         </div>
                       )}
-                      {status === 'approved' && <div style={{ fontSize: '11px', color: '#5DCAA5' }}>Approved</div>}
-                      {status === 'revision' && <div style={{ fontSize: '11px', color: '#F0997B' }}>Revision sent</div>}
-                      {status === 'in_production' && <div style={{ fontSize: '11px', color: '#8a8880' }}>In production</div>}
+                      {status === 'approved' && <div style={{ fontSize: '12px', color: '#5DCAA5' }}>Approved</div>}
+                      {status === 'revision' && <div style={{ fontSize: '12px', color: '#F0997B' }}>Revision sent</div>}
+                      {status === 'in_production' && <div style={{ fontSize: '12px', color: '#8a8880' }}>In production</div>}
                     </div>
                   </div>
                 )
@@ -624,7 +624,7 @@ export default function Content() {
           gap: '20px', flexWrap: 'wrap'
         }}>
           <div>
-            <div style={{ fontSize: '11px', letterSpacing: '2px', color: 'var(--gold-light)', marginBottom: '8px' }}>
+            <div style={{ fontSize: '12px', letterSpacing: '2px', color: 'var(--gold-light)', marginBottom: '8px' }}>
               READY FOR REVIEW
             </div>
             <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: '22px', color: '#F4EEE2', marginBottom: '6px' }}>
@@ -777,7 +777,7 @@ export default function Content() {
                 <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
                   <div className={styles.thumbImgWrap} style={{ position: 'relative' }}>
                     {isNew(f) && (
-                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
+                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '12px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
                         NEW
                       </div>
                     )}
@@ -795,13 +795,13 @@ export default function Content() {
                             <button
                               onClick={() => approveFile(f)}
                               disabled={fileApproving[f.path_lower]}
-                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Approve
                             </button>
                             <button
                               onClick={() => { setCommentModal(f); setCommentText('') }}
-                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Revise
                             </button>
@@ -812,7 +812,7 @@ export default function Content() {
                             {role === 'admin' && status === 'revision' && (
                               <button
                                 onClick={() => resolveRevision(f)}
-                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
                               >
                                 Mark Resolved
                               </button>
@@ -844,7 +844,7 @@ export default function Content() {
                 <div key={f.id} className={styles.thumb} onClick={() => setLightbox(f)}>
                   <div className={styles.thumbImgWrap} style={{ position: 'relative' }}>
                     {isNew(f) && (
-                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
+                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '12px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
                         NEW
                       </div>
                     )}
@@ -863,13 +863,13 @@ export default function Content() {
                             <button
                               onClick={() => approveFile(f)}
                               disabled={fileApproving[f.path_lower]}
-                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Approve
                             </button>
                             <button
                               onClick={() => { setCommentModal(f); setCommentText('') }}
-                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Revise
                             </button>
@@ -880,7 +880,7 @@ export default function Content() {
                             {role === 'admin' && status === 'revision' && (
                               <button
                                 onClick={() => resolveRevision(f)}
-                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
                               >
                                 Mark Resolved
                               </button>
@@ -912,7 +912,7 @@ export default function Content() {
                 <div key={f.id} className={styles.thumb}>
                   <div className={styles.thumbImgWrap} style={{ position: 'relative' }}>
                     {isNew(f) && (
-                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
+                      <div style={{ position: 'absolute', top: '8px', left: '8px', zIndex: 1, background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '12px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 8px', borderRadius: '20px' }}>
                         NEW
                       </div>
                     )}
@@ -927,13 +927,13 @@ export default function Content() {
                             <button
                               onClick={() => approveFile(f)}
                               disabled={fileApproving[f.path_lower]}
-                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Approve
                             </button>
                             <button
                               onClick={() => { setCommentModal(f); setCommentText('') }}
-                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '11px', cursor: 'pointer' }}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Revise
                             </button>
@@ -944,7 +944,7 @@ export default function Content() {
                             {role === 'admin' && status === 'revision' && (
                               <button
                                 onClick={() => resolveRevision(f)}
-                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '10px', cursor: 'pointer' }}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
                               >
                                 Mark Resolved
                               </button>
