@@ -3,7 +3,7 @@
 .title { font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 600; color: var(--text); margin-bottom: 3px; letter-spacing: 0.02em; }
 .sub { font-size: 12px; color: var(--text2); }
 .legend { display: flex; gap: 12px; flex-wrap: wrap; }
-.legendItem { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text3); }
+.legendItem { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text3); }
 .legendDot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 .calNav { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .calMonth { font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 600; color: var(--text); letter-spacing: 0.03em; }
@@ -11,14 +11,14 @@
 .navBtn:hover { border-color: var(--gold-border); color: var(--gold-light); }
 .calGrid { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 18px; }
 .dayNames { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--border); }
-.dayName { text-align: center; padding: 9px 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); }
+.dayName { text-align: center; padding: 9px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); }
 .cells { display: grid; grid-template-columns: repeat(7, 1fr); }
 .cell { min-height: 80px; padding: 8px 6px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
 .cell:nth-child(7n) { border-right: none; }
 .cell:hover { background: var(--surface3); }
 .otherMonth .cellNum { color: var(--text3); }
-.cellNum { font-size: 11px; color: var(--text2); margin-bottom: 4px; width: fit-content; }
-.today { background: var(--gold); color: #000; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 10px; }
+.cellNum { font-size: 12px; color: var(--text2); margin-bottom: 4px; width: fit-content; }
+.today { background: var(--gold); color: #000; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; }
 .event { border-radius: 4px; padding: 2px 5px; font-size: 9px; font-weight: 500; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: opacity 0.1s; }
 .event:hover { opacity: 0.8; }
 .photo { background: rgba(58,158,130,0.18); color: #5DCAA5; }
@@ -26,20 +26,20 @@
 .deadline { background: rgba(184,90,53,0.18); color: #e0845a; }
 .social { background: rgba(255,255,255,0.06); color: var(--text2); }
 .upcomingCard { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; }
-.upcomingTitle { font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin-bottom: 11px; }
+.upcomingTitle { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); margin-bottom: 11px; }
 .upcomingItem { display: flex; align-items: center; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
 .upcomingItem:last-child { border-bottom: none; }
 .upcomingItem:hover { opacity: 0.8; }
 .upcomingDate { font-size: 9px; color: var(--text3); min-width: 30px; text-align: center; line-height: 1.2; }
 .upcomingDate span { font-family: 'Cormorant Garamond', serif; display: block; font-size: 18px; font-weight: 600; color: var(--text); }
 .upcomingName { font-size: 12px; color: var(--text); font-weight: 500; }
-.upcomingNotes { font-size: 10px; color: var(--text3); margin-top: 2px; }
-.typeBadge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 500; white-space: nowrap; }
+.upcomingNotes { font-size: 12px; color: var(--text3); margin-top: 2px; }
+.typeBadge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; white-space: nowrap; }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 400; }
 .modalCard { background: var(--surface); border: 1px solid var(--border2); border-radius: var(--radius-lg); padding: 28px; width: 100%; max-width: 400px; }
 .modalTitle { font-family: 'Cormorant Garamond', serif; font-size: 20px; font-weight: 600; color: var(--text); margin-bottom: 20px; }
 .field { margin-bottom: 14px; }
-.label { display: block; font-size: 10px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text3); margin-bottom: 5px; }
+.label { display: block; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text3); margin-bottom: 5px; }
 .input { width: 100%; background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--text); outline: none; transition: border-color 0.15s; font-family: inherit; }
 .input:focus { border-color: var(--gold-border); }
 .input::placeholder { color: var(--text3); }
