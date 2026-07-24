@@ -40,6 +40,7 @@ export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date())
   const [events, setEvents] = useState([])
   const [metricoolPosts, setMetricoolPosts] = useState([])
+  const [metricoolError, setMetricoolError] = useState(false)
   const [modal, setModal] = useState(null)
   const [viewEvent, setViewEvent] = useState(null)
   const [form, setForm] = useState({ title: '', date: '', type: 'photo', notes: '' })
@@ -56,11 +57,16 @@ export default function Calendar() {
   async function loadMetricoolPosts() {
     try {
       const res = await apiFetch(`/api/metricool?clientId=${client?.id}`)
-      if (!res.ok) return
+      if (!res.ok) {
+        setMetricoolError(true)
+        return
+      }
       const data = await res.json()
       setMetricoolPosts(data.data || [])
+      setMetricoolError(false)
     } catch (err) {
       console.error('Metricool fetch error:', err)
+      setMetricoolError(true)
     }
   }
 
@@ -265,21 +271,31 @@ function getMediaForEvent(ev) {
 
             {(() => {
               const mediaUrl = getMediaForEvent(viewEvent)
-              if (!mediaUrl) return null
-              return isVideo(mediaUrl) ? (
-                <video
-                  src={mediaUrl}
-                  controls
-                  style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
-                />
-              ) : (
-                <img
-                  src={mediaUrl}
-                  alt="Post media"
-                  style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
-                  onError={e => { e.target.style.display = 'none' }}
-                />
-              )
+              if (mediaUrl) {
+                return isVideo(mediaUrl) ? (
+                  <video
+                    src={mediaUrl}
+                    controls
+                    style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
+                  />
+                ) : (
+                  <img
+                    src={mediaUrl}
+                    alt="Post media"
+                    style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
+                    onError={e => { e.target.style.display = 'none' }}
+                  />
+                )
+              }
+              if (metricoolError) {
+                return (
+                  <div style={{ background: 'var(--surface3)', borderRadius: '8px', padding: '20px', marginBottom: '14px', textAlign: 'center' }}>
+                    <i className="ti ti-plug-connected-x" style={{ fontSize: '24px', color: 'var(--coral, #D85A30)', marginBottom: '8px', display: 'block' }} />
+                    <div style={{ fontSize: '13px', color: 'var(--text2)' }}>Couldn't load the preview image — having trouble connecting right now.</div>
+                  </div>
+                )
+              }
+              return null
             })()}
 
             <div style={{ fontSize: '14px', color: 'var(--text)', lineHeight: '1.6', marginBottom: '20px' }}>
