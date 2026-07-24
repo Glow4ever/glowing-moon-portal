@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 
-export async function logAction(action, resource = null, details = null) {
+export async function logAction(action, resource = null, details = null, clientId = null) {
   try {
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.user) return
@@ -10,7 +10,8 @@ export async function logAction(action, resource = null, details = null) {
       user_email: session.user.email,
       action,
       resource,
-      details
+      details,
+      client_id: clientId
     })
   } catch (err) {
     console.error('Audit log error:', err)
