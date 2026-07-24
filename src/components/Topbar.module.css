@@ -3,20 +3,20 @@
 .logo:hover .logoHint { opacity: 1; }
 .logoCircle { width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--gold-border); background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; flex-shrink: 0; }
 .logoImg { width: 100%; height: 100%; object-fit: contain; padding: 3px; }
-.logoInitials { font-family: 'Cormorant Garamond', serif; font-size: 11px; font-weight: 600; }
+.logoInitials { font-family: 'Cormorant Garamond', serif; font-size: 12px; font-weight: 600; }
 .logoOverlay { position: absolute; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.15s; font-size: 13px; color: var(--gold-light); }
 .logoCircle:hover .logoOverlay { opacity: 1; }
 .logoText { font-family: 'Cormorant Garamond', serif; font-size: 18px; font-weight: 600; letter-spacing: 0.06em; color: var(--text); }
-.logoHint { position: absolute; bottom: -28px; left: 0; background: var(--surface3); border: 1px solid var(--border2); border-radius: 6px; padding: 3px 8px; font-size: 10px; color: var(--text2); white-space: nowrap; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 200; }
+.logoHint { position: absolute; bottom: -28px; left: 0; background: var(--surface3); border: 1px solid var(--border2); border-radius: 6px; padding: 3px 8px; font-size: 12px; color: var(--text2); white-space: nowrap; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 200; }
 .center { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text2); }
 .dot { color: var(--text3); }
-.pill { border: 1px solid; border-radius: 20px; padding: 3px 11px; font-size: 11px; font-weight: 500; letter-spacing: 0.04em; }
+.pill { border: 1px solid; border-radius: 20px; padding: 3px 11px; font-size: 12px; font-weight: 500; letter-spacing: 0.04em; }
 .right { display: flex; align-items: center; gap: 8px; }
 .iconBtn { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text2); display: flex; align-items: center; justify-content: center; font-size: 15px; transition: all 0.15s; cursor: pointer; }
 .iconBtn:hover { background: var(--surface2); color: var(--text); border-color: var(--border2); }
-.avatar { width: 30px; height: 30px; border-radius: 50%; border: 1px solid; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; letter-spacing: 0.05em; }
+.avatar { width: 30px; height: 30px; border-radius: 50%; border: 1px solid; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; letter-spacing: 0.05em; }
 .switcherWrap { position: relative; }
-.switcherBtn { display: flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border2); background: var(--surface2); color: var(--text2); font-size: 11px; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.switcherBtn { display: flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--border2); background: var(--surface2); color: var(--text2); font-size: 12px; cursor: pointer; transition: all 0.15s; font-family: inherit; }
 .switcherBtn:hover { color: var(--text); border-color: var(--gold-border); }
 .switcherDropdown { position: absolute; top: 38px; right: 0; background: var(--surface); border: 1px solid var(--border2); border-radius: 10px; padding: 8px; min-width: 180px; z-index: 300; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
 .switcherTitle { font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text3); padding: 4px 8px 8px; }
