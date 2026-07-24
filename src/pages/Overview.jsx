@@ -361,25 +361,25 @@ export default function Overview() {
                         <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: 'var(--gold-dim)', flexShrink: 0 }} />
                         <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text)' }}>{key}</span>
                       </div>
-                      <span style={{ fontSize: '11px', padding: '2px 9px', borderRadius: '20px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
+                      <span style={{ fontSize: '12px', padding: '2px 9px', borderRadius: '20px', background: status.bg, color: status.color, border: `1px solid ${status.border}` }}>{status.label}</span>
                     </div>
                     <div style={{ display: 'flex', gap: '20px', marginBottom: '10px' }}>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '18px', fontWeight: '500', color: 'var(--text)', fontFamily: "'Cormorant Garamond', serif" }}>{planned}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>Planned</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '1px' }}>Planned</div>
                       </div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '18px', fontWeight: '500', color: 'var(--text)', fontFamily: "'Cormorant Garamond', serif" }}>{uploaded}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>Uploaded</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '1px' }}>Uploaded</div>
                       </div>
                       <div style={{ textAlign: 'center' }}>
                         <div style={{ fontSize: '18px', fontWeight: '500', color: 'var(--text)', fontFamily: "'Cormorant Garamond', serif" }}>{approved}</div>
-                        <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>Approved</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '1px' }}>Approved</div>
                       </div>
                       {hasScheduled && (
                         <div style={{ textAlign: 'center' }}>
                           <div style={{ fontSize: '18px', fontWeight: '500', color: 'var(--text)', fontFamily: "'Cormorant Garamond', serif" }}>{scheduled}</div>
-                          <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>Scheduled</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '1px' }}>Scheduled</div>
                         </div>
                       )}
                     </div>
