@@ -603,21 +603,36 @@ export default function Content() {
       {!showHeroReview && (<>
       {isPending && !isViewingReviewFolder && (
         <div style={{
-          background: 'var(--gold-bg)',
-          border: '1px solid var(--gold-border)',
-          borderRadius: '10px',
-          padding: '14px 20px',
+          background: '#0E0E0F',
+          border: `1px solid ${client?.primary_color || 'var(--gold-light)'}66`,
+          borderRadius: '12px',
+          padding: '26px 28px',
           marginBottom: '24px',
+          boxShadow: `0 0 24px 0 ${client?.primary_color || '#D3C9A7'}22`,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          gap: '16px', flexWrap: 'wrap'
+          gap: '20px', flexWrap: 'wrap'
         }}>
-          <div style={{ fontSize: '13px', color: 'var(--gold-light)' }}>
-            <i className="ti ti-bell" style={{ marginRight: '6px' }} />
-            {approvalMonth ? `${approvalMonth} content` : 'Content'} is waiting for your review
+          <div>
+            <div style={{ fontSize: '11px', letterSpacing: '2px', color: 'var(--gold-light)', marginBottom: '8px' }}>
+              READY FOR REVIEW
+            </div>
+            <div style={{ fontFamily: 'Georgia, "Times New Roman", serif', fontSize: '22px', color: '#F4EEE2', marginBottom: '6px' }}>
+              {approvalMonth ? `Your ${approvalMonth} content is ready` : 'Content is ready for review'}
+            </div>
+            <div style={{ fontSize: '13px', color: '#8a8880' }}>
+              Take a look, leave any notes, and approve when it feels right.
+            </div>
           </div>
           {approvalFolderPath && (
-            <button className="btn btn-gold" onClick={jumpToReviewFolder} style={{ whiteSpace: 'nowrap' }}>
-              Go to content <i className="ti ti-arrow-right" />
+            <button
+              onClick={jumpToReviewFolder}
+              style={{
+                background: 'var(--gold-light)', color: '#0E0E0F', border: 'none',
+                borderRadius: '8px', padding: '12px 22px', fontSize: '14px', fontWeight: '600',
+                cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0
+              }}
+            >
+              Review Now <i className="ti ti-arrow-right" style={{ marginLeft: '4px' }} />
             </button>
           )}
         </div>
@@ -1021,6 +1036,7 @@ export default function Content() {
     </div>
   )
 }
+
 
 
 
