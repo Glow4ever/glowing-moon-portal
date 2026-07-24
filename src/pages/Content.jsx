@@ -264,12 +264,13 @@ export default function Content() {
     await loadFolder(currentPath)
     setUploading(false)
     if (client?.id) incrementFileCount(client.id, 'content', selected.length)
+    await logAction('upload', 'content', { count: selected.length, folder: stack?.[stack.length - 1]?.name }, client?.id)
   }
 
   async function handleDeleteFile(file) {
     if (!window.confirm(`Delete "${file.name}"? This cannot be undone.`)) return
     await deleteFile(file.path_lower)
-    await logAction('delete', 'content', { fileName: file.name, path: file.path_lower })
+    await logAction('delete', 'content', { fileName: file.name, path: file.path_lower }, client?.id)
     setEntries(prev => prev.filter(e => e.id !== file.id))
     if (client?.id) incrementFileCount(client.id, 'content', -1)
   }
@@ -319,7 +320,7 @@ export default function Content() {
     const link = await getDownloadLink(file.path_lower)
     if (link) {
       window.open(link, '_blank')
-      await logAction('download', 'content', { fileName: file.name, path: file.path_lower })
+      await logAction('download', 'content', { fileName: file.name, path: file.path_lower }, client?.id)
     }
   }
 
