@@ -176,7 +176,7 @@ export default function Assets() {
                   </div>
                   {file.name}
                   {file.client_modified && (Date.now() - new Date(file.client_modified).getTime() < 7 * 24 * 60 * 60 * 1000) && (
-                    <span style={{ background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 7px', borderRadius: '20px', marginLeft: '8px' }}>
+                    <span style={{ background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '12px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 7px', borderRadius: '20px', marginLeft: '8px' }}>
                       NEW
                     </span>
                   )}
