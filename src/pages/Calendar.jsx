@@ -190,13 +190,13 @@ function getMediaForEvent(ev) {
                     <span style={{ color: getPlatformColor(ev.notes), fontSize: '9px', fontWeight: 600, textTransform: 'uppercase', marginRight: '4px' }}>
                       {ev.notes?.toLowerCase() || 'post'}
                     </span>
-                    <span style={{ color: 'var(--text1)', fontSize: '10px' }}>
+                    <span style={{ color: 'var(--text1)', fontSize: '12px' }}>
                       {truncate(ev.title, 20)}
                     </span>
                   </div>
                 ))}
                 {dayEvents.length > 3 && (
-                  <div style={{ fontSize: '10px', color: 'var(--text3)', padding: '0 4px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text3)', padding: '0 4px' }}>
                     +{dayEvents.length - 3} more
                   </div>
                 )}
@@ -221,7 +221,7 @@ function getMediaForEvent(ev) {
                 <div style={{ flex: 1 }}>
                   <div className={styles.upcomingName}>{truncate(ev.title, 60)}</div>
                   {ev.notes && (
-                    <div style={{ fontSize: '11px', color: platformColor, marginTop: '2px', textTransform: 'capitalize' }}>
+                    <div style={{ fontSize: '12px', color: platformColor, marginTop: '2px', textTransform: 'capitalize' }}>
                       {ev.notes}
                     </div>
                   )}
@@ -245,7 +245,7 @@ function getMediaForEvent(ev) {
                   color: getPlatformColor(viewEvent.notes),
                   padding: '4px 10px',
                   borderRadius: '20px',
-                  fontSize: '11px',
+                  fontSize: '12px',
                   fontWeight: 600,
                   textTransform: 'capitalize'
                 }}>
@@ -339,4 +339,5 @@ function getMediaForEvent(ev) {
     </div>
   )
 }
+
 
