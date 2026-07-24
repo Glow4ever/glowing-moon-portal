@@ -76,6 +76,8 @@ export default function Content() {
   const [commentModal, setCommentModal] = useState(null)
   const [commentText, setCommentText] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
+  const [threadMessages, setThreadMessages] = useState([])
+  const [loadingThread, setLoadingThread] = useState(false)
   const [approving, setApproving] = useState(false)
   const [localStatus, setLocalStatus] = useState(null)
   const [fileStatuses, setFileStatuses] = useState({})
@@ -320,27 +322,51 @@ export default function Content() {
     }
   }
 
+  async function openThread(file) {
+    setCommentModal(file)
+    setCommentText('')
+    setLoadingThread(true)
+    const { data } = await supabase
+      .from('file_comments')
+      .select('*')
+      .eq('client_id', client.id)
+      .eq('file_path', file.path_lower)
+      .order('created_at', { ascending: true })
+    setThreadMessages(data || [])
+    setLoadingThread(false)
+  }
+
   async function submitComment() {
     if (!commentText.trim() || !commentModal) return
     setSubmittingComment(true)
+    const isFirstMessage = threadMessages.length === 0
     await supabase.from('file_comments').insert({
       client_id: client.id,
       file_path: commentModal.path_lower,
       comment: commentText.trim(),
+      sender_role: role === 'admin' || role === 'editor' ? 'admin' : 'member',
       read: false
     })
-    await apiFetch('/api/send-email', {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'comment',
-        clientName: client.name,
-        fileName: commentModal.name,
-        comment: commentText.trim()
+    if (role === 'member') {
+      await apiFetch('/api/send-email', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'comment',
+          clientName: client.name,
+          fileName: commentModal.name,
+          comment: commentText.trim()
+        })
       })
-    })
-    setRevisionPaths(prev => ({ ...prev, [commentModal.path_lower]: true }))
+      setRevisionPaths(prev => ({ ...prev, [commentModal.path_lower]: true }))
+    }
+    const { data } = await supabase
+      .from('file_comments')
+      .select('*')
+      .eq('client_id', client.id)
+      .eq('file_path', commentModal.path_lower)
+      .order('created_at', { ascending: true })
+    setThreadMessages(data || [])
     setCommentText('')
-    setCommentModal(null)
     setSubmittingComment(false)
   }
 
@@ -599,7 +625,7 @@ export default function Content() {
                             Approve
                           </button>
                           <button
-                            onClick={() => { setCommentModal(f); setCommentText('') }}
+                            onClick={() => openThread(f)}
                             style={{ flex: 1, background: 'transparent', border: '0.5px solid #3a3a3e', color: '#b4b2a9', borderRadius: '6px', padding: '7px 0', fontSize: '12px', cursor: 'pointer' }}
                           >
                             Revise
@@ -607,7 +633,11 @@ export default function Content() {
                         </div>
                       )}
                       {status === 'approved' && <div style={{ fontSize: '12px', color: '#5DCAA5' }}>Approved</div>}
-                      {status === 'revision' && <div style={{ fontSize: '12px', color: '#F0997B' }}>Revision sent</div>}
+                      {status === 'revision' && (
+                        <div onClick={() => openThread(f)} style={{ fontSize: '12px', color: '#F0997B', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: '2px' }}>
+                          Revision sent — view thread
+                        </div>
+                      )}
                       {status === 'in_production' && <div style={{ fontSize: '12px', color: '#8a8880' }}>In production</div>}
                     </div>
                   </div>
@@ -815,7 +845,7 @@ export default function Content() {
                               Approve
                             </button>
                             <button
-                              onClick={() => { setCommentModal(f); setCommentText('') }}
+                              onClick={() => openThread(f)}
                               style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Revise
@@ -824,6 +854,14 @@ export default function Content() {
                         ) : (
                           <>
                             <StatusBadge status={status} />
+                            {(role === 'admin' || role === 'editor') && status === 'revision' && (
+                              <button
+                                onClick={() => openThread(f)}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+                              >
+                                View
+                              </button>
+                            )}
                             {role === 'admin' && status === 'revision' && (
                               <button
                                 onClick={() => resolveRevision(f)}
@@ -883,7 +921,7 @@ export default function Content() {
                               Approve
                             </button>
                             <button
-                              onClick={() => { setCommentModal(f); setCommentText('') }}
+                              onClick={() => openThread(f)}
                               style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Revise
@@ -892,6 +930,14 @@ export default function Content() {
                         ) : (
                           <>
                             <StatusBadge status={status} />
+                            {(role === 'admin' || role === 'editor') && status === 'revision' && (
+                              <button
+                                onClick={() => openThread(f)}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+                              >
+                                View
+                              </button>
+                            )}
                             {role === 'admin' && status === 'revision' && (
                               <button
                                 onClick={() => resolveRevision(f)}
@@ -947,7 +993,7 @@ export default function Content() {
                               Approve
                             </button>
                             <button
-                              onClick={() => { setCommentModal(f); setCommentText('') }}
+                              onClick={() => openThread(f)}
                               style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
                             >
                               Revise
@@ -956,6 +1002,14 @@ export default function Content() {
                         ) : (
                           <>
                             <StatusBadge status={status} />
+                            {(role === 'admin' || role === 'editor') && status === 'revision' && (
+                              <button
+                                onClick={() => openThread(f)}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+                              >
+                                View
+                              </button>
+                            )}
                             {role === 'admin' && status === 'revision' && (
                               <button
                                 onClick={() => resolveRevision(f)}
@@ -1034,25 +1088,50 @@ export default function Content() {
 
       {commentModal && (
         <div className={styles.overlay} onClick={() => setCommentModal(null)}>
-          <div className={styles.modal} onClick={e => e.stopPropagation()}>
-            <div className={styles.modalTitle}>Request Revision</div>
+          <div className={styles.modal} onClick={e => e.stopPropagation()} style={{ maxWidth: '440px' }}>
+            <div className={styles.modalTitle}>Revision Notes</div>
             <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '16px' }}>{commentModal.name}</div>
+
+            <div style={{ maxHeight: '280px', overflowY: 'auto', marginBottom: '16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {loadingThread && <div style={{ fontSize: '12px', color: 'var(--text3)' }}>Loading...</div>}
+              {!loadingThread && threadMessages.length === 0 && (
+                <div style={{ fontSize: '12px', color: 'var(--text3)' }}>No notes yet — say what needs to change below.</div>
+              )}
+              {threadMessages.map(m => {
+                const isMine = (role === 'admin' || role === 'editor') ? m.sender_role === 'admin' : m.sender_role !== 'admin'
+                return (
+                  <div key={m.id} style={{ alignSelf: isMine ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                    <div style={{
+                      background: isMine ? 'var(--gold-bg)' : 'var(--surface2)',
+                      color: isMine ? 'var(--gold-light)' : 'var(--text1)',
+                      borderRadius: '10px', padding: '8px 12px', fontSize: '13px', lineHeight: '1.5'
+                    }}>
+                      {m.comment}
+                    </div>
+                    <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '3px', textAlign: isMine ? 'right' : 'left' }}>
+                      {m.sender_role === 'admin' ? 'Glowing Moon Media' : (client?.name || 'Client')} · {new Date(m.created_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
             <div className={styles.field}>
-              <label className={styles.label}>What needs to change?</label>
+              <label className={styles.label}>{threadMessages.length === 0 ? 'What needs to change?' : 'Add to this thread'}</label>
               <textarea
                 className={styles.input}
                 value={commentText}
                 onChange={e => setCommentText(e.target.value)}
-                placeholder="Describe the revision you need..."
-                rows={4}
+                placeholder="Type a message..."
+                rows={3}
                 style={{ resize: 'vertical' }}
                 autoFocus
               />
             </div>
             <div className={styles.modalActions}>
-              <button className="btn" onClick={() => setCommentModal(null)}>Cancel</button>
+              <button className="btn" onClick={() => setCommentModal(null)}>Close</button>
               <button className="btn btn-gold" onClick={submitComment} disabled={submittingComment || !commentText.trim()}>
-                {submittingComment ? 'Sending...' : 'Send Revision Note'}
+                {submittingComment ? 'Sending...' : 'Send'}
               </button>
             </div>
           </div>
@@ -1077,6 +1156,7 @@ export default function Content() {
     </div>
   )
 }
+
 
 
 
