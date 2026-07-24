@@ -23,6 +23,8 @@ export default function Admin() {
   const [comments, setComments] = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
   const [resyncing, setResyncing] = useState({})
+  const [trackerOpen, setTrackerOpen] = useState(null)
+  const [settingStatus, setSettingStatus] = useState(false)
 
   function generatePassword() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
@@ -201,6 +203,55 @@ export default function Admin() {
     setSaving(false)
   }
 
+  function deriveStage(client) {
+    const roll = trackerRollup[client.id]
+    const hasFiles = !!roll
+    const hasRevisions = (roll?.revision || 0) > 0
+    if (client.approval_status === 'approved') return 'approved'
+    if (hasRevisions) return 'revisions'
+    if (client.approval_status === 'pending') return 'in_review'
+    return hasFiles ? 'uploaded' : 'none'
+  }
+
+  async function setClientStatus(client, target) {
+    const roll = trackerRollup[client.id] || { approved: 0, in_review: 0, revision: 0 }
+    let message = ''
+    if (target === 'none') {
+      message = `Reset ${client.name} to neutral? This clears the review status and removes all file approvals and revision notes for this client.`
+    } else if (target === 'approved') {
+      message = `Mark ${client.name} as fully approved? This approves all ${roll.in_review + roll.revision} outstanding file${roll.in_review + roll.revision !== 1 ? 's' : ''} and clears any revision notes.`
+    } else if (target === 'pending') {
+      message = `Set ${client.name} back to in review? Files stay as they are — the client will see the review banner again.`
+    } else if (target === 'revision') {
+      message = `Flag ${client.name} as needing revisions?`
+    }
+    if (!window.confirm(message)) return
+
+    setSettingStatus(true)
+    try {
+      if (target === 'none') {
+        await supabase.from('file_status').delete().eq('client_id', client.id)
+        await supabase.from('file_comments').delete().eq('client_id', client.id)
+        await supabase.from('clients').update({
+          approval_status: null, approval_month: null, approval_folder_path: null
+        }).eq('id', client.id)
+      } else if (target === 'approved') {
+        await supabase.from('file_comments').delete().eq('client_id', client.id)
+        await supabase.from('file_status').update({ status: 'approved' }).eq('client_id', client.id)
+        await supabase.from('clients').update({ approval_status: 'approved' }).eq('id', client.id)
+      } else {
+        await supabase.from('clients').update({ approval_status: target }).eq('id', client.id)
+      }
+      await loadUserContext()
+      await loadTrackerRollup()
+      showToast(`${client.name} status updated`)
+    } catch (err) {
+      console.error('setClientStatus error:', err)
+      showToast('Could not update status')
+    }
+    setSettingStatus(false)
+  }
+
   async function clearReview(client) {
     const confirmed = window.confirm(`Clear the pending review for ${client.name}? This will remove the "Pending Review" status and the client's Next Steps banner.`)
     if (!confirmed) return
@@ -280,27 +331,16 @@ export default function Admin() {
                       <div className={styles.clientName}>{c.name}</div>
                       <div className={styles.clientSlug}>/{c.slug}</div>
                       {c.approval_month && getStatusBadge(c.approval_status, c)}
-                      {trackerRollup[c.id] && (
-                        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' }}>
-                          {trackerRollup[c.id].approved > 0 && (
-                            <span style={{ fontSize: '11px', background: 'var(--teal-bg)', color: 'var(--teal)', padding: '2px 8px', borderRadius: '20px' }}>
-                              {trackerRollup[c.id].approved} approved
-                            </span>
-                          )}
-                          {trackerRollup[c.id].in_review > 0 && (
-                            <span style={{ fontSize: '11px', background: 'var(--gold-bg)', color: 'var(--gold-light)', padding: '2px 8px', borderRadius: '20px' }}>
-                              {trackerRollup[c.id].in_review} in review
-                            </span>
-                          )}
-                          {trackerRollup[c.id].revision > 0 && (
-                            <span style={{ fontSize: '11px', background: '#2a1a1a', color: '#F0997B', padding: '2px 8px', borderRadius: '20px' }}>
-                              {trackerRollup[c.id].revision} revision
-                            </span>
-                          )}
-                        </div>
-                      )}
                     </div>
                     <div className={styles.clientActions} style={{ flexDirection: 'row', gap: '6px' }}>
+                      <button
+                        className={styles.editBtn}
+                        onClick={() => setTrackerOpen(trackerOpen === c.id ? null : c.id)}
+                        title="View and control production status"
+                        style={trackerOpen === c.id ? { color: 'var(--gold-light)' } : undefined}
+                      >
+                        <i className="ti ti-chart-bar" aria-hidden="true" /> Tracker
+                      </button>
                       <button
                         className={styles.editBtn}
                         onClick={() => resyncFiles(c)}
@@ -321,6 +361,125 @@ export default function Admin() {
                       </button>
                     </div>
                   </div>
+
+                  {trackerOpen === c.id && (() => {
+                    const roll = trackerRollup[c.id] || { approved: 0, in_review: 0, revision: 0 }
+                    const stage = deriveStage(c)
+                    const stages = [
+                      { key: 'uploaded', label: 'Uploaded', color: 'var(--teal)' },
+                      { key: 'in_review', label: 'In review', color: 'var(--gold-light)' },
+                      { key: 'revisions', label: 'Revisions', color: '#F0997B' },
+                      { key: 'approved', label: 'Approved', color: 'var(--teal)' }
+                    ]
+                    const activeIdx = stages.findIndex(s => s.key === stage)
+                    const statusOptions = [
+                      { key: 'none', label: 'Neutral' },
+                      { key: 'pending', label: 'In review' },
+                      { key: 'revision', label: 'Revisions' },
+                      { key: 'approved', label: 'Approved' }
+                    ]
+                    const currentStatus = c.approval_status || 'none'
+                    return (
+                      <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '18px' }}>
+                        <div style={{ fontSize: '10px', letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: '12px' }}>Production stage</div>
+                        <div style={{ display: 'flex', gap: 0, marginBottom: '22px' }}>
+                          {stages.map((s, i) => (
+                            <div key={s.key} style={{ flex: 1, textAlign: 'center' }}>
+                              <div style={{
+                                height: '3px',
+                                background: activeIdx >= i && activeIdx !== -1 ? s.color : 'var(--border)',
+                                borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0
+                              }} />
+                              <div style={{ marginTop: '8px', fontSize: '11px', color: activeIdx === i ? s.color : 'var(--text3)' }}>{s.label}</div>
+                              {activeIdx === i && <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '1px' }}>current</div>}
+                            </div>
+                          ))}
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '18px' }}>
+                          <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
+                            <div style={{ fontSize: '22px', color: 'var(--teal)', lineHeight: 1 }}>{roll.approved}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '5px' }}>Approved</div>
+                          </div>
+                          <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
+                            <div style={{ fontSize: '22px', color: 'var(--gold-light)', lineHeight: 1 }}>{roll.in_review}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '5px' }}>Awaiting client</div>
+                          </div>
+                          <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
+                            <div style={{ fontSize: '22px', color: '#F0997B', lineHeight: 1 }}>{roll.revision}</div>
+                            <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '5px' }}>Needs revision</div>
+                          </div>
+                        </div>
+
+                        {c.approval_folder_path && (
+                          <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '14px 16px', marginBottom: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                            <div>
+                              <div style={{ fontSize: '12px', color: 'var(--text1)' }}>{c.approval_month}</div>
+                              <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>{c.approval_folder_path.replace('/Glowing Moon Portal/', '')}</div>
+                            </div>
+                            <button
+                              className={styles.editBtn}
+                              onClick={() => { switchClient(c.id); navigate('/content', { state: { jumpToFolderPath: c.approval_folder_path } }) }}
+                              style={{ whiteSpace: 'nowrap', color: 'var(--gold-light)' }}
+                            >
+                              Open folder <i className="ti ti-arrow-right" aria-hidden="true" />
+                            </button>
+                          </div>
+                        )}
+
+                        <div style={{ fontSize: '10px', letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: '10px' }}>Set status</div>
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
+                          {statusOptions.map(opt => {
+                            const active = currentStatus === opt.key
+                            return (
+                              <button
+                                key={opt.key}
+                                onClick={() => setClientStatus(c, opt.key)}
+                                disabled={settingStatus || active}
+                                style={{
+                                  background: active ? 'var(--gold-bg)' : 'var(--surface2)',
+                                  border: `0.5px solid ${active ? 'var(--gold-light)' : 'var(--border)'}`,
+                                  color: active ? 'var(--gold-light)' : 'var(--text2)',
+                                  borderRadius: '20px',
+                                  padding: '5px 14px',
+                                  fontSize: '11px',
+                                  cursor: active ? 'default' : 'pointer'
+                                }}
+                              >
+                                {opt.label}
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                          <button
+                            className="btn btn-gold"
+                            style={{ fontSize: '12px' }}
+                            onClick={() => { switchClient(c.id); navigate('/content') }}
+                          >
+                            <i className="ti ti-send" aria-hidden="true" /> Send for review
+                          </button>
+                          <button
+                            className="btn"
+                            style={{ fontSize: '12px' }}
+                            onClick={() => clearReview(c)}
+                            disabled={!c.approval_status}
+                          >
+                            Clear review
+                          </button>
+                          <button
+                            className="btn"
+                            style={{ fontSize: '12px', opacity: 0.5 }}
+                            onClick={() => showToast('Nudge is coming soon')}
+                            title="Coming soon — sends the client a reminder about pending review"
+                          >
+                            Nudge client
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })()}
 
                   {editingClient?.id === c.id && (
                     <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '16px' }}>
@@ -717,6 +876,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
