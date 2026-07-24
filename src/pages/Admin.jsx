@@ -14,6 +14,8 @@ export default function Admin() {
   const [teamMembers, setTeamMembers] = useState([])
   const [trackerRollup, setTrackerRollup] = useState({})
   const [attentionQueue, setAttentionQueue] = useState([])
+  const [activityFeed, setActivityFeed] = useState([])
+  const [activityLoading, setActivityLoading] = useState(false)
   const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
   const [newMember, setNewMember] = useState({ email: '', password: '', client_id: '', role: 'member' })
   const [editingClient, setEditingClient] = useState(null)
@@ -34,7 +36,7 @@ export default function Admin() {
     return Array.from(bytes, b => chars[b % chars.length]).join('')
   }
 
-  useEffect(() => { loadTeam(); loadTrackerRollup(); loadAttentionQueue() }, [])
+  useEffect(() => { loadTeam(); loadTrackerRollup(); loadAttentionQueue(); loadActivityFeed() }, [])
 
   async function loadTeam() {
     const { data } = await supabase
@@ -110,6 +112,82 @@ export default function Admin() {
     })
 
     setAttentionQueue(items)
+  }
+
+  async function loadActivityFeed() {
+    setActivityLoading(true)
+
+    function relativeTime(dateStr) {
+      const diffMs = Date.now() - new Date(dateStr).getTime()
+      const mins = Math.floor(diffMs / 60000)
+      if (mins < 1) return 'just now'
+      if (mins < 60) return `${mins} min ago`
+      const hours = Math.floor(mins / 60)
+      if (hours < 24) return `${hours}h ago`
+      const days = Math.floor(hours / 24)
+      if (days === 1) return 'Yesterday'
+      return `${days} days ago`
+    }
+
+    const [{ data: uploadLogs }, { data: approvedRows }, { data: commentRows }, { data: sentClients }] = await Promise.all([
+      supabase.from('audit_logs').select('client_id, user_email, details, created_at').eq('action', 'upload').order('created_at', { ascending: false }).limit(20),
+      supabase.from('file_status').select('client_id, updated_at').eq('status', 'approved').order('updated_at', { ascending: false }).limit(50),
+      supabase.from('file_comments').select('client_id, file_path, sender_role, created_at').order('created_at', { ascending: false }).limit(20),
+      supabase.from('clients').select('id, name, approval_sent_at, approval_month').not('approval_sent_at', 'is', null)
+    ])
+
+    const clientName = (id) => allClients.find(c => c.id === id)?.name || 'A client'
+    const events = []
+
+    ;(uploadLogs || []).forEach(l => {
+      events.push({
+        color: 'var(--text3)',
+        title: `${l.details?.count || ''} file${l.details?.count !== 1 ? 's' : ''} uploaded${l.details?.folder ? ` to ${l.details.folder}` : ''}`,
+        subtitle: clientName(l.client_id),
+        time: l.created_at
+      })
+    })
+
+    // Group approvals by client + same calendar day
+    const approvalGroups = {}
+    ;(approvedRows || []).forEach(r => {
+      const day = r.updated_at.slice(0, 10)
+      const key = `${r.client_id}::${day}`
+      if (!approvalGroups[key]) approvalGroups[key] = { client_id: r.client_id, count: 0, latest: r.updated_at }
+      approvalGroups[key].count++
+      if (r.updated_at > approvalGroups[key].latest) approvalGroups[key].latest = r.updated_at
+    })
+    Object.values(approvalGroups).forEach(g => {
+      events.push({
+        color: 'var(--teal)',
+        title: `${g.count} file${g.count !== 1 ? 's' : ''} approved`,
+        subtitle: clientName(g.client_id),
+        time: g.latest
+      })
+    })
+
+    ;(commentRows || []).forEach(r => {
+      const fileName = r.file_path.split('/').pop()
+      events.push({
+        color: '#F0997B',
+        title: r.sender_role === 'admin' ? `You replied on ${fileName}` : `Revision note on ${fileName}`,
+        subtitle: r.sender_role === 'admin' ? clientName(r.client_id) : `${clientName(r.client_id)} · awaiting your reply`,
+        time: r.created_at
+      })
+    })
+
+    ;(sentClients || []).forEach(c => {
+      events.push({
+        color: 'var(--gold-light)',
+        title: `${c.approval_month || 'Content'} sent for review`,
+        subtitle: c.name,
+        time: c.approval_sent_at
+      })
+    })
+
+    events.sort((a, b) => new Date(b.time) - new Date(a.time))
+    setActivityFeed(events.slice(0, 15).map(e => ({ ...e, relativeTime: relativeTime(e.time) })))
+    setActivityLoading(false)
   }
 
   async function removeTeamMember(member) {
@@ -370,7 +448,7 @@ export default function Admin() {
                 {attentionQueue.map((item, i) => {
                   if (item.type === 'waiting_client') {
                     return (
-                      <div key={i} style={{ background: 'var(--gold-bg)', borderRadius: '10px', padding: '14px 16px' }}>
+                      <div key={i} style={{ background: 'var(--gold-bg)', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 0 16px 0 rgba(211,201,167,0.18)', border: '1px solid rgba(211,201,167,0.3)' }}>
                         <div style={{ fontSize: '11px', color: 'var(--gold-light)', marginBottom: '4px' }}>Waiting on client</div>
                         <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
                           {item.clientName} hasn't responded in {item.days} day{item.days !== 1 ? 's' : ''}
@@ -386,7 +464,7 @@ export default function Admin() {
                   }
                   if (item.type === 'waiting_admin') {
                     return (
-                      <div key={i} style={{ background: '#2a1a1a', borderRadius: '10px', padding: '14px 16px' }}>
+                      <div key={i} style={{ background: '#2a1a1a', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 0 16px 0 rgba(240,153,123,0.15)', border: '1px solid rgba(240,153,123,0.3)' }}>
                         <div style={{ fontSize: '11px', color: '#F0997B', marginBottom: '4px' }}>Waiting on admin</div>
                         <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
                           {item.count} revision note{item.count !== 1 ? 's' : ''} unanswered for {item.clientName}
@@ -407,48 +485,22 @@ export default function Admin() {
           )}
 
           <div style={{ marginBottom: '24px' }}>
-            <div className={styles.sectionLabel}>Active cycles</div>
-            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.8fr 0.8fr', gap: '12px', padding: '10px 16px', borderBottom: '1px solid var(--border)', fontSize: '11px', color: 'var(--text3)' }}>
-                <span>Client</span><span>Cycle</span><span>Stage</span><span>In stage</span>
-              </div>
-              {allClients.map(c => {
-                const stage = deriveStage(c)
-                const stages = [
-                  { key: 'uploaded', label: 'Uploaded', color: 'var(--teal)' },
-                  { key: 'in_review', label: 'In review', color: 'var(--gold-light)' },
-                  { key: 'revisions', label: 'Revisions', color: '#F0997B' },
-                  { key: 'approved', label: 'Approved', color: 'var(--teal)' }
-                ]
-                const activeIdx = stages.findIndex(s => s.key === stage)
-                const days = c.approval_sent_at ? Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24)) : null
-                return (
-                  <div
-                    key={c.id}
-                    onClick={() => setTrackerOpen(trackerOpen === c.id ? null : c.id)}
-                    style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.8fr 0.8fr', gap: '12px', padding: '12px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center', cursor: 'pointer' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.primary_color, flexShrink: 0 }} />
-                      <span style={{ fontSize: '13px', color: 'var(--text1)' }}>{c.name}</span>
-                    </div>
-                    <span style={{ fontSize: '12px', color: 'var(--text3)' }}>{c.approval_month || '—'}</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      {stages.map((s, i) => (
-                        <span key={s.key} style={{
-                          height: '3px', flex: 1,
-                          background: activeIdx >= i && activeIdx !== -1 ? s.color : 'var(--border)',
-                          borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0
-                        }} />
-                      ))}
-                      <span style={{ fontSize: '11px', color: stages[activeIdx]?.color || 'var(--text3)', marginLeft: '6px', whiteSpace: 'nowrap' }}>
-                        {stages[activeIdx]?.label || 'No cycle'}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: '12px', color: days >= 3 ? '#F0997B' : 'var(--text3)' }}>{days !== null ? `${days}d` : '—'}</span>
+            <div className={styles.sectionLabel}>Activity</div>
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '4px 16px' }}>
+              {activityLoading && <div style={{ padding: '16px 0', fontSize: '12px', color: 'var(--text3)' }}>Loading...</div>}
+              {!activityLoading && activityFeed.length === 0 && (
+                <div style={{ padding: '16px 0', fontSize: '12px', color: 'var(--text3)' }}>No recent activity</div>
+              )}
+              {activityFeed.map((item, i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0', borderBottom: i < activityFeed.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: item.color, marginTop: '6px', flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '13px', color: 'var(--text1)' }}>{item.title}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>{item.subtitle}</div>
                   </div>
-                )
-              })}
+                  <span style={{ fontSize: '11px', color: 'var(--text3)', whiteSpace: 'nowrap' }}>{item.relativeTime}</span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -457,13 +509,54 @@ export default function Admin() {
             <div className={styles.sectionLabel}>Active Clients ({allClients.length})</div>
             <div className={styles.clientGrid}>
               {allClients.map(c => (
-                <div key={c.id} className={styles.clientCard}>
+                <div
+                  key={c.id}
+                  className={styles.clientCard}
+                  style={c.approval_status === 'pending' ? {
+                    boxShadow: `0 0 20px 0 ${c.primary_color}22`,
+                    border: `1px solid ${c.primary_color}55`
+                  } : undefined}
+                >
                   <div className={styles.clientCardMain}>
                     <div className={styles.clientSwatch} style={{ background: c.primary_color }} />
                     <div className={styles.clientInfo}>
-                      <div className={styles.clientName}>{c.name}</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div className={styles.clientName}>{c.name}</div>
+                        {c.approval_status === 'pending' && c.approval_sent_at && (() => {
+                          const daysActive = Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24))
+                          return daysActive < 1 ? (
+                            <span style={{ fontSize: '10px', color: 'var(--teal)', background: 'rgba(29,158,117,0.15)', padding: '1px 7px', borderRadius: '20px' }}>live</span>
+                          ) : null
+                        })()}
+                      </div>
                       <div className={styles.clientSlug}>/{c.slug}</div>
-                      {c.approval_month && getStatusBadge(c.approval_status, c)}
+                      {(() => {
+                        const stage = deriveStage(c)
+                        if (stage === 'none') return null
+                        const stages = [
+                          { key: 'uploaded', label: 'Uploaded', color: 'var(--teal)' },
+                          { key: 'in_review', label: 'In review', color: 'var(--gold-light)' },
+                          { key: 'revisions', label: 'Revisions', color: '#F0997B' },
+                          { key: 'approved', label: 'Approved', color: 'var(--teal)' }
+                        ]
+                        const activeIdx = stages.findIndex(s => s.key === stage)
+                        const days = c.approval_sent_at ? Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24)) : null
+                        return (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '8px', maxWidth: '220px' }}>
+                            {stages.map((s, i) => (
+                              <span key={s.key} style={{
+                                height: '3px', flex: 1,
+                                background: activeIdx >= i && activeIdx !== -1 ? s.color : 'var(--border)',
+                                borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0,
+                                boxShadow: activeIdx === i ? `0 0 6px 0 ${s.color}` : 'none'
+                              }} />
+                            ))}
+                            <span style={{ fontSize: '11px', color: stages[activeIdx]?.color || 'var(--text3)', marginLeft: '6px', whiteSpace: 'nowrap' }}>
+                              {stages[activeIdx]?.label}{days !== null ? ` · ${days}d` : ''}
+                            </span>
+                          </div>
+                        )
+                      })()}
                     </div>
                     <div className={styles.clientActions} style={{ flexDirection: 'row', gap: '6px' }}>
                       <button
