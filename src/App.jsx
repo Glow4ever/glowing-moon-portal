@@ -27,7 +27,7 @@ function BrandingInjector() {
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
-  useIdleTimer()
+  const { showWarning, stayActive } = useIdleTimer()
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#080807' }}>
       <div style={{ textAlign:'center' }}>
@@ -36,7 +36,38 @@ function ProtectedRoute({ children }) {
       </div>
     </div>
   )
-  return user ? children : <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" replace />
+  return (
+    <>
+      {children}
+      {showWarning && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999
+        }}>
+          <div style={{
+            background: '#151517', border: '1px solid #2B2B2E', borderRadius: '12px',
+            padding: '28px 32px', maxWidth: '360px', width: '90%', textAlign: 'center'
+          }}>
+            <i className="ti ti-clock-pause" style={{ fontSize: '28px', color: 'var(--gold-light, #D3C9A7)', marginBottom: '12px', display: 'block' }} />
+            <div style={{ fontSize: '15px', color: '#F4EEE2', fontWeight: '600', marginBottom: '8px' }}>Still there?</div>
+            <div style={{ fontSize: '13px', color: '#8a8880', marginBottom: '20px', lineHeight: '1.5' }}>
+              You'll be signed out in 5 minutes due to inactivity.
+            </div>
+            <button
+              onClick={stayActive}
+              style={{
+                background: 'var(--gold-light, #D3C9A7)', color: '#0E0E0F', border: 'none',
+                borderRadius: '7px', padding: '10px 24px', fontSize: '13px', fontWeight: '600', cursor: 'pointer'
+              }}
+            >
+              Stay signed in
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  )
 }
 
 export default function App() {
@@ -57,3 +88,4 @@ export default function App() {
     </AuthProvider>
   )
 }
+
