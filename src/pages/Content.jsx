@@ -19,7 +19,7 @@ async function listDropboxFolder(path) {
       body: { path, include_deleted: false }
     })
   })
-  if (!res.ok) return []
+  if (!res.ok) throw new Error('Dropbox request failed')
   const data = await res.json()
   return data.entries || []
 }
@@ -68,6 +68,7 @@ export default function Content() {
   }, [client?.name])
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [lightbox, setLightbox] = useState(null)
   const [newFolderModal, setNewFolderModal] = useState(false)
@@ -132,18 +133,24 @@ export default function Content() {
   async function loadFolder(path) {
     setLoading(true)
     setEntries([])
-    const raw = await listDropboxFolder(path)
-    const folders = raw.filter(e => e['.tag'] === 'folder')
-    const files = raw.filter(e => e['.tag'] === 'file')
-    const filesWithUrls = await Promise.all(files.map(async file => {
-      const type = getFileType(file.name)
-      let url = null
-      if (type === 'photo' || type === 'video') {
-        url = await getPreviewLink(file.path_lower)
-      }
-      return { ...file, type, url }
-    }))
-    setEntries([...folders.map(f => ({ ...f, type: 'folder' })), ...filesWithUrls])
+    setLoadError(false)
+    try {
+      const raw = await listDropboxFolder(path)
+      const folders = raw.filter(e => e['.tag'] === 'folder')
+      const files = raw.filter(e => e['.tag'] === 'file')
+      const filesWithUrls = await Promise.all(files.map(async file => {
+        const type = getFileType(file.name)
+        let url = null
+        if (type === 'photo' || type === 'video') {
+          url = await getPreviewLink(file.path_lower)
+        }
+        return { ...file, type, url }
+      }))
+      setEntries([...folders.map(f => ({ ...f, type: 'folder' })), ...filesWithUrls])
+    } catch (err) {
+      console.error('loadFolder error:', err)
+      setLoadError(true)
+    }
     setLoading(false)
   }
 
@@ -725,7 +732,15 @@ export default function Content() {
 
       {loading && <div className={styles.emptyState}>Loading...</div>}
 
-      {!loading && entries.length === 0 && (
+      {!loading && loadError && (
+        <div className={styles.emptyState}>
+          <i className="ti ti-plug-connected-x" style={{ fontSize: '36px', color: 'var(--coral, #D85A30)', marginBottom: '12px' }} />
+          <div style={{ fontSize: '14px', color: 'var(--text1)', marginBottom: '4px' }}>We're having trouble connecting to your files</div>
+          <div style={{ fontSize: '13px', color: 'var(--text3)' }}>This isn't an empty folder — try refreshing, or check back shortly.</div>
+        </div>
+      )}
+
+      {!loading && !loadError && entries.length === 0 && (
         <div className={styles.emptyState}>
           <i className="ti ti-folder-off" style={{ fontSize: '36px', color: 'var(--text3)', marginBottom: '12px' }} />
           <div style={{ fontSize: '14px', color: 'var(--text2)' }}>This folder is empty</div>
