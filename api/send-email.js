@@ -155,7 +155,7 @@ module.exports = async function handler(req, res) {
                   </tr>
                   <tr>
                     <td style="background:#111113;padding:40px 40px 32px;">
-                      <h1 style="margin:0 0 8px;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">Welcome to the<br>${safeClient} portal</h1>
+                      <h1 style="margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:28px;font-weight:400;color:#ffffff;line-height:1.3;">Welcome to the<br>${safeClient} portal</h1>
                       <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">You now have access to ${safeClient}'s client portal, where you can view assets, review content, check the schedule, and message the team.</p>
                       <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">To get started, go to the login page below and click <strong style="color:#fff;">Forgot Password</strong> to set your own password.</p>
                     </td>
