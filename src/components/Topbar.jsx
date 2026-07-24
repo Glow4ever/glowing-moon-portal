@@ -245,7 +245,7 @@ export default function Topbar() {
                   {unreadCount > 0 && (
                     <button
                       onClick={markAllRead}
-                      style={{ fontSize: '11px', color: 'var(--gold-light)', background: 'none', border: 'none', cursor: 'pointer' }}
+                      style={{ fontSize: '12px', color: 'var(--gold-light)', background: 'none', border: 'none', cursor: 'pointer' }}
                     >
                       Mark all read
                     </button>
@@ -275,7 +275,7 @@ export default function Topbar() {
                     }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '12px', color: 'var(--text)', lineHeight: '1.4' }}>{n.message}</div>
-                      <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '3px' }}>{timeAgo(n.created_at)}</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '3px' }}>{timeAgo(n.created_at)}</div>
                     </div>
                   </div>
                 ))}
@@ -303,4 +303,5 @@ export default function Topbar() {
     </header>
   )
 }
+
 
