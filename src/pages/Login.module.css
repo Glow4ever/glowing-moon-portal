@@ -75,7 +75,7 @@
 
 .label {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -124,7 +124,7 @@
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .footer {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text3);
   line-height: 1.7;
   margin-top: 24px;
