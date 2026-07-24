@@ -92,13 +92,13 @@ export default function Assets() {
     const link = await getDownloadLink(file.path_lower)
     if (link) {
       window.open(link, '_blank')
-      await logAction('download', 'assets', { fileName: file.name, path: file.path_lower })
+      await logAction('download', 'assets', { fileName: file.name, path: file.path_lower }, client?.id)
     }
   }
 
   async function handleDeleteFile(file) {
     await deleteFile(file.path_lower)
-    await logAction('delete', 'assets', { fileName: file.name, path: file.path_lower })
+    await logAction('delete', 'assets', { fileName: file.name, path: file.path_lower }, client?.id)
     setEntries(prev => prev.filter(e => e.id !== file.id))
     if (client?.id) incrementFileCount(client.id, 'asset', -1)
   }
@@ -216,5 +216,6 @@ export default function Assets() {
     </div>
   )
 }
+
 
 
