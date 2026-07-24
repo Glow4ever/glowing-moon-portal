@@ -93,7 +93,7 @@ export default function Messages() {
 
         {role === 'admin' && (
           <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontSize: '10px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text3)' }}>
+            <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontSize: '12px', fontWeight: '500', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text3)' }}>
               Clients
             </div>
             {allClients.filter(c => c.slug !== 'glowing-moon-media').map(c => (
@@ -122,12 +122,12 @@ export default function Messages() {
           <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '10px' }}>
             {activeClient && (
               <>
-                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: (activeClient.primary_color || '#c9a84c') + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '600', color: activeClient.primary_color || '#c9a84c' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: (activeClient.primary_color || '#c9a84c') + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '600', color: activeClient.primary_color || '#c9a84c' }}>
                   {activeClient.name?.split(' ').map(w => w[0]).join('').slice(0,2)}
                 </div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: '500', color: 'var(--text)' }}>{activeClient.name}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text3)' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--text3)' }}>
                     {role === 'admin' ? 'Client thread' : 'Glowing Moon Media'}
                   </div>
                 </div>
@@ -147,7 +147,7 @@ export default function Messages() {
               return (
                 <div key={i} style={{ display: 'flex', gap: '10px', justifyContent: isMe ? 'flex-end' : 'flex-start' }}>
                   {!isMe && (
-                    <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--gold-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '600', color: 'var(--gold-light)', flexShrink: 0 }}>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: 'var(--gold-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '600', color: 'var(--gold-light)', flexShrink: 0 }}>
                       {m.sender_role === 'admin' ? 'GM' : activeClient?.name?.split(' ').map(w => w[0]).join('').slice(0,2)}
                     </div>
                   )}
@@ -163,12 +163,12 @@ export default function Messages() {
                     }}>
                       {m.content}
                     </div>
-                    <div style={{ fontSize: '10px', color: 'var(--text3)', marginTop: '4px', textAlign: isMe ? 'right' : 'left', paddingInline: '4px' }}>
+                    <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '4px', textAlign: isMe ? 'right' : 'left', paddingInline: '4px' }}>
                       {timeAgo(m.created_at)}
                     </div>
                   </div>
                   {isMe && (
-                    <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: (activeClient?.primary_color || '#c9a84c') + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: '600', color: activeClient?.primary_color || '#c9a84c', flexShrink: 0 }}>
+                    <div style={{ width: '28px', height: '28px', borderRadius: '50%', background: (activeClient?.primary_color || '#c9a84c') + '18', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: '600', color: activeClient?.primary_color || '#c9a84c', flexShrink: 0 }}>
                       {isMe && role === 'admin' ? 'GM' : activeClient?.name?.split(' ').map(w => w[0]).join('').slice(0,2)}
                     </div>
                   )}
@@ -201,3 +201,4 @@ export default function Messages() {
     </div>
   )
 }
+
