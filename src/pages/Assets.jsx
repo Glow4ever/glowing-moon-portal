@@ -175,6 +175,11 @@ export default function Assets() {
                     <i className={`ti ${fi.icon}`} />
                   </div>
                   {file.name}
+                  {file.client_modified && (Date.now() - new Date(file.client_modified).getTime() < 7 * 24 * 60 * 60 * 1000) && (
+                    <span style={{ background: 'var(--gold-light)', color: '#0E0E0F', fontSize: '10px', fontWeight: '700', letterSpacing: '0.04em', padding: '2px 7px', borderRadius: '20px', marginLeft: '8px' }}>
+                      NEW
+                    </span>
+                  )}
                 </div>
                 <div className={styles.fileType}>{ext}</div>
                 <div className={styles.fileDate}>{formatDate(file.client_modified)}</div>
@@ -196,4 +201,5 @@ export default function Assets() {
     </div>
   )
 }
+
 
