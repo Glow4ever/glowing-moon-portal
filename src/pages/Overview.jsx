@@ -280,12 +280,12 @@ export default function Overview() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {nextSteps.isPendingReview && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--gold-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <i className="ti ti-file-check" style={{ fontSize: '16px', color: 'var(--gold-light)' }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '38px', height: '38px', borderRadius: '9px', background: 'var(--gold-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <i className="ti ti-file-check" style={{ fontSize: '18px', color: 'var(--gold-light)' }} />
                   </div>
                   <div>
-                    <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: '500' }}>
+                    <div style={{ fontSize: '14px', color: 'var(--text1)', fontWeight: '600' }}>
                       {nextSteps.approvalMonth} content is ready for your review
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
@@ -295,9 +295,9 @@ export default function Overview() {
                 </div>
                 <button
                   onClick={() => navigate('/content', { state: { jumpToFolderPath: nextSteps.approvalFolderPath } })}
-                  style={{ background: 'var(--gold-light)', color: '#0E0E0F', border: 'none', borderRadius: '6px', padding: '7px 14px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                  style={{ background: 'var(--gold-light)', color: '#0E0E0F', border: 'none', borderRadius: '7px', padding: '10px 20px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
-                  Review content →
+                  Review Now <i className="ti ti-arrow-right" style={{ marginLeft: '2px' }} />
                 </button>
               </div>
             )}
@@ -459,6 +459,7 @@ export default function Overview() {
     </div>
   )
 }
+
 
 
 
