@@ -72,6 +72,7 @@ export default function Overview() {
   const [monthScheduled, setMonthScheduled] = useState({})
   const [weekEvents, setWeekEvents] = useState([])
   const [metricoolPosts, setMetricoolPosts] = useState([])
+  const [metricoolError, setMetricoolError] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(true)
   const [progressOpen, setProgressOpen] = useState(true)
   const [nextSteps, setNextSteps] = useState(null)
@@ -82,11 +83,16 @@ export default function Overview() {
   async function loadMetricoolPosts() {
   try {
     const res = await apiFetch(`/api/metricool?clientId=${client?.id}`)
-    if (!res.ok) return
+    if (!res.ok) {
+      setMetricoolError(true)
+      return
+    }
     const data = await res.json()
     setMetricoolPosts(data.data || [])
+    setMetricoolError(false)
   } catch (err) {
     console.error('Metricool error:', err)
+    setMetricoolError(true)
   }
 }
 
@@ -404,6 +410,12 @@ export default function Overview() {
             </span>
             <i className={`ti ti-chevron-${scheduleOpen ? 'up' : 'down'}`} style={{ fontSize: '13px' }} />
           </div>
+          {metricoolError && (
+            <div style={{ fontSize: '12px', color: 'var(--coral, #D85A30)', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <i className="ti ti-plug-connected-x" style={{ fontSize: '13px' }} />
+              Post previews may be missing — having trouble connecting right now.
+            </div>
+          )}
           {scheduleOpen && (
             <>
               {scheduleLoading && <div className={styles.empty}>Loading...</div>}
