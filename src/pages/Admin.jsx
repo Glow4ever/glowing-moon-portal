@@ -13,6 +13,7 @@ export default function Admin() {
   const [tab, setTab] = useState('clients')
   const [teamMembers, setTeamMembers] = useState([])
   const [trackerRollup, setTrackerRollup] = useState({})
+  const [attentionQueue, setAttentionQueue] = useState([])
   const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
   const [newMember, setNewMember] = useState({ email: '', password: '', client_id: '', role: 'member' })
   const [editingClient, setEditingClient] = useState(null)
@@ -33,7 +34,7 @@ export default function Admin() {
     return Array.from(bytes, b => chars[b % chars.length]).join('')
   }
 
-  useEffect(() => { loadTeam(); loadTrackerRollup() }, [])
+  useEffect(() => { loadTeam(); loadTrackerRollup(); loadAttentionQueue() }, [])
 
   async function loadTeam() {
     const { data } = await supabase
@@ -71,6 +72,44 @@ export default function Admin() {
     })
 
     setTrackerRollup(rollup)
+  }
+
+  async function loadAttentionQueue() {
+    const WAITING_THRESHOLD_DAYS = 3
+
+    const [{ data: pendingClients }, { data: commentRows }] = await Promise.all([
+      supabase.from('clients').select('id, name, approval_status, approval_sent_at').eq('approval_status', 'pending'),
+      supabase.from('file_comments').select('client_id, file_path, sender_role, created_at').order('created_at', { ascending: true })
+    ])
+
+    const items = []
+
+    // Waiting on client — review sent, no response in N+ days
+    ;(pendingClients || []).forEach(c => {
+      if (!c.approval_sent_at) return
+      const days = Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24))
+      if (days >= WAITING_THRESHOLD_DAYS) {
+        items.push({ type: 'waiting_client', clientId: c.id, clientName: c.name, days })
+      }
+    })
+
+    // Waiting on admin — client's revision note is the latest message in its thread, no reply yet
+    const lastMessageByThread = {}
+    ;(commentRows || []).forEach(r => {
+      lastMessageByThread[`${r.client_id}::${r.file_path}`] = r
+    })
+    const waitingOnAdminByClient = {}
+    Object.values(lastMessageByThread).forEach(r => {
+      if (r.sender_role !== 'admin') {
+        waitingOnAdminByClient[r.client_id] = (waitingOnAdminByClient[r.client_id] || 0) + 1
+      }
+    })
+    Object.entries(waitingOnAdminByClient).forEach(([clientId, count]) => {
+      const c = allClients.find(cl => cl.id === clientId)
+      items.push({ type: 'waiting_admin', clientId, clientName: c?.name || 'A client', count })
+    })
+
+    setAttentionQueue(items)
   }
 
   async function removeTeamMember(member) {
@@ -233,7 +272,7 @@ export default function Admin() {
         await supabase.from('file_status').delete().eq('client_id', client.id)
         await supabase.from('file_comments').delete().eq('client_id', client.id)
         await supabase.from('clients').update({
-          approval_status: null, approval_month: null, approval_folder_path: null
+          approval_status: null, approval_month: null, approval_folder_path: null, approval_sent_at: null
         }).eq('id', client.id)
       } else if (target === 'approved') {
         await supabase.from('file_comments').delete().eq('client_id', client.id)
@@ -258,7 +297,8 @@ export default function Admin() {
     await supabase.from('clients').update({
       approval_status: null,
       approval_month: null,
-      approval_folder_path: null
+      approval_folder_path: null,
+      approval_sent_at: null
     }).eq('id', client.id)
     await loadUserContext()
     showToast(`Review cleared for ${client.name}`)
@@ -319,6 +359,99 @@ export default function Admin() {
       </div>
 
       {tab === 'clients' && (
+        <>
+          {attentionQueue.length > 0 && (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
+                <i className="ti ti-alert-circle" style={{ fontSize: '15px', color: 'var(--gold-light)' }} />
+                <div className={styles.sectionLabel} style={{ marginBottom: 0 }}>Needs attention</div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                {attentionQueue.map((item, i) => {
+                  if (item.type === 'waiting_client') {
+                    return (
+                      <div key={i} style={{ background: 'var(--gold-bg)', borderRadius: '10px', padding: '14px 16px' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--gold-light)', marginBottom: '4px' }}>Waiting on client</div>
+                        <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
+                          {item.clientName} hasn't responded in {item.days} day{item.days !== 1 ? 's' : ''}
+                        </div>
+                        <button
+                          onClick={() => showToast('Nudge is coming soon')}
+                          style={{ marginTop: '10px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
+                        >
+                          Send nudge
+                        </button>
+                      </div>
+                    )
+                  }
+                  if (item.type === 'waiting_admin') {
+                    return (
+                      <div key={i} style={{ background: '#2a1a1a', borderRadius: '10px', padding: '14px 16px' }}>
+                        <div style={{ fontSize: '11px', color: '#F0997B', marginBottom: '4px' }}>Waiting on admin</div>
+                        <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
+                          {item.count} revision note{item.count !== 1 ? 's' : ''} unanswered for {item.clientName}
+                        </div>
+                        <button
+                          onClick={() => setTrackerOpen(item.clientId)}
+                          style={{ marginTop: '10px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
+                        >
+                          Open tracker
+                        </button>
+                      </div>
+                    )
+                  }
+                  return null
+                })}
+              </div>
+            </div>
+          )}
+
+          <div style={{ marginBottom: '24px' }}>
+            <div className={styles.sectionLabel}>Active cycles</div>
+            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.8fr 0.8fr', gap: '12px', padding: '10px 16px', borderBottom: '1px solid var(--border)', fontSize: '11px', color: 'var(--text3)' }}>
+                <span>Client</span><span>Cycle</span><span>Stage</span><span>In stage</span>
+              </div>
+              {allClients.map(c => {
+                const stage = deriveStage(c)
+                const stages = [
+                  { key: 'uploaded', label: 'Uploaded', color: 'var(--teal)' },
+                  { key: 'in_review', label: 'In review', color: 'var(--gold-light)' },
+                  { key: 'revisions', label: 'Revisions', color: '#F0997B' },
+                  { key: 'approved', label: 'Approved', color: 'var(--teal)' }
+                ]
+                const activeIdx = stages.findIndex(s => s.key === stage)
+                const days = c.approval_sent_at ? Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24)) : null
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setTrackerOpen(trackerOpen === c.id ? null : c.id)}
+                    style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1.8fr 0.8fr', gap: '12px', padding: '12px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center', cursor: 'pointer' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: c.primary_color, flexShrink: 0 }} />
+                      <span style={{ fontSize: '13px', color: 'var(--text1)' }}>{c.name}</span>
+                    </div>
+                    <span style={{ fontSize: '12px', color: 'var(--text3)' }}>{c.approval_month || '—'}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {stages.map((s, i) => (
+                        <span key={s.key} style={{
+                          height: '3px', flex: 1,
+                          background: activeIdx >= i && activeIdx !== -1 ? s.color : 'var(--border)',
+                          borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0
+                        }} />
+                      ))}
+                      <span style={{ fontSize: '11px', color: stages[activeIdx]?.color || 'var(--text3)', marginLeft: '6px', whiteSpace: 'nowrap' }}>
+                        {stages[activeIdx]?.label || 'No cycle'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '12px', color: days >= 3 ? '#F0997B' : 'var(--text3)' }}>{days !== null ? `${days}d` : '—'}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
         <div className={styles.adminLayout}>
           <div>
             <div className={styles.sectionLabel}>Active Clients ({allClients.length})</div>
@@ -670,6 +803,7 @@ export default function Admin() {
             </div>
           </div>
         </div>
+        </>
       )}
 
       {tab === 'team' && (
@@ -876,6 +1010,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
