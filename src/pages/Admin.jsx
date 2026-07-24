@@ -484,26 +484,6 @@ export default function Admin() {
             </div>
           )}
 
-          <div style={{ marginBottom: '24px' }}>
-            <div className={styles.sectionLabel}>Activity</div>
-            <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '4px 16px' }}>
-              {activityLoading && <div style={{ padding: '16px 0', fontSize: '12px', color: 'var(--text3)' }}>Loading...</div>}
-              {!activityLoading && activityFeed.length === 0 && (
-                <div style={{ padding: '16px 0', fontSize: '12px', color: 'var(--text3)' }}>No recent activity</div>
-              )}
-              {activityFeed.map((item, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0', borderBottom: i < activityFeed.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: item.color, marginTop: '6px', flexShrink: 0 }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '13px', color: 'var(--text1)' }}>{item.title}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>{item.subtitle}</div>
-                  </div>
-                  <span style={{ fontSize: '11px', color: 'var(--text3)', whiteSpace: 'nowrap' }}>{item.relativeTime}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
         <div className={styles.adminLayout}>
           <div>
             <div className={styles.sectionLabel}>Active Clients ({allClients.length})</div>
@@ -590,14 +570,6 @@ export default function Admin() {
 
                   {trackerOpen === c.id && (() => {
                     const roll = trackerRollup[c.id] || { approved: 0, in_review: 0, revision: 0 }
-                    const stage = deriveStage(c)
-                    const stages = [
-                      { key: 'uploaded', label: 'Uploaded', color: 'var(--teal)' },
-                      { key: 'in_review', label: 'In review', color: 'var(--gold-light)' },
-                      { key: 'revisions', label: 'Revisions', color: '#F0997B' },
-                      { key: 'approved', label: 'Approved', color: 'var(--teal)' }
-                    ]
-                    const activeIdx = stages.findIndex(s => s.key === stage)
                     const statusOptions = [
                       { key: 'none', label: 'Neutral' },
                       { key: 'pending', label: 'In review' },
@@ -606,79 +578,56 @@ export default function Admin() {
                     ]
                     const currentStatus = c.approval_status || 'none'
                     return (
-                      <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '18px' }}>
-                        <div style={{ fontSize: '12px', letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: '12px' }}>Production stage</div>
-                        <div style={{ display: 'flex', gap: 0, marginBottom: '22px' }}>
-                          {stages.map((s, i) => (
-                            <div key={s.key} style={{ flex: 1, textAlign: 'center' }}>
-                              <div style={{
-                                height: '3px',
-                                background: activeIdx >= i && activeIdx !== -1 ? s.color : 'var(--border)',
-                                borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0
-                              }} />
-                              <div style={{ marginTop: '8px', fontSize: '12px', color: activeIdx === i ? s.color : 'var(--text3)' }}>{s.label}</div>
-                              {activeIdx === i && <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '1px' }}>current</div>}
-                            </div>
-                          ))}
-                        </div>
-
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '18px' }}>
-                          <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
-                            <div style={{ fontSize: '22px', color: 'var(--teal)', lineHeight: 1 }}>{roll.approved}</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '5px' }}>Approved</div>
+                      <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '14px' }}>
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                          <div style={{ background: 'var(--surface2)', borderRadius: '7px', padding: '8px 14px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                            <span style={{ fontSize: '16px', color: 'var(--teal)' }}>{roll.approved}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text3)' }}>approved</span>
                           </div>
-                          <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
-                            <div style={{ fontSize: '22px', color: 'var(--gold-light)', lineHeight: 1 }}>{roll.in_review}</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '5px' }}>Awaiting client</div>
+                          <div style={{ background: 'var(--surface2)', borderRadius: '7px', padding: '8px 14px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                            <span style={{ fontSize: '16px', color: 'var(--gold-light)' }}>{roll.in_review}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text3)' }}>awaiting client</span>
                           </div>
-                          <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '12px 14px' }}>
-                            <div style={{ fontSize: '22px', color: '#F0997B', lineHeight: 1 }}>{roll.revision}</div>
-                            <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '5px' }}>Needs revision</div>
+                          <div style={{ background: 'var(--surface2)', borderRadius: '7px', padding: '8px 14px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                            <span style={{ fontSize: '16px', color: '#F0997B' }}>{roll.revision}</span>
+                            <span style={{ fontSize: '11px', color: 'var(--text3)' }}>needs revision</span>
                           </div>
-                        </div>
-
-                        {c.approval_folder_path && (
-                          <div style={{ background: 'var(--surface2)', borderRadius: '8px', padding: '14px 16px', marginBottom: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                            <div>
-                              <div style={{ fontSize: '12px', color: 'var(--text1)' }}>{c.approval_month}</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>{c.approval_folder_path.replace('/Glowing Moon Portal/', '')}</div>
-                            </div>
+                          {c.approval_folder_path && (
                             <button
                               className={styles.editBtn}
                               onClick={() => { switchClient(c.id); navigate('/content', { state: { jumpToFolderPath: c.approval_folder_path } }) }}
-                              style={{ whiteSpace: 'nowrap', color: 'var(--gold-light)' }}
+                              style={{ whiteSpace: 'nowrap', color: 'var(--gold-light)', marginLeft: 'auto' }}
                             >
                               Open folder <i className="ti ti-arrow-right" aria-hidden="true" />
                             </button>
-                          </div>
-                        )}
-
-                        <div style={{ fontSize: '12px', letterSpacing: '0.09em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: '10px' }}>Set status</div>
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '16px' }}>
-                          {statusOptions.map(opt => {
-                            const active = currentStatus === opt.key
-                            return (
-                              <button
-                                key={opt.key}
-                                onClick={() => setClientStatus(c, opt.key)}
-                                disabled={settingStatus || active}
-                                style={{
-                                  background: active ? 'var(--gold-bg)' : 'var(--surface2)',
-                                  border: `0.5px solid ${active ? 'var(--gold-light)' : 'var(--border)'}`,
-                                  color: active ? 'var(--gold-light)' : 'var(--text2)',
-                                  borderRadius: '20px',
-                                  padding: '5px 14px',
-                                  fontSize: '12px',
-                                  cursor: active ? 'default' : 'pointer'
-                                }}
-                              >
-                                {opt.label}
-                              </button>
-                            )
-                          })}
+                          )}
                         </div>
 
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                            {statusOptions.map(opt => {
+                              const active = currentStatus === opt.key
+                              return (
+                                <button
+                                  key={opt.key}
+                                  onClick={() => setClientStatus(c, opt.key)}
+                                  disabled={settingStatus || active}
+                                  style={{
+                                    background: active ? 'var(--gold-bg)' : 'var(--surface2)',
+                                    border: `0.5px solid ${active ? 'var(--gold-light)' : 'var(--border)'}`,
+                                    color: active ? 'var(--gold-light)' : 'var(--text2)',
+                                    borderRadius: '20px',
+                                    padding: '4px 12px',
+                                    fontSize: '11px',
+                                    cursor: active ? 'default' : 'pointer'
+                                  }}
+                                >
+                                  {opt.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                          <span style={{ width: '1px', height: '18px', background: 'var(--border)' }} />
                           <button
                             className="btn btn-gold"
                             style={{ fontSize: '12px' }}
@@ -896,6 +845,26 @@ export default function Admin() {
             </div>
           </div>
         </div>
+
+        <div style={{ marginTop: '20px' }}>
+          <div className={styles.sectionLabel}>Activity</div>
+          <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '4px 16px' }}>
+            {activityLoading && <div style={{ padding: '16px 0', fontSize: '12px', color: 'var(--text3)' }}>Loading...</div>}
+            {!activityLoading && activityFeed.length === 0 && (
+              <div style={{ padding: '16px 0', fontSize: '12px', color: 'var(--text3)' }}>No recent activity</div>
+            )}
+            {activityFeed.map((item, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0', borderBottom: i < activityFeed.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: item.color, marginTop: '6px', flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text1)' }}>{item.title}</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '2px' }}>{item.subtitle}</div>
+                </div>
+                <span style={{ fontSize: '11px', color: 'var(--text3)', whiteSpace: 'nowrap' }}>{item.relativeTime}</span>
+              </div>
+            ))}
+          </div>
+        </div>
         </>
       )}
 
@@ -1103,6 +1072,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
