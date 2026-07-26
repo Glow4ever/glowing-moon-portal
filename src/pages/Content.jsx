@@ -103,16 +103,12 @@ export default function Content() {
   const [submittingComment, setSubmittingComment] = useState(false)
   const [threadMessages, setThreadMessages] = useState([])
   const [loadingThread, setLoadingThread] = useState(false)
-  const [approving, setApproving] = useState(false)
-  const [localStatus, setLocalStatus] = useState(null)
+  const [cycles, setCycles] = useState([])
   const [fileStatuses, setFileStatuses] = useState({})
   const [dueDates, setDueDates] = useState({})
   const [revisionPaths, setRevisionPaths] = useState({})
   const [bulkApproving, setBulkApproving] = useState(false)
   const [fileApproving, setFileApproving] = useState({})
-  const [localApprovalFolderPath, setLocalApprovalFolderPath] = useState(null)
-  const [localApprovalMonth, setLocalApprovalMonth] = useState(null)
-  const [localApprovalDueDate, setLocalApprovalDueDate] = useState(null)
   const [sendReviewModal, setSendReviewModal] = useState(false)
   const [sendReviewPlanned, setSendReviewPlanned] = useState('')
   const [sendReviewDueDate, setSendReviewDueDate] = useState('')
@@ -120,24 +116,54 @@ export default function Content() {
   const fileRef = useRef()
 
   const currentPath = stack ? stack[stack.length - 1].path : null
-  const approvalStatus = localStatus ?? client?.approval_status
-  const isPending = approvalStatus === 'pending'
-  const approvalMonth = localApprovalMonth ?? client?.approval_month
-  const approvalDueDate = localApprovalDueDate ?? client?.approval_due_date
-  const approvalFolderPath = localApprovalFolderPath ?? client?.approval_folder_path
-  const isViewingReviewFolder = !!approvalFolderPath && currentPath === approvalFolderPath
+  const currentCycle = cycles.find(c => c.folder_path === currentPath) || null
+  const cycleEffectiveStage = currentCycle ? (currentCycle.manual_override || currentCycle.stage) : null
+  const isPending = !!currentCycle && cycleEffectiveStage !== 'approved'
+  const approvalMonth = currentCycle?.folder_label
+  const approvalDueDate = currentCycle?.due_date
+  const approvalFolderPath = currentCycle?.folder_path
+  const isViewingReviewFolder = !!currentCycle && currentPath === currentCycle.folder_path
 
   useEffect(() => {
     if (currentPath) loadFolder(currentPath)
   }, [currentPath])
 
   useEffect(() => {
-    if (client?.id) loadStatusData()
+    if (client?.id) { loadStatusData(); loadCycles() }
   }, [client?.id])
+
+  async function loadCycles() {
+    const { data } = await supabase
+      .from('review_cycles')
+      .select('*')
+      .eq('client_id', client.id)
+      .is('resolved_at', null)
+      .order('sent_at', { ascending: false })
+    setCycles(data || [])
+  }
+
+  // Recomputes and persists a cycle's derived stage from its file_status /
+  // file_comments rows. This is the one place the automated formula lives —
+  // any revision note on the cycle wins, otherwise all-approved wins,
+  // otherwise it's still in_review. manual_override (if set) takes visual
+  // precedence over this everywhere it's read, but the stored `stage` column
+  // always reflects what the files actually say.
+  async function recomputeCycleStage(cycleId) {
+    const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
+      supabase.from('file_status').select('status').eq('cycle_id', cycleId),
+      supabase.from('file_comments').select('id').eq('cycle_id', cycleId).limit(1)
+    ])
+    let stage = 'in_review'
+    if ((commentRows || []).length > 0) stage = 'revisions'
+    else if ((statusRows || []).length > 0 && statusRows.every(r => r.status === 'approved')) stage = 'approved'
+    await supabase.from('review_cycles').update({ stage }).eq('id', cycleId)
+    await loadCycles()
+    return stage
+  }
 
   async function loadStatusData() {
     const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
-      supabase.from('file_status').select('file_path, status, due_date').eq('client_id', client.id),
+      supabase.from('file_status').select('file_path, status, due_date, cycle_id').eq('client_id', client.id),
       supabase.from('file_comments').select('file_path').eq('client_id', client.id)
     ])
     const statusMap = {}
@@ -181,6 +207,7 @@ export default function Content() {
 
   function isNew(file) {
     if (!file?.client_modified) return false
+    if (getFileDisplayStatus(file.path_lower) === 'approved') return false
     const modified = new Date(file.client_modified).getTime()
     return Date.now() - modified < 7 * 24 * 60 * 60 * 1000
   }
@@ -250,8 +277,11 @@ export default function Content() {
     const folderLabel = stack[stack.length - 1].name
 
     try {
-      // Clear any existing file_status rows for files in this folder
-      // so a re-sent review starts fresh (prevents instant auto-approval)
+      // Clear any existing file_status rows for files in this folder so a
+      // re-sent review starts fresh (prevents instant auto-approval).
+      // Note: this only clears rows left behind from a resolved cycle on the
+      // same path — an active cycle on this exact folder shouldn't exist,
+      // since Admin only shows Send for Review where one isn't already open.
       const folderPrefix = currentPath.toLowerCase()
       const { data: existingRows } = await supabase
         .from('file_status')
@@ -261,17 +291,26 @@ export default function Content() {
       if (rowsToDelete.length > 0) {
         await supabase.from('file_status').delete().in('id', rowsToDelete.map(r => r.id))
       }
-      // Also reset local file status state
-      setFileStatuses({})
-      setRevisionPaths({})
 
-      await supabase.from('clients').update({
-        approval_status: 'pending',
-        approval_month: folderLabel,
-        approval_folder_path: currentPath,
-        approval_sent_at: new Date().toISOString(),
-        approval_due_date: sendReviewDueDate || null
-      }).eq('id', client.id)
+      const { data: newCycle, error: cycleError } = await supabase
+        .from('review_cycles')
+        .insert({
+          client_id: client.id,
+          folder_path: currentPath,
+          folder_label: folderLabel,
+          stage: 'in_review',
+          planned_count: parseInt(sendReviewPlanned) || null,
+          due_date: sendReviewDueDate || null,
+          sent_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (cycleError) {
+        window.alert('Could not start a new review cycle — check the 5-active-cycle limit.')
+        setSendingReview(false)
+        return
+      }
 
       const yearMatch = folderLabel.match(/\d{4}/)
       if (yearMatch) {
@@ -282,8 +321,7 @@ export default function Content() {
             client_id: client.id,
             month: monthName,
             year,
-            planned: parseInt(sendReviewPlanned) || 0,
-            approval_status: 'pending'
+            planned: parseInt(sendReviewPlanned) || 0
           }, { onConflict: 'client_id,month,year' })
         } catch (err) {
           console.error('content_months upsert skipped:', err)
@@ -302,14 +340,11 @@ export default function Content() {
         })
       }
 
-      setLocalStatus('pending')
-      setLocalApprovalMonth(folderLabel)
-      setLocalApprovalFolderPath(currentPath)
-      setLocalApprovalDueDate(sendReviewDueDate || null)
+      await loadCycles()
+      await loadStatusData()
       setSendReviewModal(false)
       setSendReviewPlanned('')
       setSendReviewDueDate('')
-      await loadUserContext()
     } catch (err) {
       console.error('Send for review error:', err)
     }
@@ -402,11 +437,12 @@ export default function Content() {
   }
 
   async function submitComment() {
-    if (!commentText.trim() || !commentModal) return
+    if (!commentText.trim() || !commentModal || !currentCycle) return
     setSubmittingComment(true)
     const isFirstMessage = threadMessages.length === 0
     await supabase.from('file_comments').insert({
       client_id: client.id,
+      cycle_id: currentCycle.id,
       file_path: commentModal.path_lower,
       comment: commentText.trim(),
       sender_role: role === 'admin' || role === 'editor' ? 'admin' : 'member',
@@ -423,6 +459,7 @@ export default function Content() {
         })
       })
       setRevisionPaths(prev => ({ ...prev, [commentModal.path_lower]: true }))
+      await recomputeCycleStage(currentCycle.id)
     }
     const { data } = await supabase
       .from('file_comments')
@@ -436,25 +473,18 @@ export default function Content() {
   }
 
   async function resolveRevision(file) {
-    await supabase.from('file_comments').delete().eq('client_id', client.id).eq('file_path', file.path_lower)
+    if (!currentCycle) return
+    await supabase.from('file_comments').delete().eq('cycle_id', currentCycle.id).eq('file_path', file.path_lower)
     setRevisionPaths(prev => {
       const next = { ...prev }
       delete next[file.path_lower]
       return next
     })
+    await recomputeCycleStage(currentCycle.id)
   }
 
-  async function handleApprove() {
-    setApproving(true)
+  async function fireApprovalSideEffects() {
     try {
-      await supabase.from('clients').update({
-        approval_status: 'approved'
-      }).eq('id', client.id)
-
-      await supabase.from('content_months').update({
-        approval_status: 'approved'
-      }).eq('client_id', client.id).eq('month', client.approval_month?.split(' ')[0]).eq('year', parseInt(client.approval_month?.split(' ')[1]))
-
       await apiFetch('/api/send-email', {
         method: 'POST',
         body: JSON.stringify({
@@ -463,29 +493,25 @@ export default function Content() {
           month: approvalMonth
         })
       })
-
       await supabase.from('notifications').insert({
         client_id: client.id,
         type: 'approval',
         message: `${client.name} approved ${approvalMonth} content`
       })
-
-      setLocalStatus('approved')
-      await loadUserContext()
-    } catch(err) {
-      console.error('Approve error:', err)
+    } catch (err) {
+      console.error('Approval side-effects error:', err)
     }
-    setApproving(false)
   }
 
   async function upsertApproved(files) {
-    if (!client?.id || !files.length) return
+    if (!client?.id || !files.length || !currentCycle) return
     const isBulk = files.length > 1
     if (isBulk) setBulkApproving(true)
     else setFileApproving(p => ({ ...p, [files[0].path_lower]: true }))
 
     const rows = files.map(f => ({
       client_id: client.id,
+      cycle_id: currentCycle.id,
       file_path: f.path_lower,
       status: 'approved',
       updated_at: new Date().toISOString()
@@ -506,14 +532,8 @@ export default function Content() {
     if (isBulk) setBulkApproving(false)
     else setFileApproving(p => ({ ...p, [files[0].path_lower]: false }))
 
-    const allEntries = entries.filter(e => e.type !== 'folder')
-    const allResolved = allEntries.length > 0 && allEntries.every(f => {
-      if (revisionPaths[f.path_lower]) return false
-      return nextStatuses[f.path_lower] === 'approved'
-    })
-    if (allResolved && isPending) {
-      await handleApprove()
-    }
+    const stage = await recomputeCycleStage(currentCycle.id)
+    if (stage === 'approved') await fireApprovalSideEffects()
   }
 
   async function approveFile(file) {
