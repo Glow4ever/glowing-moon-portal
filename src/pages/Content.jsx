@@ -273,6 +273,10 @@ export default function Content() {
 
   async function sendForReview() {
     if (!client?.id || !currentPath || !stack) return
+    if (cycles.some(c => c.folder_path === currentPath)) {
+      window.alert('This folder already has an active review cycle. Use Clear Stage or Clear Cycle in Admin if you need to reset it — no need to resend.')
+      return
+    }
     setSendingReview(true)
     const folderLabel = stack[stack.length - 1].name
 
