@@ -112,8 +112,10 @@ export default function Content() {
   const [fileApproving, setFileApproving] = useState({})
   const [localApprovalFolderPath, setLocalApprovalFolderPath] = useState(null)
   const [localApprovalMonth, setLocalApprovalMonth] = useState(null)
+  const [localApprovalDueDate, setLocalApprovalDueDate] = useState(null)
   const [sendReviewModal, setSendReviewModal] = useState(false)
   const [sendReviewPlanned, setSendReviewPlanned] = useState('')
+  const [sendReviewDueDate, setSendReviewDueDate] = useState('')
   const [sendingReview, setSendingReview] = useState(false)
   const fileRef = useRef()
 
@@ -121,6 +123,7 @@ export default function Content() {
   const approvalStatus = localStatus ?? client?.approval_status
   const isPending = approvalStatus === 'pending'
   const approvalMonth = localApprovalMonth ?? client?.approval_month
+  const approvalDueDate = localApprovalDueDate ?? client?.approval_due_date
   const approvalFolderPath = localApprovalFolderPath ?? client?.approval_folder_path
   const isViewingReviewFolder = !!approvalFolderPath && currentPath === approvalFolderPath
 
@@ -266,7 +269,8 @@ export default function Content() {
         approval_status: 'pending',
         approval_month: folderLabel,
         approval_folder_path: currentPath,
-        approval_sent_at: new Date().toISOString()
+        approval_sent_at: new Date().toISOString(),
+        approval_due_date: sendReviewDueDate || null
       }).eq('id', client.id)
 
       const yearMatch = folderLabel.match(/\d{4}/)
@@ -301,8 +305,10 @@ export default function Content() {
       setLocalStatus('pending')
       setLocalApprovalMonth(folderLabel)
       setLocalApprovalFolderPath(currentPath)
+      setLocalApprovalDueDate(sendReviewDueDate || null)
       setSendReviewModal(false)
       setSendReviewPlanned('')
+      setSendReviewDueDate('')
       await loadUserContext()
     } catch (err) {
       console.error('Send for review error:', err)
@@ -603,6 +609,21 @@ export default function Content() {
                     : `${totalFiles} new piece${totalFiles !== 1 ? 's' : ''}, crafted for ${client?.name}. Take your time, flag anything that needs a tweak, and approve when it feels right.`
                   }
                 </div>
+                {!allApproved && approvalDueDate && (() => {
+                  const overdue = new Date(approvalDueDate + 'T23:59:59') < new Date()
+                  const dateLabel = new Date(approvalDueDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric' })
+                  return (
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '12px',
+                      fontSize: '12px', color: overdue ? '#F0997B' : '#D3C9A7',
+                      background: overdue ? '#2a1a1a' : 'rgba(211,201,167,0.1)',
+                      padding: '5px 11px', borderRadius: '20px'
+                    }}>
+                      <i className="ti ti-calendar-event" style={{ fontSize: '13px' }} aria-hidden="true" />
+                      {overdue ? `Review was due ${dateLabel}` : `Please review by ${dateLabel}`}
+                    </div>
+                  )
+                })()}
               </div>
 
               {!allApproved && (
@@ -1157,6 +1178,15 @@ export default function Content() {
                 onChange={e => setSendReviewPlanned(e.target.value)}
                 placeholder="e.g. 10"
                 min="0"
+              />
+            </div>
+            <div className={styles.field}>
+              <label className={styles.label}>Review Due Date (optional)</label>
+              <input
+                type="date"
+                className={styles.input}
+                value={sendReviewDueDate}
+                onChange={e => setSendReviewDueDate(e.target.value)}
               />
             </div>
             <div className={styles.modalActions}>
