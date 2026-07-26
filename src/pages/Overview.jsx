@@ -50,9 +50,11 @@ function getRollingMonths() {
 }
 
 function getStatusLabel(row) {
-  if (!row) return { label: 'In Production', color: 'var(--text3)', bg: 'var(--surface3)', border: 'var(--border)' }
-  if (row.approval_status === 'approved') return { label: 'Approved', color: 'var(--teal)', bg: 'var(--teal-bg)', border: 'rgba(58,158,130,0.25)' }
-  if (row.approval_status === 'pending') return { label: 'Pending Review', color: 'var(--gold-light)', bg: 'var(--gold-bg)', border: 'var(--gold-border)' }
+  // content_months.approval_status is orphaned as of the review_cycles
+  // migration — sendForReview no longer writes to it, so any value here is
+  // leftover from before and no longer trustworthy. Review status now lives
+  // on review_cycles; this whole tile is flagged for a redesign later
+  // (decision #7), so for now it's neutral rather than showing stale data.
   return { label: 'In Production', color: 'var(--text3)', bg: 'var(--surface3)', border: 'var(--border)' }
 }
 
@@ -77,7 +79,7 @@ export default function Overview() {
   const [progressOpen, setProgressOpen] = useState(true)
   const [nextSteps, setNextSteps] = useState(null)
 
-  useEffect(() => { loadDashboard() }, [client?.id, client?.approval_status])
+  useEffect(() => { loadDashboard() }, [client?.id])
   useEffect(() => { loadMetricoolPosts() }, [])
 
   async function loadMetricoolPosts() {
@@ -154,17 +156,50 @@ export default function Overview() {
 
     // Next Steps — pending approvals + unread messages for member view
     if (role === 'member') {
-      const [{ data: fileStatusRows }, { data: commentRows }, { data: unreadMessages }] = await Promise.all([
-        supabase.from('file_status').select('status').eq('client_id', client.id).eq('status', 'approved'),
-        supabase.from('file_comments').select('file_path').eq('client_id', client.id),
+      const [{ data: cycleRows }, { data: unreadMessages }] = await Promise.all([
+        supabase.from('review_cycles').select('*').eq('client_id', client.id).is('resolved_at', null),
         supabase.from('messages').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('sender', 'admin').eq('read', false)
       ])
-      const isPendingReview = client.approval_status === 'pending'
+
+      let pendingCycles = []
+      if (cycleRows && cycleRows.length > 0) {
+        const cycleIds = cycleRows.map(c => c.id)
+        const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
+          supabase.from('file_status').select('cycle_id, status').in('cycle_id', cycleIds),
+          supabase.from('file_comments').select('cycle_id').in('cycle_id', cycleIds)
+        ])
+        const revisionCycles = new Set((commentRows || []).map(r => r.cycle_id))
+        const rollupByCycle = {}
+        ;(statusRows || []).forEach(r => {
+          if (!rollupByCycle[r.cycle_id]) rollupByCycle[r.cycle_id] = { approved: 0, in_review: 0 }
+          if (r.status === 'approved') rollupByCycle[r.cycle_id].approved++
+          else rollupByCycle[r.cycle_id].in_review++
+        })
+        // Same formula used in Admin.jsx (loadCyclesByClient) and Content.jsx
+        // (recomputeCycleStage) — kept identical on purpose so all three
+        // surfaces agree on what stage a cycle is in.
+        pendingCycles = cycleRows
+          .map(cycle => {
+            const roll = rollupByCycle[cycle.id] || { approved: 0, in_review: 0 }
+            const hasRevisions = revisionCycles.has(cycle.id)
+            let derivedStage = 'in_review'
+            if (hasRevisions) derivedStage = 'revisions'
+            else if (roll.approved > 0 && roll.in_review === 0) derivedStage = 'approved'
+            const effectiveStage = cycle.manual_override || derivedStage
+            return { ...cycle, effectiveStage }
+          })
+          // Only cycles still waiting on the client to act — "revisions" means
+          // the client already left notes and it's on the admin now.
+          .filter(cy => cy.effectiveStage === 'in_review')
+          .sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at))
+      }
+
       const hasUnreadMessages = (unreadMessages?.count || 0) > 0
       setNextSteps({
-        isPendingReview,
-        approvalFolderPath: client.approval_folder_path,
-        approvalMonth: client.approval_month,
+        isPendingReview: pendingCycles.length > 0,
+        approvalFolderPath: pendingCycles[0]?.folder_path,
+        approvalMonth: pendingCycles[0]?.folder_label,
+        extraPendingCount: Math.max(0, pendingCycles.length - 1),
         hasUnreadMessages
       })
     }
@@ -271,14 +306,23 @@ export default function Overview() {
       </div>
 
       {role === 'member' && nextSteps && (nextSteps.isPendingReview || nextSteps.hasUnreadMessages) && (
-        <div style={{
-          background: 'var(--surface2)',
-          border: `1px solid ${client?.primary_color || 'var(--gold-light)'}55`,
-          borderRadius: '10px',
-          padding: '20px 24px',
-          marginBottom: '20px',
-          boxShadow: `0 0 18px 0 ${client?.primary_color || '#D3C9A7'}22`
-        }}>
+        <>
+          <style>{`
+            @keyframes gmmBannerPulse {
+              0%, 100% { box-shadow: 0 0 22px 2px var(--gmm-banner-glow); }
+              50%      { box-shadow: 0 0 46px 6px var(--gmm-banner-glow); }
+            }
+          `}</style>
+          <div style={{
+            background: 'var(--surface2)',
+            border: `1px solid ${client?.primary_color || 'var(--gold-light)'}${nextSteps.isPendingReview ? '99' : '55'}`,
+            borderRadius: '10px',
+            padding: '20px 24px',
+            marginBottom: '20px',
+            animation: nextSteps.isPendingReview ? 'gmmBannerPulse 2.6s ease-in-out infinite' : 'none',
+            boxShadow: nextSteps.isPendingReview ? undefined : `0 0 18px 0 ${client?.primary_color || '#D3C9A7'}22`,
+            '--gmm-banner-glow': `${client?.primary_color || '#D3C9A7'}55`
+          }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
             <span style={{ width: '3px', height: '14px', background: 'var(--gold-light)', borderRadius: '2px', display: 'inline-block' }} />
             <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)' }}>Next Steps</div>
@@ -296,6 +340,7 @@ export default function Overview() {
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
                       Approve files or leave revision notes
+                      {nextSteps.extraPendingCount > 0 && ` · ${nextSteps.extraPendingCount} more folder${nextSteps.extraPendingCount !== 1 ? 's' : ''} also waiting`}
                     </div>
                   </div>
                 </div>
@@ -331,7 +376,8 @@ export default function Overview() {
               </div>
             )}
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       <div className={styles.grid}>
@@ -355,7 +401,7 @@ export default function Overview() {
                 const row = contentMonths.find(r => r.month === month && r.year === year)
                 const planned = row?.planned || 0
                 const uploaded = monthUploads[key] || 0
-                const approved = row?.approval_status === 'approved' ? planned : 0
+                const approved = 0 // orphaned field — see getStatusLabel note above
                 const scheduled = monthScheduled[key] || 0
                 const hasScheduled = scheduled > 0
                 const progress = planned > 0 ? Math.min(Math.round((uploaded / planned) * 100), 100) : 0
@@ -471,6 +517,7 @@ export default function Overview() {
     </div>
   )
 }
+
 
 
 
