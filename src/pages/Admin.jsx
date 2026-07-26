@@ -30,8 +30,6 @@ export default function Admin() {
   const [trackerOpen, setTrackerOpen] = useState(null)
   const [settingStatus, setSettingStatus] = useState(false)
   const [breakerOpenCycle, setBreakerOpenCycle] = useState(null)
-  const [clearStageModal, setClearStageModal] = useState(null)
-  const [clearStageTarget, setClearStageTarget] = useState('in_review')
   const didResetBrand = useRef(false)
 
   function generatePassword() {
@@ -437,44 +435,11 @@ export default function Admin() {
     setSettingStatus(false)
   }
 
-  // Soft rollback — rolls the cycle back to an earlier stage by deleting only
-  // the data that stage hadn't produced yet. File_status/file_comments rows
-  // that stay are left as real history; nothing here touches other cycles.
-  async function clearStage(cycle, targetStage) {
-    setSettingStatus(true)
-    try {
-      if (targetStage === 'uploaded') {
-        await supabase.from('file_status').delete().eq('cycle_id', cycle.id)
-        await supabase.from('file_comments').delete().eq('cycle_id', cycle.id)
-      } else if (targetStage === 'in_review') {
-        await supabase.from('file_comments').delete().eq('cycle_id', cycle.id)
-        await supabase.from('file_status').delete().eq('cycle_id', cycle.id).eq('status', 'approved')
-      }
-      // Persist the recomputed stage — without this, Content.jsx (and the
-      // member's Overview once migrated) keeps reading the old stage value
-      // from before the rollback, since it trusts the stored column directly.
-      const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
-        supabase.from('file_status').select('status').eq('cycle_id', cycle.id),
-        supabase.from('file_comments').select('id').eq('cycle_id', cycle.id).limit(1)
-      ])
-      let recomputed = 'in_review'
-      if ((commentRows || []).length > 0) recomputed = 'revisions'
-      else if ((statusRows || []).length > 0 && statusRows.every(r => r.status === 'approved')) recomputed = 'approved'
-      await supabase.from('review_cycles').update({ stage: recomputed }).eq('id', cycle.id)
-
-      await loadCyclesByClient()
-      showToast(`Cycle rolled back to ${targetStage.replace('_', ' ')}`)
-    } catch (err) {
-      console.error('clearStage error:', err)
-      showToast('Could not roll back stage')
-    }
-    setClearStageModal(null)
-    setSettingStatus(false)
-  }
-
   // Hard reset — deletes the cycle entirely. file_status and file_comments
-  // rows cascade-delete via their cycle_id foreign key. No history survives
-  // this on purpose; it's the "back to zero" action, distinct from Clear Stage.
+  // rows cascade-delete via their cycle_id foreign key. That's the only
+  // reset action now — Clear Stage was cut, having a rollback that doesn't
+  // visibly move the review banner or tracker made it more confusing than
+  // useful in practice.
   async function clearCycle(cycle, client) {
     const confirmed = window.confirm(`Permanently delete this review cycle for ${client.name} (${cycle.folder_label || cycle.folder_path})? This removes all approvals and revision notes tied to it and cannot be undone.`)
     if (!confirmed) return
@@ -812,13 +777,6 @@ export default function Admin() {
                                   </div>
 
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                    <button
-                                      className="btn"
-                                      style={{ fontSize: '12px' }}
-                                      onClick={() => { setClearStageModal({ cycle, client: c }); setClearStageTarget('in_review') }}
-                                    >
-                                      Clear Stage
-                                    </button>
                                     <button
                                       className="btn"
                                       style={{ fontSize: '12px', color: '#F0997B' }}
@@ -1248,48 +1206,6 @@ export default function Admin() {
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {clearStageModal && (
-        <div
-          onClick={() => setClearStageModal(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--surface1, #17171a)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', width: '360px' }}
-          >
-            <div style={{ fontSize: '17px', color: 'var(--text1)', marginBottom: '8px' }}>Clear Stage</div>
-            <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '16px', lineHeight: '1.5' }}>
-              Roll {clearStageModal.client.name}'s "{clearStageModal.cycle.folder_label || clearStageModal.cycle.folder_path}" cycle back to an earlier stage. This deletes the data ahead of that point — approvals or revision notes — but keeps the cycle itself active.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' }}>
-              {[
-                { key: 'in_review', label: 'In review', hint: 'Clears revision notes and any approvals — files sit as freshly sent.' },
-                { key: 'uploaded', label: 'Uploaded', hint: 'Clears everything — approvals and revision notes both — as if never sent for review.' }
-              ].map(opt => (
-                <label key={opt.key} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', cursor: 'pointer' }}>
-                  <input
-                    type="radio"
-                    checked={clearStageTarget === opt.key}
-                    onChange={() => setClearStageTarget(opt.key)}
-                    style={{ marginTop: '3px' }}
-                  />
-                  <span>
-                    <div style={{ fontSize: '14px', color: 'var(--text1)', marginBottom: '3px' }}>{opt.label}</div>
-                    <div style={{ fontSize: '13px', color: 'var(--text3)', lineHeight: '1.5' }}>{opt.hint}</div>
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-              <button className="btn" onClick={() => setClearStageModal(null)}>Cancel</button>
-              <button className="btn btn-gold" onClick={() => clearStage(clearStageModal.cycle, clearStageTarget)} disabled={settingStatus}>
-                Confirm
-              </button>
-            </div>
           </div>
         </div>
       )}
