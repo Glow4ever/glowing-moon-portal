@@ -542,26 +542,28 @@ export default function Admin() {
                         const activeIdx = stages.findIndex(s => s.key === stage)
                         const days = c.approval_sent_at ? Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24)) : null
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '8px', maxWidth: '240px' }}>
-                            {stages.map((s, i) => {
-                              const filled = activeIdx >= i && activeIdx !== -1
-                              const isActive = activeIdx === i
-                              return (
-                                <span key={s.key} style={{
-                                  height: '4px', flex: 1,
-                                  borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0,
-                                  background: isActive
-                                    ? `linear-gradient(90deg, ${s.color} 0%, ${s.color} 38%, rgba(255,255,255,0.65) 50%, ${s.color} 62%, ${s.color} 100%)`
-                                    : filled ? s.color : 'var(--border)',
-                                  backgroundSize: isActive ? '220% 100%' : '100% 100%',
-                                  animation: isActive
-                                    ? 'gmmStageSweep 2.4s linear infinite, gmmStagePulse 2.4s ease-in-out infinite'
-                                    : 'none',
-                                  '--gmm-pulse': s.color
-                                }} />
-                              )
-                            })}
-                            <span style={{ fontSize: '11px', color: stages[activeIdx]?.color || 'var(--text3)', marginLeft: '6px', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', width: '180px', flexShrink: 0 }}>
+                              {stages.map((s, i) => {
+                                const filled = activeIdx >= i && activeIdx !== -1
+                                const isActive = activeIdx === i
+                                return (
+                                  <span key={s.key} style={{
+                                    height: '4px', flex: '1 1 0', minWidth: 0,
+                                    borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0,
+                                    background: isActive
+                                      ? `linear-gradient(90deg, ${s.color} 0%, ${s.color} 38%, rgba(255,255,255,0.65) 50%, ${s.color} 62%, ${s.color} 100%)`
+                                      : filled ? s.color : 'var(--border)',
+                                    backgroundSize: isActive ? '220% 100%' : '100% 100%',
+                                    animation: isActive
+                                      ? 'gmmStageSweep 2.4s linear infinite, gmmStagePulse 2.4s ease-in-out infinite'
+                                      : 'none',
+                                    '--gmm-pulse': s.color
+                                  }} />
+                                )
+                              })}
+                            </div>
+                            <span style={{ fontSize: '11px', color: stages[activeIdx]?.color || 'var(--text3)', whiteSpace: 'nowrap' }}>
                               {stages[activeIdx]?.label}{days !== null ? ` · ${days}d` : ''}
                             </span>
                           </div>
