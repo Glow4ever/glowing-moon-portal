@@ -450,6 +450,18 @@ export default function Admin() {
         await supabase.from('file_comments').delete().eq('cycle_id', cycle.id)
         await supabase.from('file_status').delete().eq('cycle_id', cycle.id).eq('status', 'approved')
       }
+      // Persist the recomputed stage — without this, Content.jsx (and the
+      // member's Overview once migrated) keeps reading the old stage value
+      // from before the rollback, since it trusts the stored column directly.
+      const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
+        supabase.from('file_status').select('status').eq('cycle_id', cycle.id),
+        supabase.from('file_comments').select('id').eq('cycle_id', cycle.id).limit(1)
+      ])
+      let recomputed = 'in_review'
+      if ((commentRows || []).length > 0) recomputed = 'revisions'
+      else if ((statusRows || []).length > 0 && statusRows.every(r => r.status === 'approved')) recomputed = 'approved'
+      await supabase.from('review_cycles').update({ stage: recomputed }).eq('id', cycle.id)
+
       await loadCyclesByClient()
       showToast(`Cycle rolled back to ${targetStage.replace('_', ' ')}`)
     } catch (err) {
@@ -625,7 +637,7 @@ export default function Admin() {
                   key={c.id}
                   className={styles.clientCard}
                   style={(cyclesByClient[c.id] || []).some(cy => cy.effectiveStage === 'in_review' || cy.effectiveStage === 'revisions') ? {
-                    boxShadow: `0 0 20px 0 ${c.primary_color}22`,
+                    boxShadow: `0 0 40px 2px ${c.primary_color}44`,
                     border: `1px solid ${c.primary_color}55`
                   } : undefined}
                 >
@@ -1249,8 +1261,8 @@ export default function Admin() {
             onClick={e => e.stopPropagation()}
             style={{ background: 'var(--surface1, #17171a)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', width: '360px' }}
           >
-            <div style={{ fontSize: '15px', color: 'var(--text1)', marginBottom: '6px' }}>Clear Stage</div>
-            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '16px', lineHeight: '1.5' }}>
+            <div style={{ fontSize: '17px', color: 'var(--text1)', marginBottom: '8px' }}>Clear Stage</div>
+            <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '16px', lineHeight: '1.5' }}>
               Roll {clearStageModal.client.name}'s "{clearStageModal.cycle.folder_label || clearStageModal.cycle.folder_path}" cycle back to an earlier stage. This deletes the data ahead of that point — approvals or revision notes — but keeps the cycle itself active.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' }}>
@@ -1266,8 +1278,8 @@ export default function Admin() {
                     style={{ marginTop: '3px' }}
                   />
                   <span>
-                    <div style={{ fontSize: '13px', color: 'var(--text1)' }}>{opt.label}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{opt.hint}</div>
+                    <div style={{ fontSize: '14px', color: 'var(--text1)', marginBottom: '3px' }}>{opt.label}</div>
+                    <div style={{ fontSize: '13px', color: 'var(--text3)', lineHeight: '1.5' }}>{opt.hint}</div>
                   </span>
                 </label>
               ))}
