@@ -1,5 +1,5 @@
 import { logAction } from '../lib/audit'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useClient } from '../lib/ClientContext'
@@ -28,6 +28,7 @@ export default function Admin() {
   const [resyncing, setResyncing] = useState({})
   const [trackerOpen, setTrackerOpen] = useState(null)
   const [settingStatus, setSettingStatus] = useState(false)
+  const didResetBrand = useRef(false)
 
   function generatePassword() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
@@ -37,6 +38,14 @@ export default function Admin() {
   }
 
   useEffect(() => { loadTeam(); loadTrackerRollup(); loadAttentionQueue(); loadActivityFeed() }, [])
+
+  // Reset the active-client branding to GMM whenever the Admin panel mounts,
+  // so opening a client folder themes to them but returning here is neutral.
+  useEffect(() => {
+    if (didResetBrand.current || !allClients?.length) return
+    const gmm = allClients.find(c => c.slug === 'glowing-moon-media')
+    if (gmm) { switchClient(gmm.id); didResetBrand.current = true }
+  }, [allClients])
 
   async function loadTeam() {
     const { data } = await supabase
@@ -415,6 +424,17 @@ export default function Admin() {
 
   return (
     <div className={styles.page}>
+      <style>{`
+        @keyframes gmmStageSweep {
+          0%   { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+        @keyframes gmmStagePulse {
+          0%, 100% { box-shadow: 0 0 4px 0 var(--gmm-pulse); }
+          50%      { box-shadow: 0 0 11px 1px var(--gmm-pulse); }
+        }
+      `}</style>
+
       <div className={styles.header}>
         <h1 className={styles.title}>Admin Panel</h1>
         <p className={styles.sub}>Manage clients, branding, and team access</p>
@@ -522,15 +542,25 @@ export default function Admin() {
                         const activeIdx = stages.findIndex(s => s.key === stage)
                         const days = c.approval_sent_at ? Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24)) : null
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '8px', maxWidth: '220px' }}>
-                            {stages.map((s, i) => (
-                              <span key={s.key} style={{
-                                height: '3px', flex: 1,
-                                background: activeIdx >= i && activeIdx !== -1 ? s.color : 'var(--border)',
-                                borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0,
-                                boxShadow: activeIdx === i ? `0 0 6px 0 ${s.color}` : 'none'
-                              }} />
-                            ))}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '3px', marginTop: '8px', maxWidth: '240px' }}>
+                            {stages.map((s, i) => {
+                              const filled = activeIdx >= i && activeIdx !== -1
+                              const isActive = activeIdx === i
+                              return (
+                                <span key={s.key} style={{
+                                  height: '4px', flex: 1,
+                                  borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0,
+                                  background: isActive
+                                    ? `linear-gradient(90deg, ${s.color} 0%, ${s.color} 38%, rgba(255,255,255,0.65) 50%, ${s.color} 62%, ${s.color} 100%)`
+                                    : filled ? s.color : 'var(--border)',
+                                  backgroundSize: isActive ? '220% 100%' : '100% 100%',
+                                  animation: isActive
+                                    ? 'gmmStageSweep 2.4s linear infinite, gmmStagePulse 2.4s ease-in-out infinite'
+                                    : 'none',
+                                  '--gmm-pulse': s.color
+                                }} />
+                              )
+                            })}
                             <span style={{ fontSize: '11px', color: stages[activeIdx]?.color || 'var(--text3)', marginLeft: '6px', whiteSpace: 'nowrap' }}>
                               {stages[activeIdx]?.label}{days !== null ? ` · ${days}d` : ''}
                             </span>
@@ -1072,14 +1102,3 @@ export default function Admin() {
     </div>
   )
 }
-
-
-
-
-
-
-
-
-
-
-
