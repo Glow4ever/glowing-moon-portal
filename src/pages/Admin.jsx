@@ -13,6 +13,7 @@ export default function Admin() {
   const [tab, setTab] = useState('clients')
   const [teamMembers, setTeamMembers] = useState([])
   const [trackerRollup, setTrackerRollup] = useState({})
+  const [cyclesByClient, setCyclesByClient] = useState({})
   const [attentionQueue, setAttentionQueue] = useState([])
   const [activityFeed, setActivityFeed] = useState([])
   const [activityLoading, setActivityLoading] = useState(false)
@@ -37,7 +38,7 @@ export default function Admin() {
     return Array.from(bytes, b => chars[b % chars.length]).join('')
   }
 
-  useEffect(() => { loadTeam(); loadTrackerRollup(); loadAttentionQueue(); loadActivityFeed() }, [])
+  useEffect(() => { loadTeam(); loadTrackerRollup(); loadAttentionQueue(); loadActivityFeed(); loadCyclesByClient() }, [])
 
   // Reset the active-client branding to GMM whenever the Admin panel mounts,
   // so opening a client folder themes to them but returning here is neutral.
@@ -83,6 +84,45 @@ export default function Admin() {
     })
 
     setTrackerRollup(rollup)
+  }
+
+  async function loadCyclesByClient() {
+    const { data: cycleRows } = await supabase
+      .from('review_cycles')
+      .select('*')
+      .is('resolved_at', null)
+      .order('sent_at', { ascending: false })
+
+    if (!cycleRows || cycleRows.length === 0) { setCyclesByClient({}); return }
+
+    const cycleIds = cycleRows.map(c => c.id)
+    const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
+      supabase.from('file_status').select('cycle_id, status').in('cycle_id', cycleIds),
+      supabase.from('file_comments').select('cycle_id').in('cycle_id', cycleIds)
+    ])
+
+    const revisionCycles = new Set((commentRows || []).map(r => r.cycle_id))
+    const rollupByCycle = {}
+    ;(statusRows || []).forEach(r => {
+      if (!rollupByCycle[r.cycle_id]) rollupByCycle[r.cycle_id] = { approved: 0, in_review: 0 }
+      if (r.status === 'approved') rollupByCycle[r.cycle_id].approved++
+      else rollupByCycle[r.cycle_id].in_review++
+    })
+
+    const grouped = {}
+    cycleRows.forEach(cycle => {
+      const roll = rollupByCycle[cycle.id] || { approved: 0, in_review: 0 }
+      const hasRevisions = revisionCycles.has(cycle.id)
+      // Same formula as recomputeCycleStage in Content.jsx — kept identical
+      // on purpose so Admin and the member-facing Overview never disagree.
+      let derivedStage = 'in_review'
+      if (hasRevisions) derivedStage = 'revisions'
+      else if (roll.approved > 0 && roll.in_review === 0) derivedStage = 'approved'
+      const effectiveStage = cycle.manual_override || derivedStage
+      if (!grouped[cycle.client_id]) grouped[cycle.client_id] = []
+      grouped[cycle.client_id].push({ ...cycle, derivedStage, effectiveStage, roll })
+    })
+    setCyclesByClient(grouped)
   }
 
   async function loadAttentionQueue() {
@@ -356,6 +396,14 @@ export default function Admin() {
     setSettingStatus(true)
     try {
       if (target === 'none') {
+        if (client.approval_month) {
+          const yearMatch = client.approval_month.match(/\d{4}/)
+          if (yearMatch) {
+            const year = parseInt(yearMatch[0])
+            const monthName = client.approval_month.replace(yearMatch[0], '').trim() || client.approval_month
+            await supabase.from('content_months').update({ approval_status: null }).eq('client_id', client.id).eq('month', monthName).eq('year', year)
+          }
+        }
         await supabase.from('file_status').delete().eq('client_id', client.id)
         await supabase.from('file_comments').delete().eq('client_id', client.id)
         await supabase.from('clients').update({
@@ -379,8 +427,22 @@ export default function Admin() {
   }
 
   async function clearReview(client) {
-    const confirmed = window.confirm(`Clear the pending review for ${client.name}? This will remove the "Pending Review" status and the client's Next Steps banner.`)
+    const confirmed = window.confirm(`Clear the pending review for ${client.name}? This resets the full cycle — approvals, revision notes, and the "Pending Review" status all clear so you can start fresh.`)
     if (!confirmed) return
+
+    // Reset the matching content_months row (drives the client's Overview panel)
+    // before we lose the approval_month reference on the clients row.
+    if (client.approval_month) {
+      const yearMatch = client.approval_month.match(/\d{4}/)
+      if (yearMatch) {
+        const year = parseInt(yearMatch[0])
+        const monthName = client.approval_month.replace(yearMatch[0], '').trim() || client.approval_month
+        await supabase.from('content_months').update({ approval_status: null }).eq('client_id', client.id).eq('month', monthName).eq('year', year)
+      }
+    }
+
+    await supabase.from('file_status').delete().eq('client_id', client.id)
+    await supabase.from('file_comments').delete().eq('client_id', client.id)
     await supabase.from('clients').update({
       approval_status: null,
       approval_month: null,
@@ -389,6 +451,7 @@ export default function Admin() {
       approval_due_date: null
     }).eq('id', client.id)
     await loadUserContext()
+    await loadTrackerRollup()
     showToast(`Review cleared for ${client.name}`)
   }
 
