@@ -29,6 +29,9 @@ export default function Admin() {
   const [resyncing, setResyncing] = useState({})
   const [trackerOpen, setTrackerOpen] = useState(null)
   const [settingStatus, setSettingStatus] = useState(false)
+  const [breakerOpenCycle, setBreakerOpenCycle] = useState(null)
+  const [clearStageModal, setClearStageModal] = useState(null)
+  const [clearStageTarget, setClearStageTarget] = useState('in_review')
   const didResetBrand = useRef(false)
 
   function generatePassword() {
@@ -426,6 +429,51 @@ export default function Admin() {
     setSettingStatus(false)
   }
 
+  async function setCycleOverride(cycle, value) {
+    setSettingStatus(true)
+    await supabase.from('review_cycles').update({ manual_override: value }).eq('id', cycle.id)
+    await loadCyclesByClient()
+    showToast(value ? `Overridden to ${value.replace('_', ' ')}` : 'Override cleared — back to automated tracking')
+    setSettingStatus(false)
+  }
+
+  // Soft rollback — rolls the cycle back to an earlier stage by deleting only
+  // the data that stage hadn't produced yet. File_status/file_comments rows
+  // that stay are left as real history; nothing here touches other cycles.
+  async function clearStage(cycle, targetStage) {
+    setSettingStatus(true)
+    try {
+      if (targetStage === 'uploaded') {
+        await supabase.from('file_status').delete().eq('cycle_id', cycle.id)
+        await supabase.from('file_comments').delete().eq('cycle_id', cycle.id)
+      } else if (targetStage === 'in_review') {
+        await supabase.from('file_comments').delete().eq('cycle_id', cycle.id)
+        await supabase.from('file_status').delete().eq('cycle_id', cycle.id).eq('status', 'approved')
+      }
+      await loadCyclesByClient()
+      showToast(`Cycle rolled back to ${targetStage.replace('_', ' ')}`)
+    } catch (err) {
+      console.error('clearStage error:', err)
+      showToast('Could not roll back stage')
+    }
+    setClearStageModal(null)
+    setSettingStatus(false)
+  }
+
+  // Hard reset — deletes the cycle entirely. file_status and file_comments
+  // rows cascade-delete via their cycle_id foreign key. No history survives
+  // this on purpose; it's the "back to zero" action, distinct from Clear Stage.
+  async function clearCycle(cycle, client) {
+    const confirmed = window.confirm(`Permanently delete this review cycle for ${client.name} (${cycle.folder_label || cycle.folder_path})? This removes all approvals and revision notes tied to it and cannot be undone.`)
+    if (!confirmed) return
+    setSettingStatus(true)
+    await supabase.from('review_cycles').delete().eq('id', cycle.id)
+    await loadCyclesByClient()
+    setBreakerOpenCycle(null)
+    showToast(`Cycle cleared for ${client.name}`)
+    setSettingStatus(false)
+  }
+
   async function clearReview(client) {
     const confirmed = window.confirm(`Clear the pending review for ${client.name}? This resets the full cycle — approvals, revision notes, and the "Pending Review" status all clear so you can start fresh.`)
     if (!confirmed) return
@@ -576,7 +624,7 @@ export default function Admin() {
                 <div
                   key={c.id}
                   className={styles.clientCard}
-                  style={c.approval_status === 'pending' ? {
+                  style={(cyclesByClient[c.id] || []).some(cy => cy.effectiveStage === 'in_review' || cy.effectiveStage === 'revisions') ? {
                     boxShadow: `0 0 20px 0 ${c.primary_color}22`,
                     border: `1px solid ${c.primary_color}55`
                   } : undefined}
@@ -586,50 +634,26 @@ export default function Admin() {
                     <div className={styles.clientInfo}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <div className={styles.clientName}>{c.name}</div>
-                        {c.approval_status === 'pending' && c.approval_sent_at && (() => {
-                          const daysActive = Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24))
-                          return daysActive < 1 ? (
-                            <span style={{ fontSize: '10px', color: 'var(--teal)', background: 'rgba(29,158,117,0.15)', padding: '1px 7px', borderRadius: '20px' }}>live</span>
-                          ) : null
-                        })()}
                       </div>
                       <div className={styles.clientSlug}>/{c.slug}</div>
                       {(() => {
-                        const stage = deriveStage(c)
-                        if (stage === 'none') return null
-                        const stages = [
-                          { key: 'uploaded', label: 'Uploaded', color: 'var(--teal)' },
-                          { key: 'in_review', label: 'In review', color: 'var(--gold-light)' },
-                          { key: 'revisions', label: 'Revisions', color: '#F0997B' },
-                          { key: 'approved', label: 'Approved', color: 'var(--teal)' }
-                        ]
-                        const activeIdx = stages.findIndex(s => s.key === stage)
-                        const days = c.approval_sent_at ? Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24)) : null
+                        const clientCycles = cyclesByClient[c.id] || []
+                        if (clientCycles.length === 0) {
+                          return <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '8px' }}>No active review cycle</div>
+                        }
+                        const stageColor = { uploaded: 'var(--teal)', in_review: 'var(--gold-light)', revisions: '#F0997B', approved: 'var(--teal)' }
+                        const urgency = { revisions: 0, in_review: 1, approved: 2, uploaded: 3 }
+                        const mostUrgent = [...clientCycles].sort((a, b) => urgency[a.effectiveStage] - urgency[b.effectiveStage])[0]
                         return (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', width: '180px', flexShrink: 0 }}>
-                              {stages.map((s, i) => {
-                                const filled = activeIdx >= i && activeIdx !== -1
-                                const isActive = activeIdx === i
-                                return (
-                                  <span key={s.key} style={{
-                                    height: '4px', flex: '1 1 0', minWidth: 0,
-                                    borderRadius: i === 0 ? '2px 0 0 2px' : i === stages.length - 1 ? '0 2px 2px 0' : 0,
-                                    background: isActive
-                                      ? `linear-gradient(90deg, ${s.color} 0%, ${s.color} 38%, rgba(255,255,255,0.65) 50%, ${s.color} 62%, ${s.color} 100%)`
-                                      : filled ? s.color : 'var(--border)',
-                                    backgroundSize: isActive ? '220% 100%' : '100% 100%',
-                                    animation: isActive
-                                      ? 'gmmStageSweep 2.4s linear infinite, gmmStagePulse 2.4s ease-in-out infinite'
-                                      : 'none',
-                                    '--gmm-pulse': s.color
-                                  }} />
-                                )
-                              })}
-                            </div>
-                            <span style={{ fontSize: '11px', color: stages[activeIdx]?.color || 'var(--text3)', whiteSpace: 'nowrap' }}>
-                              {stages[activeIdx]?.label}{days !== null ? ` · ${days}d` : ''}
+                          <div
+                            onClick={() => setTrackerOpen(trackerOpen === c.id ? null : c.id)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '7px', marginTop: '8px', cursor: 'pointer' }}
+                          >
+                            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: stageColor[mostUrgent.effectiveStage] }} />
+                            <span style={{ fontSize: '11px', color: 'var(--text2)' }}>
+                              {clientCycles.length} active cycle{clientCycles.length !== 1 ? 's' : ''}
                             </span>
+                            <span style={{ fontSize: '11px', color: 'var(--text3)' }}>· click to view</span>
                           </div>
                         )
                       })()}
@@ -665,89 +689,145 @@ export default function Admin() {
                   </div>
 
                   {trackerOpen === c.id && (() => {
-                    const roll = trackerRollup[c.id] || { approved: 0, in_review: 0, revision: 0 }
-                    const statusOptions = [
-                      { key: 'none', label: 'Neutral' },
-                      { key: 'pending', label: 'In review' },
-                      { key: 'revision', label: 'Revisions' },
-                      { key: 'approved', label: 'Approved' }
-                    ]
-                    const currentStatus = c.approval_status || 'none'
-                    return (
-                      <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '14px' }}>
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
-                          <div style={{ background: 'var(--surface2)', borderRadius: '7px', padding: '8px 14px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                            <span style={{ fontSize: '16px', color: 'var(--teal)' }}>{roll.approved}</span>
-                            <span style={{ fontSize: '11px', color: 'var(--text3)' }}>approved</span>
-                          </div>
-                          <div style={{ background: 'var(--surface2)', borderRadius: '7px', padding: '8px 14px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                            <span style={{ fontSize: '16px', color: 'var(--gold-light)' }}>{roll.in_review}</span>
-                            <span style={{ fontSize: '11px', color: 'var(--text3)' }}>awaiting client</span>
-                          </div>
-                          <div style={{ background: 'var(--surface2)', borderRadius: '7px', padding: '8px 14px', display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                            <span style={{ fontSize: '16px', color: '#F0997B' }}>{roll.revision}</span>
-                            <span style={{ fontSize: '11px', color: 'var(--text3)' }}>needs revision</span>
-                          </div>
-                          {c.approval_folder_path && (
-                            <button
-                              className={styles.editBtn}
-                              onClick={() => { switchClient(c.id); navigate('/content', { state: { jumpToFolderPath: c.approval_folder_path } }) }}
-                              style={{ whiteSpace: 'nowrap', color: 'var(--gold-light)', marginLeft: 'auto' }}
-                            >
-                              Open folder <i className="ti ti-arrow-right" aria-hidden="true" />
-                            </button>
-                          )}
-                        </div>
+                    const clientCycles = cyclesByClient[c.id] || []
+                    const stageMeta = {
+                      uploaded: { label: 'Uploaded', color: 'var(--teal)' },
+                      in_review: { label: 'In review', color: 'var(--gold-light)' },
+                      revisions: { label: 'Revisions', color: '#F0997B' },
+                      approved: { label: 'Approved', color: 'var(--teal)' }
+                    }
+                    const stageOrder = ['uploaded', 'in_review', 'revisions', 'approved']
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                            {statusOptions.map(opt => {
-                              const active = currentStatus === opt.key
-                              return (
-                                <button
-                                  key={opt.key}
-                                  onClick={() => setClientStatus(c, opt.key)}
-                                  disabled={settingStatus || active}
-                                  style={{
-                                    background: active ? 'var(--gold-bg)' : 'var(--surface2)',
-                                    border: `0.5px solid ${active ? 'var(--gold-light)' : 'var(--border)'}`,
-                                    color: active ? 'var(--gold-light)' : 'var(--text2)',
-                                    borderRadius: '20px',
-                                    padding: '4px 12px',
-                                    fontSize: '11px',
-                                    cursor: active ? 'default' : 'pointer'
-                                  }}
-                                >
-                                  {opt.label}
-                                </button>
-                              )
-                            })}
-                          </div>
-                          <span style={{ width: '1px', height: '18px', background: 'var(--border)' }} />
-                          <button
-                            className="btn btn-gold"
-                            style={{ fontSize: '12px' }}
-                            onClick={() => { switchClient(c.id); navigate('/content') }}
-                          >
-                            <i className="ti ti-send" aria-hidden="true" /> Send for review
-                          </button>
-                          <button
-                            className="btn"
-                            style={{ fontSize: '12px' }}
-                            onClick={() => clearReview(c)}
-                            disabled={!c.approval_status}
-                          >
-                            Clear review
-                          </button>
-                          <button
-                            className="btn"
-                            style={{ fontSize: '12px', opacity: 0.5 }}
-                            onClick={() => showToast('Nudge is coming soon')}
-                            title="Coming soon — sends the client a reminder about pending review"
-                          >
-                            Nudge client
-                          </button>
+                    if (clientCycles.length === 0) {
+                      return (
+                        <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '14px', fontSize: '12px', color: 'var(--text3)' }}>
+                          No active review cycle. Use Send for Review above to start one.
                         </div>
+                      )
+                    }
+
+                    return (
+                      <div style={{ borderTop: '1px solid var(--border)', marginTop: '12px', paddingTop: '14px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                        {clientCycles.map(cycle => {
+                          const activeIdx = stageOrder.indexOf(cycle.effectiveStage)
+                          const isOverridden = !!cycle.manual_override && cycle.manual_override !== cycle.derivedStage
+                          const days = cycle.sent_at ? Math.floor((Date.now() - new Date(cycle.sent_at).getTime()) / (1000 * 60 * 60 * 24)) : null
+                          const dueOverdue = cycle.due_date && cycle.effectiveStage !== 'approved' && new Date(cycle.due_date + 'T23:59:59') < new Date()
+
+                          return (
+                            <div key={cycle.id} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '9px', padding: '12px 14px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                <div style={{ minWidth: '110px' }}>
+                                  <div style={{ fontSize: '12px', color: 'var(--text1)', fontWeight: '500' }}>{cycle.folder_label || 'Untitled cycle'}</div>
+                                  {isOverridden && (
+                                    <div style={{ fontSize: '10px', color: 'var(--gold-light)', marginTop: '2px' }}>manually overridden</div>
+                                  )}
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '3px', width: '150px', flexShrink: 0 }}>
+                                  {stageOrder.map((key, i) => {
+                                    const s = stageMeta[key]
+                                    const filled = activeIdx >= i && activeIdx !== -1
+                                    const isActive = activeIdx === i
+                                    return (
+                                      <span key={key} style={{
+                                        height: '4px', flex: '1 1 0', minWidth: 0,
+                                        borderRadius: i === 0 ? '2px 0 0 2px' : i === stageOrder.length - 1 ? '0 2px 2px 0' : 0,
+                                        background: isActive
+                                          ? `linear-gradient(90deg, ${s.color} 0%, ${s.color} 38%, rgba(255,255,255,0.65) 50%, ${s.color} 62%, ${s.color} 100%)`
+                                          : filled ? s.color : 'var(--border)',
+                                        backgroundSize: isActive ? '220% 100%' : '100% 100%',
+                                        animation: isActive ? 'gmmStageSweep 2.4s linear infinite, gmmStagePulse 2.4s ease-in-out infinite' : 'none',
+                                        '--gmm-pulse': s.color
+                                      }} />
+                                    )
+                                  })}
+                                </div>
+                                <span style={{ fontSize: '11px', color: stageMeta[cycle.effectiveStage]?.color, whiteSpace: 'nowrap' }}>
+                                  {stageMeta[cycle.effectiveStage]?.label}{days !== null ? ` · ${days}d` : ''}
+                                </span>
+
+                                {cycle.due_date && (
+                                  <span style={{ fontSize: '11px', color: dueOverdue ? '#F0997B' : 'var(--text3)', whiteSpace: 'nowrap' }}>
+                                    {dueOverdue ? 'Overdue' : 'Due'} {new Date(cycle.due_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                  </span>
+                                )}
+
+                                <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
+                                  <button
+                                    className={styles.editBtn}
+                                    onClick={() => { switchClient(c.id); navigate('/content', { state: { jumpToFolderPath: cycle.folder_path } }) }}
+                                    style={{ whiteSpace: 'nowrap', color: 'var(--gold-light)' }}
+                                  >
+                                    Open folder <i className="ti ti-arrow-right" aria-hidden="true" />
+                                  </button>
+                                  <button
+                                    className={styles.editBtn}
+                                    onClick={() => setBreakerOpenCycle(breakerOpenCycle === cycle.id ? null : cycle.id)}
+                                    title="Manual controls — rare, for cases decided outside the portal"
+                                    style={breakerOpenCycle === cycle.id ? { color: 'var(--gold-light)' } : undefined}
+                                  >
+                                    <i className="ti ti-adjustments" aria-hidden="true" /> Manual
+                                  </button>
+                                </div>
+                              </div>
+
+                              {breakerOpenCycle === cycle.id && (
+                                <div style={{ borderTop: '0.5px solid var(--border)', marginTop: '12px', paddingTop: '12px' }}>
+                                  <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)', marginBottom: '8px' }}>
+                                    Override stage
+                                  </div>
+                                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                                    {[{ key: null, label: 'None (automated)' }, ...stageOrder.filter(k => k !== 'uploaded').map(k => ({ key: k, label: stageMeta[k].label }))].map(opt => {
+                                      const active = (cycle.manual_override || null) === opt.key
+                                      return (
+                                        <button
+                                          key={opt.label}
+                                          onClick={() => setCycleOverride(cycle, opt.key)}
+                                          disabled={settingStatus || active}
+                                          style={{
+                                            background: active ? 'var(--gold-bg)' : 'var(--surface1, #17171a)',
+                                            border: `0.5px solid ${active ? 'var(--gold-light)' : 'var(--border)'}`,
+                                            color: active ? 'var(--gold-light)' : 'var(--text2)',
+                                            borderRadius: '20px', padding: '4px 12px', fontSize: '11px',
+                                            cursor: active ? 'default' : 'pointer'
+                                          }}
+                                        >
+                                          {opt.label}
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    <button
+                                      className="btn"
+                                      style={{ fontSize: '12px' }}
+                                      onClick={() => { setClearStageModal({ cycle, client: c }); setClearStageTarget('in_review') }}
+                                    >
+                                      Clear Stage
+                                    </button>
+                                    <button
+                                      className="btn"
+                                      style={{ fontSize: '12px', color: '#F0997B' }}
+                                      onClick={() => clearCycle(cycle, c)}
+                                    >
+                                      Clear Cycle
+                                    </button>
+                                    <button
+                                      className="btn"
+                                      style={{ fontSize: '12px', opacity: 0.5 }}
+                                      onClick={() => showToast('Nudge is coming soon')}
+                                      title="Coming soon — sends the client a reminder about this cycle"
+                                    >
+                                      Nudge Client
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
                       </div>
                     )
                   })()}
@@ -1156,6 +1236,48 @@ export default function Admin() {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {clearStageModal && (
+        <div
+          onClick={() => setClearStageModal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--surface1, #17171a)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px', width: '360px' }}
+          >
+            <div style={{ fontSize: '15px', color: 'var(--text1)', marginBottom: '6px' }}>Clear Stage</div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '16px', lineHeight: '1.5' }}>
+              Roll {clearStageModal.client.name}'s "{clearStageModal.cycle.folder_label || clearStageModal.cycle.folder_path}" cycle back to an earlier stage. This deletes the data ahead of that point — approvals or revision notes — but keeps the cycle itself active.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '18px' }}>
+              {[
+                { key: 'in_review', label: 'In review', hint: 'Clears revision notes and any approvals — files sit as freshly sent.' },
+                { key: 'uploaded', label: 'Uploaded', hint: 'Clears everything — approvals and revision notes both — as if never sent for review.' }
+              ].map(opt => (
+                <label key={opt.key} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    checked={clearStageTarget === opt.key}
+                    onChange={() => setClearStageTarget(opt.key)}
+                    style={{ marginTop: '3px' }}
+                  />
+                  <span>
+                    <div style={{ fontSize: '13px', color: 'var(--text1)' }}>{opt.label}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text3)' }}>{opt.hint}</div>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button className="btn" onClick={() => setClearStageModal(null)}>Cancel</button>
+              <button className="btn btn-gold" onClick={() => clearStage(clearStageModal.cycle, clearStageTarget)} disabled={settingStatus}>
+                Confirm
+              </button>
+            </div>
           </div>
         </div>
       )}
