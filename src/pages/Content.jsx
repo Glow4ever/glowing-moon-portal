@@ -45,6 +45,31 @@ function StatusBadge({ status }) {
   )
 }
 
+function DueDateBadge({ dueDate, status, canEdit, onEdit }) {
+  if (!dueDate && !canEdit) return null
+  const isOverdue = dueDate && status !== 'approved' && new Date(dueDate + 'T23:59:59') < new Date()
+  const label = dueDate
+    ? new Date(dueDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    : 'Set due date'
+  return (
+    <div
+      onClick={canEdit ? (e => { e.stopPropagation(); onEdit() }) : undefined}
+      title={canEdit ? 'Click to change due date' : undefined}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: '4px',
+        background: isOverdue ? '#2a1a1a' : dueDate ? 'rgba(136,135,128,0.14)' : 'transparent',
+        color: isOverdue ? '#F0997B' : dueDate ? 'var(--text2)' : 'var(--text3)',
+        fontSize: '12px', padding: '3px 8px', borderRadius: '20px',
+        border: dueDate ? 'none' : '0.5px dashed var(--border)',
+        cursor: canEdit ? 'pointer' : 'default'
+      }}
+    >
+      <i className="ti ti-calendar-event" style={{ fontSize: '12px' }} aria-hidden="true" />
+      {isOverdue ? `Overdue · ${label}` : label}
+    </div>
+  )
+}
+
 export default function Content() {
   const { client, role, loadUserContext } = useClient()
   const location = useLocation()
@@ -81,6 +106,7 @@ export default function Content() {
   const [approving, setApproving] = useState(false)
   const [localStatus, setLocalStatus] = useState(null)
   const [fileStatuses, setFileStatuses] = useState({})
+  const [dueDates, setDueDates] = useState({})
   const [revisionPaths, setRevisionPaths] = useState({})
   const [bulkApproving, setBulkApproving] = useState(false)
   const [fileApproving, setFileApproving] = useState({})
@@ -108,15 +134,46 @@ export default function Content() {
 
   async function loadStatusData() {
     const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
-      supabase.from('file_status').select('file_path, status').eq('client_id', client.id),
+      supabase.from('file_status').select('file_path, status, due_date').eq('client_id', client.id),
       supabase.from('file_comments').select('file_path').eq('client_id', client.id)
     ])
     const statusMap = {}
-    ;(statusRows || []).forEach(r => { statusMap[r.file_path] = r.status })
+    const dueMap = {}
+    ;(statusRows || []).forEach(r => {
+      statusMap[r.file_path] = r.status
+      if (r.due_date) dueMap[r.file_path] = r.due_date
+    })
     setFileStatuses(statusMap)
+    setDueDates(dueMap)
     const revMap = {}
     ;(commentRows || []).forEach(r => { revMap[r.file_path] = true })
     setRevisionPaths(revMap)
+  }
+
+  async function setDueDate(file) {
+    const current = dueDates[file.path_lower] || ''
+    const input = window.prompt('Set due date (YYYY-MM-DD), or clear the field to remove it:', current)
+    if (input === null) return
+    const trimmed = input.trim()
+    if (trimmed && !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return window.alert('Please use the format YYYY-MM-DD, e.g. 2026-08-15')
+    }
+    const value = trimmed || null
+    const { error } = await supabase
+      .from('file_status')
+      .upsert({
+        client_id: client.id,
+        file_path: file.path_lower,
+        status: fileStatuses[file.path_lower] || 'in_review',
+        due_date: value
+      }, { onConflict: 'client_id,file_path' })
+    if (error) return window.alert('Could not save due date.')
+    setDueDates(prev => {
+      const next = { ...prev }
+      if (value) next[file.path_lower] = value
+      else delete next[file.path_lower]
+      return next
+    })
   }
 
   function isNew(file) {
@@ -856,6 +913,14 @@ export default function Content() {
                         ) : (
                           <>
                             <StatusBadge status={status} />
+                            <span style={{ marginLeft: '6px' }}>
+                              <DueDateBadge
+                                dueDate={dueDates[f.path_lower]}
+                                status={status}
+                                canEdit={role === 'admin' || role === 'editor'}
+                                onEdit={() => setDueDate(f)}
+                              />
+                            </span>
                             {(role === 'admin' || role === 'editor') && status === 'revision' && (
                               <button
                                 onClick={() => openThread(f)}
@@ -932,6 +997,14 @@ export default function Content() {
                         ) : (
                           <>
                             <StatusBadge status={status} />
+                            <span style={{ marginLeft: '6px' }}>
+                              <DueDateBadge
+                                dueDate={dueDates[f.path_lower]}
+                                status={status}
+                                canEdit={role === 'admin' || role === 'editor'}
+                                onEdit={() => setDueDate(f)}
+                              />
+                            </span>
                             {(role === 'admin' || role === 'editor') && status === 'revision' && (
                               <button
                                 onClick={() => openThread(f)}
@@ -1004,6 +1077,14 @@ export default function Content() {
                         ) : (
                           <>
                             <StatusBadge status={status} />
+                            <span style={{ marginLeft: '6px' }}>
+                              <DueDateBadge
+                                dueDate={dueDates[f.path_lower]}
+                                status={status}
+                                canEdit={role === 'admin' || role === 'editor'}
+                                onEdit={() => setDueDate(f)}
+                              />
+                            </span>
                             {(role === 'admin' || role === 'editor') && status === 'revision' && (
                               <button
                                 onClick={() => openThread(f)}
@@ -1158,6 +1239,7 @@ export default function Content() {
     </div>
   )
 }
+
 
 
 
