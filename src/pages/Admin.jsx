@@ -359,7 +359,7 @@ export default function Admin() {
         await supabase.from('file_status').delete().eq('client_id', client.id)
         await supabase.from('file_comments').delete().eq('client_id', client.id)
         await supabase.from('clients').update({
-          approval_status: null, approval_month: null, approval_folder_path: null, approval_sent_at: null
+          approval_status: null, approval_month: null, approval_folder_path: null, approval_sent_at: null, approval_due_date: null
         }).eq('id', client.id)
       } else if (target === 'approved') {
         await supabase.from('file_comments').delete().eq('client_id', client.id)
@@ -385,7 +385,8 @@ export default function Admin() {
       approval_status: null,
       approval_month: null,
       approval_folder_path: null,
-      approval_sent_at: null
+      approval_sent_at: null,
+      approval_due_date: null
     }).eq('id', client.id)
     await loadUserContext()
     showToast(`Review cleared for ${client.name}`)
@@ -1104,3 +1105,4 @@ export default function Admin() {
     </div>
   )
 }
+
