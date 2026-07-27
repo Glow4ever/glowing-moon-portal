@@ -283,9 +283,24 @@ export default function Admin() {
     setLoadingComments(false)
   }
 
-  async function dismissComment(id) {
-    await supabase.from('file_comments').delete().eq('id', id)
-    setComments(prev => prev.filter(c => c.id !== id))
+  async function dismissComment(comment) {
+    await supabase.from('file_comments').delete().eq('id', comment.id)
+    setComments(prev => prev.filter(c => c.id !== comment.id))
+
+    // Resolving a revision note can change the cycle's derived stage back
+    // toward in_review or approved — without this, the tracker keeps showing
+    // "revisions" even after the note is gone.
+    if (comment.cycle_id) {
+      const [{ data: statusRows }, { data: remainingComments }] = await Promise.all([
+        supabase.from('file_status').select('status').eq('cycle_id', comment.cycle_id),
+        supabase.from('file_comments').select('id').eq('cycle_id', comment.cycle_id).limit(1)
+      ])
+      let recomputed = 'in_review'
+      if ((remainingComments || []).length > 0) recomputed = 'revisions'
+      else if ((statusRows || []).length > 0 && statusRows.every(r => r.status === 'approved')) recomputed = 'approved'
+      await supabase.from('review_cycles').update({ stage: recomputed }).eq('id', comment.cycle_id)
+      await loadCyclesByClient()
+    }
   }
 
   function showToast(msg) {
@@ -424,14 +439,6 @@ export default function Admin() {
       console.error('setClientStatus error:', err)
       showToast('Could not update status')
     }
-    setSettingStatus(false)
-  }
-
-  async function setCycleOverride(cycle, value) {
-    setSettingStatus(true)
-    await supabase.from('review_cycles').update({ manual_override: value }).eq('id', cycle.id)
-    await loadCyclesByClient()
-    showToast(value ? `Overridden to ${value.replace('_', ' ')}` : 'Override cleared — back to automated tracking')
     setSettingStatus(false)
   }
 
@@ -751,31 +758,6 @@ export default function Admin() {
 
                               {breakerOpenCycle === cycle.id && (
                                 <div style={{ borderTop: '0.5px solid var(--border)', marginTop: '12px', paddingTop: '12px' }}>
-                                  <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text3)', marginBottom: '8px' }}>
-                                    Override stage
-                                  </div>
-                                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                                    {[{ key: null, label: 'None (automated)' }, ...stageOrder.filter(k => k !== 'uploaded').map(k => ({ key: k, label: stageMeta[k].label }))].map(opt => {
-                                      const active = (cycle.manual_override || null) === opt.key
-                                      return (
-                                        <button
-                                          key={opt.label}
-                                          onClick={() => setCycleOverride(cycle, opt.key)}
-                                          disabled={settingStatus || active}
-                                          style={{
-                                            background: active ? 'var(--gold-bg)' : 'var(--surface1, #17171a)',
-                                            border: `0.5px solid ${active ? 'var(--gold-light)' : 'var(--border)'}`,
-                                            color: active ? 'var(--gold-light)' : 'var(--text2)',
-                                            borderRadius: '20px', padding: '4px 12px', fontSize: '11px',
-                                            cursor: active ? 'default' : 'pointer'
-                                          }}
-                                        >
-                                          {opt.label}
-                                        </button>
-                                      )
-                                    })}
-                                  </div>
-
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                                     <button
                                       className="btn"
@@ -1163,7 +1145,7 @@ export default function Admin() {
                     </div>
                     <button
                       className={styles.editBtn}
-                      onClick={() => dismissComment(c.id)}
+                      onClick={() => dismissComment(c)}
                       title="Dismiss"
                       style={{ marginTop: '2px', flexShrink: 0 }}
                     >
