@@ -114,6 +114,7 @@ export default function Content() {
   const [sendReviewDueDate, setSendReviewDueDate] = useState('')
   const [sendingReview, setSendingReview] = useState(false)
   const fileRef = useRef()
+  const dueDateInputRef = useRef()
 
   const currentPath = stack ? stack[stack.length - 1].path : null
   const currentCycle = cycles.find(c => c.folder_path === currentPath) || null
@@ -269,6 +270,14 @@ export default function Content() {
   function jumpToReviewFolder() {
     const newStack = buildStackFromPath(approvalFolderPath)
     if (newStack) setStack(newStack)
+  }
+
+  async function cancelReview() {
+    if (!currentCycle) return
+    const confirmed = window.confirm(`Cancel this review cycle for "${currentCycle.folder_label || currentCycle.folder_path}"? This removes it entirely — any approvals or revision notes on it go with it. This can't be undone.`)
+    if (!confirmed) return
+    await supabase.from('review_cycles').delete().eq('id', currentCycle.id)
+    await loadCycles()
   }
 
   async function sendForReview() {
@@ -443,7 +452,6 @@ export default function Content() {
   async function submitComment() {
     if (!commentText.trim() || !commentModal || !currentCycle) return
     setSubmittingComment(true)
-    const isFirstMessage = threadMessages.length === 0
     await supabase.from('file_comments').insert({
       client_id: client.id,
       cycle_id: currentCycle.id,
@@ -464,6 +472,10 @@ export default function Content() {
       })
       setRevisionPaths(prev => ({ ...prev, [commentModal.path_lower]: true }))
       await recomputeCycleStage(currentCycle.id)
+      setCommentText('')
+      setSubmittingComment(false)
+      setCommentModal(null)
+      return
     }
     const { data } = await supabase
       .from('file_comments')
@@ -600,6 +612,11 @@ export default function Content() {
             {allFiles.length > 0 && !(isPending && isViewingReviewFolder) && (
               <button className="btn btn-gold" onClick={() => setSendReviewModal(true)}>
                 <i className="ti ti-send" /> Send for Review
+              </button>
+            )}
+            {isPending && isViewingReviewFolder && currentCycle && (
+              <button className="btn" style={{ color: '#F0997B' }} onClick={cancelReview}>
+                <i className="ti ti-x" /> Cancel Review
               </button>
             )}
             <button className="btn btn-gold" onClick={() => setNewFolderModal(true)}>
@@ -1206,12 +1223,28 @@ export default function Content() {
             </div>
             <div className={styles.field}>
               <label className={styles.label}>Review Due Date (optional)</label>
-              <input
-                type="date"
-                className={styles.input}
-                value={sendReviewDueDate}
-                onChange={e => setSendReviewDueDate(e.target.value)}
-              />
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <input
+                  ref={dueDateInputRef}
+                  type="date"
+                  className={styles.input}
+                  value={sendReviewDueDate}
+                  onChange={e => setSendReviewDueDate(e.target.value)}
+                  style={{ colorScheme: 'dark' }}
+                />
+                <button
+                  type="button"
+                  className={styles.editBtn}
+                  onClick={() => {
+                    if (dueDateInputRef.current?.showPicker) dueDateInputRef.current.showPicker()
+                    else dueDateInputRef.current?.focus()
+                  }}
+                  title="Open calendar"
+                  style={{ flexShrink: 0 }}
+                >
+                  <i className="ti ti-calendar-event" aria-hidden="true" />
+                </button>
+              </div>
             </div>
             <div className={styles.modalActions}>
               <button className="btn" onClick={() => setSendReviewModal(false)}>Cancel</button>
@@ -1254,7 +1287,7 @@ export default function Content() {
             </div>
 
             <div className={styles.field}>
-              <label className={styles.label}>{threadMessages.length === 0 ? 'What needs to change?' : 'Add to this thread'}</label>
+              <label className={styles.label}>Leave a comment</label>
               <textarea
                 className={styles.input}
                 value={commentText}
