@@ -480,8 +480,17 @@ export default function Overview() {
                   <div key={i} className={styles.scheduleItem} onClick={() => navigate('/calendar')}>
                     {mediaUrl ? (
                       isVideo(mediaUrl) ? (
-                        <div className={styles.scheduleThumbnailVideo}>
-                          <i className="ti ti-player-play" />
+                        <div className={styles.scheduleThumbnailVideo} style={{ position: 'relative', overflow: 'hidden', padding: 0 }}>
+                          <video
+                            src={`${mediaUrl}#t=0.1`}
+                            preload="metadata"
+                            muted
+                            playsInline
+                            className={styles.scheduleThumbnail}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                            onError={e => { e.target.style.display = 'none' }}
+                          />
+                          <i className="ti ti-player-play-filled" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#fff', fontSize: '16px', textShadow: '0 1px 4px rgba(0,0,0,0.7)', pointerEvents: 'none' }} />
                         </div>
                       ) : (
                         <img
