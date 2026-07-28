@@ -274,7 +274,8 @@ function getMediaForEvent(ev) {
               if (mediaUrl) {
                 return isVideo(mediaUrl) ? (
                   <video
-                    src={mediaUrl}
+                    src={`${mediaUrl}#t=0.1`}
+                    preload="metadata"
                     controls
                     style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
                   />
@@ -355,5 +356,6 @@ function getMediaForEvent(ev) {
     </div>
   )
 }
+
 
 
