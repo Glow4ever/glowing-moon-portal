@@ -36,7 +36,7 @@ function truncate(str, n) {
 }
 
 export default function Calendar() {
-  const { client } = useClient()
+  const { client, role } = useClient()
   const [currentDate, setCurrentDate] = useState(new Date())
   const [events, setEvents] = useState([])
   const [metricoolPosts, setMetricoolPosts] = useState([])
@@ -88,7 +88,7 @@ function getMediaForEvent(ev) {
     if (modal === 'edit' && form.id) {
       await supabase.from('calendar_events').update({ title: form.title, date: form.date, type: form.type, notes: form.notes }).eq('id', form.id)
     } else {
-      await supabase.from('calendar_events').insert({ title: form.title, date: form.date, type: form.type, notes: form.notes })
+      await supabase.from('calendar_events').insert({ title: form.title, date: form.date, type: form.type, notes: form.notes, client_id: client.id })
     }
     await loadEvents()
     setSaving(false)
@@ -153,9 +153,11 @@ function getMediaForEvent(ev) {
               </div>
             ))}
           </div>
-          <button className="btn btn-gold" onClick={() => openNew(today)}>
-            <i className="ti ti-plus" aria-hidden="true" /> Add Event
-          </button>
+          {(role === 'admin' || role === 'editor') && (
+            <button className="btn btn-gold" onClick={() => openNew(today)}>
+              <i className="ti ti-plus" aria-hidden="true" /> Add Event
+            </button>
+          )}
         </div>
       </div>
 
@@ -180,7 +182,8 @@ function getMediaForEvent(ev) {
               <div
                 key={day.toString()}
                 className={`${styles.cell} ${!isCurrentMonth ? styles.otherMonth : ''}`}
-                onClick={() => openNew(day)}
+                onClick={() => { if (role === 'admin' || role === 'editor') openNew(day) }}
+                style={{ cursor: (role === 'admin' || role === 'editor') ? 'pointer' : 'default' }}
               >
                 <div className={`${styles.cellNum} ${isToday ? styles.today : ''}`}>
                   {format(day, 'd')}
@@ -302,11 +305,18 @@ function getMediaForEvent(ev) {
             <div style={{ fontSize: '14px', color: 'var(--text)', lineHeight: '1.6', marginBottom: '20px' }}>
               {viewEvent.title}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+              {viewEvent.metricool_id && (
+                <div style={{ fontSize: '12px', color: 'var(--text3)', marginRight: 'auto' }}>
+                  Synced from Metricool — edit there
+                </div>
+              )}
               <button className="btn" onClick={() => setViewEvent(null)}>Close</button>
-              <button className="btn btn-gold" onClick={() => openEdit(viewEvent)}>
-                <i className="ti ti-pencil" /> Edit
-              </button>
+              {(role === 'admin' || role === 'editor') && !viewEvent.metricool_id && (
+                <button className="btn btn-gold" onClick={() => openEdit(viewEvent)}>
+                  <i className="ti ti-pencil" /> Edit
+                </button>
+              )}
             </div>
           </div>
         </div>
