@@ -79,7 +79,11 @@ function getMediaForEvent(ev) {
     if (!network) return true
     return post.providers?.some(p => p.network?.toLowerCase() === network)
   })
-  return match?.media?.[0] || null
+  if (!match) return null
+  return {
+    url: match.media?.[0] || null,
+    thumbnailUrl: match.videoThumbnailUrl || null
+  }
 }
 
   async function saveEvent() {
@@ -273,18 +277,19 @@ function getMediaForEvent(ev) {
             </div>
 
             {(() => {
-              const mediaUrl = getMediaForEvent(viewEvent)
-              if (mediaUrl) {
-                return isVideo(mediaUrl) ? (
+              const media = getMediaForEvent(viewEvent)
+              if (media?.url) {
+                return isVideo(media.url) ? (
                   <video
-                    src={`${mediaUrl}#t=0.1`}
+                    src={media.thumbnailUrl ? media.url : `${media.url}#t=0.1`}
+                    poster={media.thumbnailUrl || undefined}
                     preload="metadata"
                     controls
                     style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
                   />
                 ) : (
                   <img
-                    src={mediaUrl}
+                    src={media.url}
                     alt="Post media"
                     style={{ width: '100%', borderRadius: '8px', marginBottom: '14px', maxHeight: '480px', objectFit: 'contain', background: 'var(--surface3)' }}
                     onError={e => { e.target.style.display = 'none' }}
