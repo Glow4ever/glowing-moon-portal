@@ -105,7 +105,11 @@ export default function Overview() {
       if (!network) return true
       return post.providers?.some(p => p.network?.toLowerCase() === network.toLowerCase())
     })
-    return match?.media?.[0] || null
+    if (!match) return null
+    return {
+      url: match.media?.[0] || null,
+      thumbnailUrl: match.videoThumbnailUrl || null
+    }
   }
 
   async function loadDashboard() {
@@ -475,26 +479,39 @@ export default function Overview() {
                 const { label, day } = formatEventDate(e.date)
                 const platform = (e.notes || '').toLowerCase()
                 const color = PLATFORM_COLORS[platform] || 'var(--text3)'
-                const mediaUrl = getMediaForDate(e.date, platform)
+                const media = getMediaForDate(e.date, platform)
                 return (
                   <div key={i} className={styles.scheduleItem} onClick={() => navigate('/calendar')}>
-                    {mediaUrl ? (
-                      isVideo(mediaUrl) ? (
-                        <div className={styles.scheduleThumbnailVideo} style={{ position: 'relative', overflow: 'hidden', padding: 0 }}>
-                          <video
-                            src={`${mediaUrl}#t=0.1`}
-                            preload="metadata"
-                            muted
-                            playsInline
-                            className={styles.scheduleThumbnail}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                            onError={e => { e.target.style.display = 'none' }}
-                          />
-                          <i className="ti ti-player-play-filled" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#fff', fontSize: '16px', textShadow: '0 1px 4px rgba(0,0,0,0.7)', pointerEvents: 'none' }} />
-                        </div>
+                    {media?.url ? (
+                      isVideo(media.url) ? (
+                        media.thumbnailUrl ? (
+                          <div className={styles.scheduleThumbnailVideo} style={{ position: 'relative', overflow: 'hidden', padding: 0 }}>
+                            <img
+                              src={media.thumbnailUrl}
+                              alt=""
+                              className={styles.scheduleThumbnail}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                              onError={e => { e.target.style.display = 'none' }}
+                            />
+                            <i className="ti ti-player-play-filled" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#fff', fontSize: '16px', textShadow: '0 1px 4px rgba(0,0,0,0.7)', pointerEvents: 'none' }} />
+                          </div>
+                        ) : (
+                          <div className={styles.scheduleThumbnailVideo} style={{ position: 'relative', overflow: 'hidden', padding: 0 }}>
+                            <video
+                              src={`${media.url}#t=0.1`}
+                              preload="metadata"
+                              muted
+                              playsInline
+                              className={styles.scheduleThumbnail}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                              onError={e => { e.target.style.display = 'none' }}
+                            />
+                            <i className="ti ti-player-play-filled" style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', color: '#fff', fontSize: '16px', textShadow: '0 1px 4px rgba(0,0,0,0.7)', pointerEvents: 'none' }} />
+                          </div>
+                        )
                       ) : (
                         <img
-                          src={mediaUrl}
+                          src={media.url}
                           alt=""
                           className={styles.scheduleThumbnail}
                           onError={e => { e.target.style.display = 'none' }}
