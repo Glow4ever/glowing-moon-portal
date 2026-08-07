@@ -201,9 +201,7 @@ export default function Overview() {
       const hasUnreadMessages = (unreadMessages?.count || 0) > 0
       setNextSteps({
         isPendingReview: pendingCycles.length > 0,
-        approvalFolderPath: pendingCycles[0]?.folder_path,
-        approvalMonth: pendingCycles[0]?.folder_label,
-        extraPendingCount: Math.max(0, pendingCycles.length - 1),
+        pendingCycles,
         hasUnreadMessages
       })
     }
@@ -332,32 +330,42 @@ export default function Overview() {
             <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)' }}>Next Steps</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {nextSteps.isPendingReview && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+            {nextSteps.isPendingReview && nextSteps.pendingCycles.map((cycle, i) => (
+              <div
+                key={cycle.id}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap',
+                  paddingTop: i > 0 ? '14px' : 0,
+                  borderTop: i > 0 ? '1px solid var(--border)' : 'none'
+                }}
+              >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div style={{ width: '38px', height: '38px', borderRadius: '9px', background: 'var(--gold-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <i className="ti ti-file-check" style={{ fontSize: '18px', color: 'var(--gold-light)' }} />
                   </div>
                   <div>
                     <div style={{ fontSize: '14px', color: 'var(--text1)', fontWeight: '600' }}>
-                      {nextSteps.approvalMonth} content is ready for your review
+                      {cycle.folder_label} content is ready for your review
                     </div>
                     <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
-                      Approve files or leave revision notes
-                      {nextSteps.extraPendingCount > 0 && ` · ${nextSteps.extraPendingCount} more folder${nextSteps.extraPendingCount !== 1 ? 's' : ''} also waiting`}
+                      {role === 'viewer' ? 'View files or leave feedback' : 'Approve files or leave revision notes'}
                     </div>
                   </div>
                 </div>
                 <button
-                  onClick={() => navigate('/content', { state: { jumpToFolderPath: nextSteps.approvalFolderPath } })}
+                  onClick={() => navigate('/content', { state: { jumpToFolderPath: cycle.folder_path } })}
                   style={{ background: 'var(--gold-light)', color: '#0E0E0F', border: 'none', borderRadius: '7px', padding: '10px 20px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
                   {role === 'viewer' ? 'View Now' : 'Review Now'} <i className="ti ti-arrow-right" style={{ marginLeft: '2px' }} />
                 </button>
               </div>
-            )}
+            ))}
             {nextSteps.hasUnreadMessages && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap',
+                paddingTop: nextSteps.isPendingReview ? '14px' : 0,
+                borderTop: nextSteps.isPendingReview ? '1px solid var(--border)' : 'none'
+              }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'var(--teal-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <i className="ti ti-message" style={{ fontSize: '16px', color: 'var(--teal)' }} />
