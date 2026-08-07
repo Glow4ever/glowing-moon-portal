@@ -24,6 +24,24 @@ async function listDropboxFolder(path) {
   return data.entries || []
 }
 
+// Recursively collects every file under `path`, across all subfolders, with
+// preview URLs resolved. Used only for the review experience — normal
+// folder browsing stays single-level via listDropboxFolder/loadFolder above,
+// so this doesn't touch performance anywhere except while reviewing.
+async function listDropboxFilesRecursive(path) {
+  const raw = await listDropboxFolder(path)
+  const files = raw.filter(e => e['.tag'] === 'file')
+  const folders = raw.filter(e => e['.tag'] === 'folder')
+  const filesWithUrls = await Promise.all(files.map(async file => {
+    const type = getFileType(file.name)
+    let url = null
+    if (type === 'photo' || type === 'video') url = await getPreviewLink(file.path_lower)
+    return { ...file, type, url }
+  }))
+  const nested = await Promise.all(folders.map(f => listDropboxFilesRecursive(f.path_lower)))
+  return [...filesWithUrls, ...nested.flat()]
+}
+
 const STATUS_STYLES = {
   approved:      { bg: 'var(--teal-bg)',  color: 'var(--teal)',       icon: 'ti-check',  label: 'Approved' },
   revision:      { bg: '#2a1a1a',          color: '#F0997B',           icon: 'ti-message', label: 'Revision sent' },
@@ -113,6 +131,9 @@ export default function Content() {
   const [sendReviewPlanned, setSendReviewPlanned] = useState('')
   const [sendReviewDueDate, setSendReviewDueDate] = useState('')
   const [sendingReview, setSendingReview] = useState(false)
+  const [reviewFiles, setReviewFiles] = useState([])
+  const [loadingReviewFiles, setLoadingReviewFiles] = useState(false)
+  const [sendReviewFileCount, setSendReviewFileCount] = useState(null)
   const fileRef = useRef()
   const dueDateInputRef = useRef()
 
@@ -128,6 +149,22 @@ export default function Content() {
   useEffect(() => {
     if (currentPath) loadFolder(currentPath)
   }, [currentPath])
+
+  useEffect(() => {
+    if (isViewingReviewFolder && currentPath) loadReviewFiles(currentPath)
+    else setReviewFiles([])
+  }, [isViewingReviewFolder, currentPath])
+
+  async function loadReviewFiles(path) {
+    setLoadingReviewFiles(true)
+    try {
+      const files = await listDropboxFilesRecursive(path)
+      setReviewFiles(files)
+    } catch (err) {
+      console.error('loadReviewFiles error:', err)
+    }
+    setLoadingReviewFiles(false)
+  }
 
   useEffect(() => {
     if (client?.id) { loadStatusData(); loadCycles() }
@@ -278,6 +315,18 @@ export default function Content() {
     if (!confirmed) return
     await supabase.from('review_cycles').delete().eq('id', currentCycle.id)
     await loadCycles()
+  }
+
+  async function openSendReviewModal() {
+    setSendReviewModal(true)
+    setSendReviewFileCount(null)
+    try {
+      const files = await listDropboxFilesRecursive(currentPath)
+      setSendReviewFileCount(files.length)
+    } catch (err) {
+      console.error('Count fetch error:', err)
+      setSendReviewFileCount(0)
+    }
   }
 
   async function sendForReview() {
@@ -564,9 +613,10 @@ export default function Content() {
   }
 
   const folders = entries.filter(e => e.type === 'folder')
-  const photos = entries.filter(e => e.type === 'photo')
-  const videos = entries.filter(e => e.type === 'video')
-  const others = entries.filter(e => e.type !== 'folder' && e.type !== 'photo' && e.type !== 'video')
+  const fileSource = isViewingReviewFolder ? reviewFiles : entries
+  const photos = fileSource.filter(e => e.type === 'photo')
+  const videos = fileSource.filter(e => e.type === 'video')
+  const others = fileSource.filter(e => e.type !== 'folder' && e.type !== 'photo' && e.type !== 'video')
   const allFiles = [...photos, ...videos, ...others]
 
   const statusCounts = allFiles.reduce((acc, f) => {
@@ -609,8 +659,8 @@ export default function Content() {
         </div>
         {(role === 'admin' || role === 'editor') && (
           <div style={{ display: 'flex', gap: '8px' }}>
-            {allFiles.length > 0 && !(isPending && isViewingReviewFolder) && (
-              <button className="btn btn-gold" onClick={() => setSendReviewModal(true)}>
+            {stack?.length > 1 && !(isPending && isViewingReviewFolder) && (
+              <button className="btn btn-gold" onClick={openSendReviewModal}>
                 <i className="ti ti-send" /> Send for Review
               </button>
             )}
@@ -1208,7 +1258,16 @@ export default function Content() {
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalTitle}>Send for Review</div>
             <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '16px' }}>
-              Sending <strong style={{ color: 'var(--text1)' }}>{stack?.[stack.length - 1]?.name}</strong> ({allFiles.length} file{allFiles.length !== 1 ? 's' : ''}) to {client?.name} for review.
+              Sending <strong style={{ color: 'var(--text1)' }}>{stack?.[stack.length - 1]?.name}</strong> (
+              {sendReviewFileCount === null
+                ? 'counting files…'
+                : `${sendReviewFileCount} file${sendReviewFileCount !== 1 ? 's' : ''}`}
+              ) to {client?.name} for review.
+              {sendReviewFileCount === 0 && (
+                <div style={{ color: '#F0997B', marginTop: '6px' }}>
+                  This folder and its subfolders don't have any files yet — nothing to send.
+                </div>
+              )}
             </div>
             <div className={styles.field}>
               <label className={styles.label}>Planned Deliverables (optional)</label>
@@ -1248,7 +1307,7 @@ export default function Content() {
             </div>
             <div className={styles.modalActions}>
               <button className="btn" onClick={() => setSendReviewModal(false)}>Cancel</button>
-              <button className="btn btn-gold" onClick={sendForReview} disabled={sendingReview}>
+              <button className="btn btn-gold" onClick={sendForReview} disabled={sendingReview || sendReviewFileCount === null || sendReviewFileCount === 0}>
                 {sendingReview ? 'Sending...' : 'Send for Review'}
               </button>
             </div>
@@ -1326,6 +1385,7 @@ export default function Content() {
     </div>
   )
 }
+
 
 
 
