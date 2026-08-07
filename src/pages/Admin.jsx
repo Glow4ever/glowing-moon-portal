@@ -19,6 +19,7 @@ export default function Admin() {
   const [activityLoading, setActivityLoading] = useState(false)
   const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
   const [newMember, setNewMember] = useState({ email: '', password: '', client_id: '', role: 'member' })
+  const [clientPortalRole, setClientPortalRole] = useState('member')
   const [editingClient, setEditingClient] = useState(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
@@ -339,7 +340,7 @@ export default function Admin() {
           email: newMember.email,
           password,
           client_id: clientData.id,
-          role: 'member'
+          role: clientPortalRole
         }
       })
       if (error || data?.error) {
@@ -364,6 +365,7 @@ export default function Admin() {
     }
     setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
     setNewMember({ email: '', password: '', client_id: '', role: 'member' })
+    setClientPortalRole('member')
     await loadUserContext()
     await loadTeam()
     showToast('Client onboarded!')
@@ -827,6 +829,9 @@ export default function Admin() {
                               <div style={{ flex: 1 }}>
                                 <div style={{ fontSize: '13px', color: 'var(--text)' }}>{m.email || 'No email on file'}</div>
                               </div>
+                              <span style={{ fontSize: '11px', color: 'var(--text3)', marginRight: '4px' }}>
+                                {m.role === 'viewer' ? 'Viewer' : 'Approver'}
+                              </span>
                               <button
                                 className={styles.editBtn}
                                 onClick={() => removeTeamMember(m)}
@@ -866,6 +871,17 @@ export default function Admin() {
                               placeholder="Leave blank to auto-generate"
                             />
                           </div>
+                          <div className={styles.field}>
+                            <label className={styles.label}>Role</label>
+                            <select
+                              className={styles.input}
+                              value={clientPortalRole}
+                              onChange={e => setClientPortalRole(e.target.value)}
+                            >
+                              <option value="member">Approver — can review, approve files, and comment</option>
+                              <option value="viewer">Viewer — can view everything and comment, can't approve</option>
+                            </select>
+                          </div>
                         </div>
                         <button
                           className="btn btn-gold"
@@ -875,7 +891,7 @@ export default function Admin() {
                             setSaving(true)
                             const password = newMember.password || generatePassword()
                             const { data, error } = await supabase.functions.invoke('create-user', {
-                              body: { email: newMember.email, password, client_id: editingClient.id, role: 'member' }
+                              body: { email: newMember.email, password, client_id: editingClient.id, role: clientPortalRole }
                             })
                             if (error) {
                               let message = 'Failed to create user.'
@@ -897,6 +913,7 @@ export default function Admin() {
                               })
                               showToast('Portal access created — welcome email sent!')
                               setNewMember({ email: '', password: '', client_id: '', role: 'member' })
+                              setClientPortalRole('member')
                               await loadTeam()
                             }
                             setSaving(false)
@@ -960,6 +977,17 @@ export default function Admin() {
                     onChange={e => setNewMember(p => ({...p, password: e.target.value}))}
                     placeholder="Leave blank to auto-generate"
                   />
+                </div>
+                <div className={styles.field} style={{ marginTop: '12px' }}>
+                  <label className={styles.label}>Role</label>
+                  <select
+                    className={styles.input}
+                    value={clientPortalRole}
+                    onChange={e => setClientPortalRole(e.target.value)}
+                  >
+                    <option value="member">Approver — can review, approve files, and comment</option>
+                    <option value="viewer">Viewer — can view everything and comment, can't approve</option>
+                  </select>
                 </div>
               </div>
               <button
