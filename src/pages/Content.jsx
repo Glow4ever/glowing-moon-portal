@@ -509,7 +509,7 @@ export default function Content() {
       sender_role: role === 'admin' || role === 'editor' ? 'admin' : 'member',
       read: false
     })
-    if (role === 'member') {
+    if (role === 'member' || role === 'viewer') {
       await apiFetch('/api/send-email', {
         method: 'POST',
         body: JSON.stringify({
@@ -1022,6 +1022,16 @@ export default function Content() {
                               Revise
                             </button>
                           </div>
+                        ) : role === 'viewer' && status === 'in_review' ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <StatusBadge status={status} />
+                            <button
+                              onClick={() => openThread(f)}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
+                            >
+                              Comment
+                            </button>
+                          </div>
                         ) : (
                           <>
                             <StatusBadge status={status} />
@@ -1033,7 +1043,7 @@ export default function Content() {
                                 onEdit={() => setDueDate(f)}
                               />
                             </span>
-                            {(role === 'admin' || role === 'editor') && status === 'revision' && (
+                            {(role === 'admin' || role === 'editor' || role === 'viewer') && status === 'revision' && (
                               <button
                                 onClick={() => openThread(f)}
                                 style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
@@ -1106,6 +1116,16 @@ export default function Content() {
                               Revise
                             </button>
                           </div>
+                        ) : role === 'viewer' && status === 'in_review' ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <StatusBadge status={status} />
+                            <button
+                              onClick={() => openThread(f)}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
+                            >
+                              Comment
+                            </button>
+                          </div>
                         ) : (
                           <>
                             <StatusBadge status={status} />
@@ -1117,7 +1137,7 @@ export default function Content() {
                                 onEdit={() => setDueDate(f)}
                               />
                             </span>
-                            {(role === 'admin' || role === 'editor') && status === 'revision' && (
+                            {(role === 'admin' || role === 'editor' || role === 'viewer') && status === 'revision' && (
                               <button
                                 onClick={() => openThread(f)}
                                 style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
@@ -1186,6 +1206,16 @@ export default function Content() {
                               Revise
                             </button>
                           </div>
+                        ) : role === 'viewer' && status === 'in_review' ? (
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <StatusBadge status={status} />
+                            <button
+                              onClick={() => openThread(f)}
+                              style={{ flex: 1, background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '4px 0', fontSize: '12px', cursor: 'pointer' }}
+                            >
+                              Comment
+                            </button>
+                          </div>
                         ) : (
                           <>
                             <StatusBadge status={status} />
@@ -1197,7 +1227,7 @@ export default function Content() {
                                 onEdit={() => setDueDate(f)}
                               />
                             </span>
-                            {(role === 'admin' || role === 'editor') && status === 'revision' && (
+                            {(role === 'admin' || role === 'editor' || role === 'viewer') && status === 'revision' && (
                               <button
                                 onClick={() => openThread(f)}
                                 style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
