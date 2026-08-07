@@ -159,7 +159,7 @@ export default function Overview() {
       })
 
     // Next Steps — pending approvals + unread messages for member view
-    if (role === 'member') {
+    if (role === 'member' || role === 'viewer') {
       const [{ data: cycleRows }, { data: unreadMessages }] = await Promise.all([
         supabase.from('review_cycles').select('*').eq('client_id', client.id).is('resolved_at', null),
         supabase.from('messages').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('sender', 'admin').eq('read', false)
@@ -309,7 +309,7 @@ export default function Overview() {
         </div>
       </div>
 
-      {role === 'member' && nextSteps && (nextSteps.isPendingReview || nextSteps.hasUnreadMessages) && (
+      {(role === 'member' || role === 'viewer') && nextSteps && (nextSteps.isPendingReview || nextSteps.hasUnreadMessages) && (
         <>
           <style>{`
             @keyframes gmmBannerPulse {
@@ -352,7 +352,7 @@ export default function Overview() {
                   onClick={() => navigate('/content', { state: { jumpToFolderPath: nextSteps.approvalFolderPath } })}
                   style={{ background: 'var(--gold-light)', color: '#0E0E0F', border: 'none', borderRadius: '7px', padding: '10px 20px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 >
-                  Review Now <i className="ti ti-arrow-right" style={{ marginLeft: '2px' }} />
+                  {role === 'viewer' ? 'View Now' : 'Review Now'} <i className="ti ti-arrow-right" style={{ marginLeft: '2px' }} />
                 </button>
               </div>
             )}
