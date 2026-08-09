@@ -130,14 +130,38 @@ function getMediaForEvent(ev) {
   const days = eachDayOfInterval({ start: calStart, end: calEnd })
   const today = new Date()
 
+  // Hides stale duplicate posts from display without deleting anything.
+  // When a post is rescheduled in Metricool, it often gets a brand-new ID
+  // rather than updating in place — the old row lingers in calendar_events
+  // forever since nothing currently prunes it. Rather than delete (which
+  // needs a trustworthy automated filter we don't have yet, or a manual
+  // SQL pass each time), this just hides upcoming rows whose metricool_id
+  // no longer appears in Metricool's live schedule.
+  //
+  // Scoped deliberately narrow: only applies within the same date window
+  // the live endpoint actually covers (today through +30 days, matching
+  // api/metricool.js's default range) — outside that window we have no
+  // live data to compare against, so nothing there is touched. Manually
+  // created events (no metricool_id) are never touched either. If the live
+  // fetch hasn't succeeded, nothing is filtered — fails toward showing
+  // everything rather than risking hiding something real.
+  const liveMetricoolIds = new Set(metricoolPosts.map(p => String(p.id)))
+  const windowStart = format(today, 'yyyy-MM-dd')
+  const windowEnd = format(new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
+  const visibleEvents = (metricoolError || metricoolPosts.length === 0) ? events : events.filter(e => {
+    if (!e.metricool_id) return true
+    if (e.date < windowStart || e.date > windowEnd) return true
+    return liveMetricoolIds.has(String(e.metricool_id))
+  })
+
   function eventsForDay(day) {
-    return events.filter(e => e.date === format(day, 'yyyy-MM-dd'))
+    return visibleEvents.filter(e => e.date === format(day, 'yyyy-MM-dd'))
   }
 
   function prevMonth() { setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() - 1, 1)) }
   function nextMonth() { setCurrentDate(d => new Date(d.getFullYear(), d.getMonth() + 1, 1)) }
 
-  const upcoming = events
+  const upcoming = visibleEvents
     .filter(e => e.date >= format(today, 'yyyy-MM-dd'))
     .slice(0, 5)
 
@@ -371,6 +395,7 @@ function getMediaForEvent(ev) {
     </div>
   )
 }
+
 
 
 
