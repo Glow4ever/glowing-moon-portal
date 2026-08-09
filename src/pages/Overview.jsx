@@ -257,6 +257,15 @@ export default function Overview() {
     }
   }
 
+  // Hides stale duplicate posts from "This Week's Schedule" the same way
+  // Calendar.jsx does — see the long comment there for the full reasoning.
+  // weekEvents only ever covers the next 7 days, well inside the live
+  // endpoint's 30-day window, so no date-boundary check is needed here.
+  const liveMetricoolIds = new Set(metricoolPosts.map(p => String(p.id)))
+  const visibleWeekEvents = (metricoolError || metricoolPosts.length === 0)
+    ? weekEvents
+    : weekEvents.filter(e => !e.metricool_id || liveMetricoolIds.has(String(e.metricool_id)))
+
   return (
     <div className={styles.page}>
 
@@ -477,13 +486,13 @@ export default function Overview() {
           {scheduleOpen && (
             <>
               {scheduleLoading && <div className={styles.empty}>Loading...</div>}
-              {!scheduleLoading && weekEvents.length === 0 && (
+              {!scheduleLoading && visibleWeekEvents.length === 0 && (
                 <div className={styles.empty}>
                   <i className="ti ti-calendar-off" style={{ fontSize: '24px', marginBottom: '8px', color: 'var(--text3)' }} />
                   No posts scheduled this week
                 </div>
               )}
-              {weekEvents.map((e, i) => {
+              {visibleWeekEvents.map((e, i) => {
                 const { label, day } = formatEventDate(e.date)
                 const platform = (e.notes || '').toLowerCase()
                 const color = PLATFORM_COLORS[platform] || 'var(--text3)'
@@ -551,6 +560,7 @@ export default function Overview() {
     </div>
   )
 }
+
 
 
 
