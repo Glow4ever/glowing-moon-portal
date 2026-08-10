@@ -381,6 +381,7 @@ export default function Admin() {
       secondary_color: editingClient.secondary_color,
       notification_email: editingClient.notification_email || null,
       cover_url: editingClient.cover_url || null,
+      service_tier: editingClient.service_tier || null,
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -802,6 +803,18 @@ export default function Admin() {
                             onChange={e => setEditingClient(p => ({...p, notification_email: e.target.value}))}
                             placeholder="client@example.com"
                           />
+                        </div>
+                        <div className={styles.field}>
+                          <label className={styles.label}>Service Tier</label>
+                          <select
+                            className={styles.input}
+                            value={editingClient.service_tier || ''}
+                            onChange={e => setEditingClient(p => ({...p, service_tier: e.target.value || null}))}
+                          >
+                            <option value="">Not set</option>
+                            <option value="pulse">Pulse</option>
+                            <option value="flagship">Flagship / Sprint</option>
+                          </select>
                         </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Primary Accent</label>
@@ -1228,4 +1241,5 @@ export default function Admin() {
     </div>
   )
 }
+
 
