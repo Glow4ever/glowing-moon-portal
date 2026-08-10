@@ -6,6 +6,7 @@ import Overview from './Overview'
 import Assets from './Assets'
 import Content from './Content'
 import Calendar from './Calendar'
+import Metrics from './Metrics'
 import Admin from './Admin'
 import Settings from './Settings.jsx'
 import Messages from './Messages.jsx'
@@ -14,6 +15,12 @@ import styles from './Portal.module.css'
 function AdminRoute({ children }) {
   const { role } = useClient()
   if (role !== 'admin') return <Navigate to="/" replace />
+  return children
+}
+
+function MetricsRoute({ children }) {
+  const { role } = useClient()
+  if (!['admin', 'member', 'viewer'].includes(role)) return <Navigate to="/" replace />
   return children
 }
 
@@ -38,6 +45,7 @@ export default function Portal() {
             <Route path="/assets"   element={<Assets />} />
             <Route path="/content"  element={<Content />} />
             <Route path="/calendar" element={<Calendar />} />
+            <Route path="/metrics"  element={<MetricsRoute><Metrics /></MetricsRoute>} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/admin"    element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="/settings" element={<Settings />} />
@@ -47,3 +55,4 @@ export default function Portal() {
     </div>
   )
 }
+
