@@ -9,6 +9,7 @@ const navItems = [
   { to: '/assets',    icon: 'ti-folder',            label: 'Asset Library' },
   { to: '/content',   icon: 'ti-photo',             label: 'Content Library' },
   { to: '/calendar',  icon: 'ti-calendar',          label: 'Calendar' },
+  { to: '/metrics',   icon: 'ti-chart-bar',         label: 'Metrics',       roles: ['admin', 'member', 'viewer'] },
   { to: '/messages',  icon: 'ti-message',           label: 'Messages' },
   { to: '/settings',  icon: 'ti-settings',          label: 'Settings' },
 ]
@@ -22,7 +23,7 @@ export default function Sidebar() {
   const navContent = (
     <>
       <div className={styles.section}>Menu</div>
-      {navItems.map(item => (
+      {navItems.filter(item => !item.roles || item.roles.includes(role)).map(item => (
         <NavLink
           key={item.to}
           to={item.to}
@@ -102,3 +103,4 @@ export default function Sidebar() {
     </>
   )
 }
+
