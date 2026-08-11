@@ -17,11 +17,12 @@
 // the aggregation endpoint for the exact same platform. That's their
 // inconsistency, not a bug here — verified directly, not assumed.
 //
-// TikTok/other platforms are NOT in this config yet since EvoHealth (or any
-// client) isn't connected there — don't add a platform below without
-// verifying its real metric/param names the same way (browser network tab,
-// Analytics section, per platform) rather than guessing from the pattern of
-// the platforms already confirmed.
+// TikTok is NOT in this config yet since no connected client has it
+// verified — don't add a platform below without capturing its real
+// metric/param names the same way (browser network tab, Analytics section,
+// per platform) rather than guessing from the pattern of platforms already
+// confirmed. Facebook, Instagram, LinkedIn, and YouTube are all verified
+// directly against a live account.
 
 const PLATFORM_CONFIG = {
   facebook: {
@@ -47,6 +48,20 @@ const PLATFORM_CONFIG = {
     engagementMetric: 'engagement',
     engagementParamName: 'metricType', // timelines uses metricType
     engagementParamValue: 'posts'
+  },
+  youtube: {
+    audienceMetric: 'totalSubscribers',
+    audienceParamName: 'subject',
+    audienceParamValue: 'account',
+    // No engagement pull for YouTube — confirmed there's no equivalent
+    // aggregation endpoint for it at all (verified via live network
+    // inspection, not assumed). YouTube only exposes raw counts (views,
+    // likes, dislikes, comments, shares), not a single engagement figure —
+    // even Metricool's own dashboard doesn't show one. Computing our own
+    // engagement formula from those raw counts is possible later, but that's
+    // a real decision (which counts, what denominator) worth making
+    // deliberately rather than silently inventing a number here.
+    engagementMetric: null
   }
 }
 
@@ -124,27 +139,30 @@ export default async function handler(req, res) {
 
         // Engagement snapshot — using aggregation, a single number for the
         // window, since engagement rate is more meaningful as a period
-        // summary than a raw daily count.
-        const engagementParams = {
-          from: isoWithOffset(from),
-          to: isoWithOffset(to),
-          metric: config.engagementMetric,
-          network: platform,
-          timezone: 'America/New_York',
-          subject: config.engagementParamValue, // aggregation always uses `subject`, confirmed across all 3 platforms
-          userId,
-          blogId: client.metricool_blog_id
-        }
-        const engagementData = await metricoolFetch('/aggregation', engagementParams)
+        // summary than a raw daily count. Skipped entirely for platforms
+        // with no engagement metric configured (currently just YouTube).
+        if (config.engagementMetric) {
+          const engagementParams = {
+            from: isoWithOffset(from),
+            to: isoWithOffset(to),
+            metric: config.engagementMetric,
+            network: platform,
+            timezone: 'America/New_York',
+            subject: config.engagementParamValue, // aggregation always uses `subject`, confirmed across all 3 platforms that have it
+            userId,
+            blogId: client.metricool_blog_id
+          }
+          const engagementData = await metricoolFetch('/aggregation', engagementParams)
 
-        if (typeof engagementData?.data === 'number') {
-          await supabase.from('metric_snapshots').upsert({
-            client_id: client.id,
-            platform,
-            metric_type: 'engagement',
-            value: engagementData.data,
-            recorded_date: to.toISOString().slice(0, 10)
-          }, { onConflict: 'client_id,platform,metric_type,recorded_date' })
+          if (typeof engagementData?.data === 'number') {
+            await supabase.from('metric_snapshots').upsert({
+              client_id: client.id,
+              platform,
+              metric_type: 'engagement',
+              value: engagementData.data,
+              recorded_date: to.toISOString().slice(0, 10)
+            }, { onConflict: 'client_id,platform,metric_type,recorded_date' })
+          }
         }
 
         results.push({ client: client.name, platform, status: 'ok' })
