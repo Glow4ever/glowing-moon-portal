@@ -13,13 +13,15 @@ import Messages from './Messages.jsx'
 import styles from './Portal.module.css'
 
 function AdminRoute({ children }) {
-  const { role } = useClient()
+  const { role, loading } = useClient()
+  if (loading) return null
   if (role !== 'admin') return <Navigate to="/" replace />
   return children
 }
 
 function MetricsRoute({ children }) {
-  const { role } = useClient()
+  const { role, loading } = useClient()
+  if (loading) return null
   if (!['admin', 'member', 'viewer'].includes(role)) return <Navigate to="/" replace />
   return children
 }
@@ -55,4 +57,3 @@ export default function Portal() {
     </div>
   )
 }
-
