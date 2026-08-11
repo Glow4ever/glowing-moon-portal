@@ -115,7 +115,7 @@ export default function Metrics() {
       const latest = values[values.length - 1]
       const first = values[0]
       const delta = latest - first
-      return { platform, latest, delta, points: sparklinePoints(values) }
+      return { platform, latest, delta, hasHistory: values.length > 1, points: sparklinePoints(values) }
     })
   }
 
@@ -170,7 +170,18 @@ export default function Metrics() {
                         <span style={{ fontSize: '11px', color: 'var(--text2)' }}>{meta.label}</span>
                       </div>
                       <div style={{ fontSize: '16px', fontWeight: '500', color: 'var(--text1)', marginBottom: '3px' }}>
-                        {section.key === 'engagement' ? `${p.latest.toFixed(1)}%` : (p.delta >= 0 ? `+${Math.round(p.delta)}` : Math.round(p.delta))}
+                        {section.key === 'engagement' ? (
+                          `${p.latest.toFixed(1)}%`
+                        ) : (
+                          <>
+                            {Math.round(p.latest)}
+                            {p.hasHistory && (
+                              <span style={{ fontSize: '11px', color: 'var(--text3)', marginLeft: '6px' }}>
+                                {p.delta >= 0 ? `+${Math.round(p.delta)}` : Math.round(p.delta)} / 30d
+                              </span>
+                            )}
+                          </>
+                        )}
                       </div>
                       <svg viewBox="0 0 100 20" style={{ width: '100%', height: '16px' }} aria-hidden="true">
                         <polyline points={p.points} fill="none" stroke={meta.color} strokeWidth="2" />
