@@ -3,12 +3,12 @@ import { useClient } from '../lib/ClientContext'
 import { supabase } from '../lib/supabase'
 
 const PLATFORM_META = {
-  instagram: { label: 'Instagram', icon: 'ti-brand-instagram', color: '#D4537E' },
-  linkedin:  { label: 'LinkedIn',  icon: 'ti-brand-linkedin',  color: '#378ADD' },
-  facebook:  { label: 'Facebook',  icon: 'ti-brand-facebook',  color: '#888780' },
+  instagram: { label: 'Instagram', icon: 'ti-brand-instagram', color: '#E0729B' },
+  linkedin:  { label: 'LinkedIn',  icon: 'ti-brand-linkedin',  color: '#5B9FE8' },
+  facebook:  { label: 'Facebook',  icon: 'ti-brand-facebook',  color: '#A8A6A0' },
   tiktok:    { label: 'TikTok',    icon: 'ti-brand-tiktok',    color: '#F4EEE2' },
-  twitter:   { label: 'Twitter',   icon: 'ti-brand-x',         color: '#888780' },
-  youtube:   { label: 'YouTube',   icon: 'ti-brand-youtube',   color: '#D85A30' }
+  twitter:   { label: 'Twitter',   icon: 'ti-brand-x',         color: '#A8A6A0' },
+  youtube:   { label: 'YouTube',   icon: 'ti-brand-youtube',   color: '#E8734A' }
 }
 
 const LOG_TYPE_META = {
@@ -26,7 +26,7 @@ function sparklinePoints(values) {
   const step = values.length > 1 ? 100 / (values.length - 1) : 0
   return values.map((v, i) => {
     const x = (i * step).toFixed(1)
-    const y = (20 - ((v - min) / range) * 18 - 1).toFixed(1)
+    const y = (28 - ((v - min) / range) * 25 - 1).toFixed(1)
     return `${x},${y}`
   }).join(' ')
 }
@@ -132,87 +132,151 @@ export default function Metrics() {
 
   const visibleLogEntries = isAdmin ? logEntries : logEntries.filter(e => e.client_visible)
 
+  // Growth-highlight hero — tells the "we're moving the needle" story instead
+  // of leaving the client to piece it together from cards. Only claims real
+  // growth once there's real history to back it (hasHistory), never
+  // fabricates momentum from a single data point.
+  const totalAudience = audienceByPlatform.reduce((sum, p) => sum + p.latest, 0)
+  const growingPlatforms = audienceByPlatform.filter(p => p.hasHistory && p.delta > 0).sort((a, b) => b.delta - a.delta)
+  const bestGrowth = growingPlatforms[0]
+  let heroHeadline, heroSub
+  if (bestGrowth) {
+    const meta = PLATFORM_META[bestGrowth.platform] || { label: bestGrowth.platform }
+    heroHeadline = `+${Math.round(bestGrowth.delta)} on ${meta.label} this month`
+    heroSub = `${totalAudience} total followers across every connected platform`
+  } else if (totalAudience > 0) {
+    heroHeadline = `${totalAudience} followers, tracked daily`
+    heroSub = 'Trend lines fill in as more days of data come through'
+  } else {
+    heroHeadline = 'Getting the channel wired up'
+    heroSub = 'Real numbers land here as soon as the first few days of data come in'
+  }
+
   if (loading) {
-    return <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text3)', fontSize: '13px' }}>Loading metrics...</div>
+    return <div style={{ padding: '60px', textAlign: 'center', color: 'var(--text3)', fontSize: '16px' }}>Loading metrics...</div>
   }
 
   return (
-    <div style={{ maxWidth: '960px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px', flexWrap: 'wrap', gap: '8px' }}>
-        <h1 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '28px', color: 'var(--text1)', margin: 0 }}>Metrics</h1>
-        <span style={{ fontSize: '12px', background: 'var(--gold-bg)', color: 'var(--gold-light)', padding: '4px 12px', borderRadius: '20px' }}>
-          {isFlagship ? 'Flagship' : 'Pulse'}
-        </span>
-      </div>
-      <p style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '28px' }}>Performance and delivery for {client?.name}</p>
+    <div style={{ maxWidth: '1320px' }}>
+      <style>{`
+        @keyframes gmmHeroPulse {
+          0%, 100% { box-shadow: 0 0 30px 0 var(--gmm-pulse-color); }
+          50%      { box-shadow: 0 0 60px 8px var(--gmm-pulse-color); }
+        }
+        @keyframes gmmTilePulse {
+          0%, 100% { box-shadow: 0 0 0px 0 var(--gmm-tile-pulse); }
+          50%      { box-shadow: 0 0 18px 2px var(--gmm-tile-pulse); }
+        }
+        @keyframes gmmDotPulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%      { opacity: 0.4; transform: scale(0.7); }
+        }
+      `}</style>
 
-      {/* Platform breakdown: audience + engagement */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-        {[
-          { key: 'audience', label: 'Audience growth', data: audienceByPlatform },
-          { key: 'engagement', label: 'Engagement rate', data: engagementByPlatform }
-        ].map(section => (
-          <div key={section.key} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '1rem' }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <span style={{ fontSize: '12px', color: 'var(--text3)' }}>{section.label} &middot; by platform</span>
-              <span style={{ fontSize: '11px', color: 'var(--text3)' }}>30 days</span>
-            </div>
-            {section.data.length === 0 ? (
-              <div style={{ fontSize: '12px', color: 'var(--text3)' }}>No data yet</div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '12px' }}>
-                {section.data.map(p => {
-                  const meta = PLATFORM_META[p.platform] || { label: p.platform, icon: 'ti-chart-bar', color: 'var(--text2)' }
-                  return (
-                    <div key={p.platform}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '4px' }}>
-                        <i className={`ti ${meta.icon}`} style={{ fontSize: '13px', color: meta.color }} aria-hidden="true" />
-                        <span style={{ fontSize: '11px', color: 'var(--text2)' }}>{meta.label}</span>
-                      </div>
-                      <div style={{ fontSize: '16px', fontWeight: '500', color: 'var(--text1)', marginBottom: '3px' }}>
-                        {section.key === 'engagement' ? (
-                          `${p.latest.toFixed(1)}%`
-                        ) : (
-                          <>
-                            {Math.round(p.latest)}
-                            {p.hasHistory && (
-                              <span style={{ fontSize: '11px', color: 'var(--text3)', marginLeft: '6px' }}>
-                                {p.delta >= 0 ? `+${Math.round(p.delta)}` : Math.round(p.delta)} / 30d
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                      <svg viewBox="0 0 100 20" style={{ width: '100%', height: '16px' }} aria-hidden="true">
-                        <polyline points={p.points} fill="none" stroke={meta.color} strokeWidth="2" />
-                      </svg>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        ))}
+      <h1 style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '42px', color: 'var(--text1)', margin: '0 0 6px' }}>Metrics</h1>
+      <p style={{ fontSize: '16px', color: 'var(--text3)', marginBottom: '32px' }}>Performance and delivery for {client?.name}</p>
+
+      {/* Growth hero — the "this is working" headline */}
+      <div style={{
+        background: 'linear-gradient(135deg, var(--surface2), var(--surface1, #17171a))',
+        border: `1px solid ${bestGrowth ? 'rgba(29,158,117,0.4)' : 'var(--border)'}`,
+        borderRadius: '16px',
+        padding: '32px 36px',
+        marginBottom: '28px',
+        display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap',
+        animation: bestGrowth ? 'gmmHeroPulse 3.2s ease-in-out infinite' : 'none',
+        '--gmm-pulse-color': 'rgba(29,158,117,0.28)'
+      }}>
+        <div style={{
+          width: '64px', height: '64px', borderRadius: '16px', flexShrink: 0,
+          background: bestGrowth ? 'rgba(29,158,117,0.15)' : 'var(--gold-bg)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center'
+        }}>
+          <i className={`ti ${bestGrowth ? 'ti-trending-up' : 'ti-activity'}`} style={{ fontSize: '30px', color: bestGrowth ? 'var(--teal)' : 'var(--gold-light)' }} aria-hidden="true" />
+        </div>
+        <div>
+          <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)', marginBottom: '4px' }}>{heroHeadline}</div>
+          <div style={{ fontSize: '15px', color: 'var(--text3)' }}>{heroSub}</div>
+        </div>
       </div>
+
+      {/* Platform breakdown: audience + engagement, full-width rows */}
+      {[
+        { key: 'audience', label: 'Audience growth', data: audienceByPlatform },
+        { key: 'engagement', label: 'Engagement rate', data: engagementByPlatform }
+      ].map(section => (
+        <div key={section.key} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{
+                width: '8px', height: '8px', borderRadius: '50%', background: 'var(--teal)',
+                animation: 'gmmDotPulse 2.2s ease-in-out infinite', display: 'inline-block'
+              }} />
+              <span style={{ fontSize: '16px', color: 'var(--text1)', fontWeight: '500' }}>{section.label}</span>
+              <span style={{ fontSize: '13px', color: 'var(--text3)' }}>&middot; by platform</span>
+            </div>
+            <span style={{ fontSize: '13px', color: 'var(--text3)' }}>30 days</span>
+          </div>
+          {section.data.length === 0 ? (
+            <div style={{ fontSize: '14px', color: 'var(--text3)', padding: '8px 0' }}>No data yet</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px' }}>
+              {section.data.map(p => {
+                const meta = PLATFORM_META[p.platform] || { label: p.platform, icon: 'ti-chart-bar', color: 'var(--text2)' }
+                const isGrowing = section.key === 'audience' && p.hasHistory && p.delta > 0
+                return (
+                  <div
+                    key={p.platform}
+                    style={{
+                      background: 'var(--surface3, #1c1c1f)', borderRadius: '12px', padding: '20px',
+                      border: `0.5px solid ${isGrowing ? 'rgba(29,158,117,0.35)' : 'var(--border)'}`,
+                      animation: isGrowing ? 'gmmTilePulse 3s ease-in-out infinite' : 'none',
+                      '--gmm-tile-pulse': 'rgba(29,158,117,0.45)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                      <i className={`ti ${meta.icon}`} style={{ fontSize: '18px', color: meta.color }} aria-hidden="true" />
+                      <span style={{ fontSize: '14px', color: 'var(--text2)' }}>{meta.label}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>
+                        {section.key === 'engagement' ? `${p.latest.toFixed(1)}%` : Math.round(p.latest)}
+                      </span>
+                      {section.key === 'audience' && p.hasHistory && (
+                        <span style={{ fontSize: '14px', color: p.delta >= 0 ? 'var(--teal)' : '#F0997B' }}>
+                          {p.delta >= 0 ? `+${Math.round(p.delta)}` : Math.round(p.delta)} / 30d
+                        </span>
+                      )}
+                    </div>
+                    <svg viewBox="0 0 100 28" style={{ width: '100%', height: '26px' }} aria-hidden="true">
+                      <polyline points={p.points} fill="none" stroke={meta.color} strokeWidth="2.5" />
+                    </svg>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      ))}
 
       {/* Aggregate metrics: cadence always, conversions/clicks flagship-only */}
-      <div style={{ display: 'grid', gridTemplateColumns: isFlagship ? 'repeat(3, 1fr)' : '1fr', gap: '12px', marginBottom: '28px' }}>
-        <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '1rem' }}>
-          <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '6px' }}>Cadence adherence</div>
-          <div style={{ fontSize: '22px', fontWeight: '500', color: 'var(--text1)' }}>{cadence !== null ? `${cadence}%` : '—'}</div>
-          {cadence === null && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>No data logged yet</div>}
+      <div style={{ display: 'grid', gridTemplateColumns: isFlagship ? 'repeat(3, 1fr)' : '1fr', gap: '20px', marginBottom: '32px' }}>
+        <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
+          <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Cadence adherence</div>
+          <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{cadence !== null ? `${cadence}%` : '—'}</div>
+          {cadence === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>No data logged yet</div>}
         </div>
         {isFlagship && (
           <>
-            <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '1rem' }}>
-              <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '6px' }}>Booking conversions</div>
-              <div style={{ fontSize: '22px', fontWeight: '500', color: 'var(--text1)' }}>{bookingConversions !== null ? bookingConversions : '—'}</div>
-              {bookingConversions === null && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Not connected yet</div>}
+            <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
+              <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Booking conversions</div>
+              <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{bookingConversions !== null ? bookingConversions : '—'}</div>
+              {bookingConversions === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>Not connected yet</div>}
             </div>
-            <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '1rem' }}>
-              <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '6px' }}>Tagged link clicks</div>
-              <div style={{ fontSize: '22px', fontWeight: '500', color: 'var(--text1)' }}>{linkClicks !== null ? linkClicks : '—'}</div>
-              {linkClicks === null && <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Not connected yet</div>}
+            <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
+              <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Tagged link clicks</div>
+              <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{linkClicks !== null ? linkClicks : '—'}</div>
+              {linkClicks === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>Not connected yet</div>}
             </div>
           </>
         )}
@@ -222,13 +286,13 @@ export default function Metrics() {
       {isFlagship && (
         <>
           {isAdmin && (
-            <div style={{ marginBottom: '20px' }}>
-              <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '8px' }}>Log a new entry</div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ fontSize: '16px', color: 'var(--text1)', marginBottom: '12px' }}>Log a new entry</div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <select
                   value={form.entry_type}
                   onChange={e => setForm(p => ({ ...p, entry_type: e.target.value }))}
-                  style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '8px 10px', fontSize: '13px', minWidth: '140px' }}
+                  style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '8px', padding: '11px 12px', fontSize: '15px', minWidth: '160px' }}
                 >
                   <option value="press_mention">Press mention</option>
                   <option value="qualitative_win">Qualitative win</option>
@@ -239,16 +303,16 @@ export default function Metrics() {
                   type="date"
                   value={form.entry_date}
                   onChange={e => setForm(p => ({ ...p, entry_date: e.target.value }))}
-                  style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '8px 10px', fontSize: '13px', width: '150px', colorScheme: 'dark' }}
+                  style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '8px', padding: '11px 12px', fontSize: '15px', width: '160px', colorScheme: 'dark' }}
                 />
                 <input
                   type="text"
                   placeholder="Note — e.g. podcast invite from The Recovery Room"
                   value={form.note}
                   onChange={e => setForm(p => ({ ...p, note: e.target.value }))}
-                  style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '8px 10px', fontSize: '13px', flex: 1, minWidth: '220px' }}
+                  style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '8px', padding: '11px 12px', fontSize: '15px', flex: 1, minWidth: '240px' }}
                 />
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--text2)', whiteSpace: 'nowrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '14px', color: 'var(--text2)', whiteSpace: 'nowrap' }}>
                   <input
                     type="checkbox"
                     checked={form.client_visible}
@@ -256,52 +320,52 @@ export default function Metrics() {
                   />
                   Client visible
                 </label>
-                <button className="btn btn-gold" onClick={addLogEntry} disabled={saving}>
+                <button className="btn btn-gold" onClick={addLogEntry} disabled={saving} style={{ fontSize: '15px' }}>
                   <i className="ti ti-plus" aria-hidden="true" /> Add
                 </button>
               </div>
             </div>
           )}
 
-          <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '8px' }}>Log</div>
-          <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '4px 16px' }}>
+          <div style={{ fontSize: '16px', color: 'var(--text1)', marginBottom: '12px' }}>Log</div>
+          <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '6px 22px' }}>
             {visibleLogEntries.length === 0 && (
-              <div style={{ padding: '16px 0', fontSize: '12px', color: 'var(--text3)' }}>Nothing logged yet</div>
+              <div style={{ padding: '20px 0', fontSize: '14px', color: 'var(--text3)' }}>Nothing logged yet</div>
             )}
             {visibleLogEntries.map((entry, i) => {
               const meta = LOG_TYPE_META[entry.entry_type] || { label: entry.entry_type, bg: 'var(--surface3)', color: 'var(--text3)' }
               return (
-                <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 0', borderBottom: i < visibleLogEntries.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  <span style={{ fontSize: '11px', color: 'var(--text3)', width: '70px', flexShrink: 0 }}>
+                <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '14px 0', borderBottom: i < visibleLogEntries.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--text3)', width: '80px', flexShrink: 0 }}>
                     {new Date(entry.entry_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                   </span>
-                  <span style={{ fontSize: '11px', background: meta.bg, color: meta.color, padding: '2px 8px', borderRadius: '20px', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: '13px', background: meta.bg, color: meta.color, padding: '3px 10px', borderRadius: '20px', flexShrink: 0, whiteSpace: 'nowrap' }}>
                     {meta.label}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    {entry.title && <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '2px' }}>{entry.title}</div>}
-                    <div style={{ fontSize: '13px', color: 'var(--text1)' }}>
+                    {entry.title && <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '3px' }}>{entry.title}</div>}
+                    <div style={{ fontSize: '15px', color: 'var(--text1)' }}>
                       {entry.note}
                       {entry.link && (
-                        <a href={entry.link} target="_blank" rel="noreferrer" style={{ color: 'var(--gold-light)', marginLeft: '6px' }}>
+                        <a href={entry.link} target="_blank" rel="noreferrer" style={{ color: 'var(--gold-light)', marginLeft: '8px' }}>
                           <i className="ti ti-external-link" aria-hidden="true" />
                         </a>
                       )}
                     </div>
                   </div>
                   {isAdmin && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexShrink: 0 }}>
                       <i
                         className={`ti ${entry.client_visible ? 'ti-eye' : 'ti-eye-off'}`}
                         onClick={() => toggleVisibility(entry)}
                         title={entry.client_visible ? 'Visible to client — click to hide' : 'Internal only — click to show client'}
-                        style={{ fontSize: '15px', color: entry.client_visible ? 'var(--text2)' : 'var(--text3)', cursor: 'pointer' }}
+                        style={{ fontSize: '18px', color: entry.client_visible ? 'var(--text2)' : 'var(--text3)', cursor: 'pointer' }}
                       />
                       <i
                         className="ti ti-trash"
                         onClick={() => deleteEntry(entry)}
                         title="Remove entry"
-                        style={{ fontSize: '15px', color: 'var(--text3)', cursor: 'pointer' }}
+                        style={{ fontSize: '18px', color: 'var(--text3)', cursor: 'pointer' }}
                       />
                     </div>
                   )}
@@ -313,8 +377,8 @@ export default function Metrics() {
       )}
 
       {toast && (
-        <div style={{ position: 'fixed', bottom: '24px', right: '24px', background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '8px', padding: '10px 18px', fontSize: '13px', color: 'var(--text1)' }}>
-          <i className="ti ti-check" aria-hidden="true" style={{ marginRight: '6px', color: 'var(--teal)' }} /> {toast}
+        <div style={{ position: 'fixed', bottom: '24px', right: '24px', background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '8px', padding: '12px 20px', fontSize: '15px', color: 'var(--text1)' }}>
+          <i className="ti ti-check" aria-hidden="true" style={{ marginRight: '8px', color: 'var(--teal)' }} /> {toast}
         </div>
       )}
     </div>
