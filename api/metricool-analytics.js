@@ -162,6 +162,14 @@ export default async function handler(req, res) {
               value: engagementData.data,
               recorded_date: to.toISOString().slice(0, 10)
             }, { onConflict: 'client_id,platform,metric_type,recorded_date' })
+          } else {
+            // This used to fail silently — no error, no write, no clue why.
+            // Logging the raw shape here so the actual cause shows up in
+            // Vercel logs on the next run instead of us guessing at it.
+            console.error(
+              `Engagement data for ${client.name} / ${platform} was not a number — got:`,
+              JSON.stringify(engagementData).slice(0, 300)
+            )
           }
         }
 
@@ -169,8 +177,16 @@ export default async function handler(req, res) {
       } catch (err) {
         // One platform/client failing shouldn't block the rest — log and
         // move on, same fail-forward pattern used elsewhere in this app.
-        console.error(`Metrics pull failed for ${client.name} / ${platform}:`, err.message)
-        results.push({ client: client.name, platform, status: 'error', message: err.message })
+        // "No X connection for blog" is expected for any client that isn't
+        // actually set up on that platform (e.g. GMM has no YouTube) — not
+        // a bug, just noted for visibility rather than treated as alarming.
+        const isMissingConnection = /no .* connection for blog/i.test(err.message)
+        if (isMissingConnection) {
+          console.log(`${client.name} / ${platform}: not connected in Metricool, skipping.`)
+        } else {
+          console.error(`Metrics pull failed for ${client.name} / ${platform}:`, err.message)
+        }
+        results.push({ client: client.name, platform, status: isMissingConnection ? 'not_connected' : 'error', message: err.message })
       }
     }
   }
