@@ -9,7 +9,8 @@
     },
     {
       "path": "/api/calendar-sync",
-      "schedule": "0 */3 * * *"
+      "schedule": "0 12 * * *"
     }
   ]
 }
+
