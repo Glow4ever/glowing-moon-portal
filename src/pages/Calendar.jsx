@@ -46,11 +46,11 @@ export default function Calendar() {
   const [form, setForm] = useState({ title: '', date: '', type: 'photo', notes: '' })
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => { loadEvents() }, [])
-  useEffect(() => { loadMetricoolPosts() }, [])
+  useEffect(() => { if (client?.id) loadEvents() }, [client?.id])
+  useEffect(() => { if (client?.id) loadMetricoolPosts() }, [client?.id])
 
   async function loadEvents() {
-    const { data, error } = await supabase.from('calendar_events').select('*').order('date')
+    const { data, error } = await supabase.from('calendar_events').select('*').eq('client_id', client.id).order('date')
     if (!error && data) setEvents(data)
   }
 
@@ -395,6 +395,7 @@ function getMediaForEvent(ev) {
     </div>
   )
 }
+
 
 
 
