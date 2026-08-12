@@ -69,58 +69,67 @@ module.exports = async function handler(req, res) {
       .eq('client_id', client.id)
       .not('metricool_id', 'is', null)
     const existingByMetricoolId = {}
-    ;(existingRows || []).forEach(r => { existingByMetricoolId[String(r.metricool_id)] = r })
+    ;(existingRows || []).forEach(r => {
+      const key = String(r.metricool_id)
+      if (!existingByMetricoolId[key]) existingByMetricoolId[key] = []
+      existingByMetricoolId[key].push(r)
+    })
 
     let created = 0, updated = 0, unchanged = 0
 
     for (const post of posts) {
-      const network = post.providers?.[0]?.network || null
-      const computed = {
-        client_id: client.id,
-        metricool_id: String(post.id),
-        date: post.publicationDate?.dateTime?.slice(0, 10) || null,
-        title: post.text || null,
-        type: 'social',
-        notes: network,
-        image_url: post.media?.[0] || null
-      }
-      // Diagnostic-only, for the preview log — never part of the real write
-      // payload. Lets us check the raw Metricool timestamp directly from
-      // Supabase if a date mismatch shows up, without needing a live
-      // session to go re-fetch it.
-      const diagnostics = {
-        raw_dateTime: post.publicationDate?.dateTime || null,
-        raw_timezone: post.publicationDate?.timezone || null
-      }
+      const networks = post.providers?.map(p => p.network).filter(Boolean) || [null]
 
-      const existing = existingByMetricoolId[String(post.id)]
-      let action = 'would_create'
-      if (existing) {
-        const matches =
-          existing.date === computed.date &&
-          existing.title === computed.title &&
-          existing.notes === computed.notes &&
-          existing.image_url === computed.image_url
-        action = matches ? 'no_change' : 'would_update'
-      }
+      for (const network of networks) {
+        const computed = {
+          client_id: client.id,
+          metricool_id: String(post.id),
+          date: post.publicationDate?.dateTime?.slice(0, 10) || null,
+          title: post.text || null,
+          type: 'social',
+          notes: network,
+          image_url: post.media?.[0] || null
+        }
+        // Diagnostic-only, for the preview log — never part of the real write
+        // payload. Lets us check the raw Metricool timestamp directly from
+        // Supabase if a date mismatch shows up, without needing a live
+        // session to go re-fetch it.
+        const diagnostics = {
+          raw_dateTime: post.publicationDate?.dateTime || null,
+          raw_timezone: post.publicationDate?.timezone || null
+        }
 
-      if (action === 'would_create') created++
-      else if (action === 'would_update') updated++
-      else unchanged++
+        // Matched on metricool_id + network now, not metricool_id alone —
+        // one post can have a row per platform it was actually sent to.
+        const existing = (existingByMetricoolId[String(post.id)] || []).find(r => r.notes === network)
+        let action = 'would_create'
+        if (existing) {
+          const matches =
+            existing.date === computed.date &&
+            existing.title === computed.title &&
+            existing.notes === computed.notes &&
+            existing.image_url === computed.image_url
+          action = matches ? 'no_change' : 'would_update'
+        }
 
-      await supabase.from('calendar_sync_preview').upsert({
-        client_id: client.id,
-        metricool_id: String(post.id),
-        action,
-        computed_row: { ...computed, ...diagnostics },
-        current_row: existing || null,
-        checked_at: new Date().toISOString()
-      }, { onConflict: 'client_id,metricool_id' })
+        if (action === 'would_create') created++
+        else if (action === 'would_update') updated++
+        else unchanged++
 
-      if (!DRY_RUN) {
-        const { error: writeError } = await supabase.from('calendar_events').upsert(computed, { onConflict: 'client_id,metricool_id' })
-        if (writeError) {
-          console.error(`Write failed for ${client.name} / post ${post.id}:`, writeError.message)
+        await supabase.from('calendar_sync_preview').upsert({
+          client_id: client.id,
+          metricool_id: `${post.id}:${network || 'none'}`,
+          action,
+          computed_row: { ...computed, ...diagnostics },
+          current_row: existing || null,
+          checked_at: new Date().toISOString()
+        }, { onConflict: 'client_id,metricool_id' })
+
+        if (!DRY_RUN) {
+          const { error: writeError } = await supabase.from('calendar_events').upsert(computed, { onConflict: 'client_id,metricool_id,notes' })
+          if (writeError) {
+            console.error(`Write failed for ${client.name} / post ${post.id} / ${network}:`, writeError.message)
+          }
         }
       }
     }
