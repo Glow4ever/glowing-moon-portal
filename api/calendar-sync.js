@@ -47,6 +47,13 @@ module.exports = async function handler(req, res) {
       const data = await response.json()
       if (!response.ok) throw new Error(JSON.stringify(data))
       posts = data.data || []
+      // Diagnostic: exactly what Metricool returned, before any of our own
+      // processing touches it — needed to check whether Instagram posts are
+      // actually present in the raw response at all.
+      console.log(
+        `${client.name}: ${posts.length} posts fetched. Networks:`,
+        JSON.stringify(posts.map(p => ({ id: p.id, providers: p.providers?.map(pr => pr.network) })))
+      )
     } catch (err) {
       console.error(`Calendar sync fetch failed for ${client.name}:`, err.message)
       results.push({ client: client.name, status: 'fetch_error', message: err.message })
