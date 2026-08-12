@@ -77,6 +77,14 @@ module.exports = async function handler(req, res) {
         notes: network,
         image_url: post.media?.[0] || null
       }
+      // Diagnostic-only, for the preview log — never part of the real write
+      // payload. Lets us check the raw Metricool timestamp directly from
+      // Supabase if a date mismatch shows up, without needing a live
+      // session to go re-fetch it.
+      const diagnostics = {
+        raw_dateTime: post.publicationDate?.dateTime || null,
+        raw_timezone: post.publicationDate?.timezone || null
+      }
 
       const existing = existingByMetricoolId[String(post.id)]
       let action = 'would_create'
@@ -97,16 +105,13 @@ module.exports = async function handler(req, res) {
         client_id: client.id,
         metricool_id: String(post.id),
         action,
-        computed_row: computed,
+        computed_row: { ...computed, ...diagnostics },
         current_row: existing || null,
         checked_at: new Date().toISOString()
       }, { onConflict: 'client_id,metricool_id' })
 
       if (!DRY_RUN) {
-        // Real write path — stays disabled until the dry run has been
-        // checked against Make's actual output across a few runs. Flipping
-        // DRY_RUN to false above is the only change needed to enable this.
-        // await supabase.from('calendar_events').upsert(computed, { onConflict: 'client_id,metricool_id' })
+        await supabase.from('calendar_events').upsert(computed, { onConflict: 'client_id,metricool_id' })
       }
     }
 
