@@ -111,7 +111,10 @@ module.exports = async function handler(req, res) {
       }, { onConflict: 'client_id,metricool_id' })
 
       if (!DRY_RUN) {
-        await supabase.from('calendar_events').upsert(computed, { onConflict: 'client_id,metricool_id' })
+        const { error: writeError } = await supabase.from('calendar_events').upsert(computed, { onConflict: 'client_id,metricool_id' })
+        if (writeError) {
+          console.error(`Write failed for ${client.name} / post ${post.id}:`, writeError.message)
+        }
       }
     }
 
