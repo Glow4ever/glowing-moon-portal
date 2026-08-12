@@ -15,7 +15,7 @@ const { createClient } = require('@supabase/supabase-js')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
-const DRY_RUN = true
+const DRY_RUN = false
 
 module.exports = async function handler(req, res) {
   if (req.headers['authorization'] !== `Bearer ${process.env.CRON_SECRET}`) {
