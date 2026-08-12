@@ -162,10 +162,16 @@ export default async function handler(req, res) {
               value: engagementData.data,
               recorded_date: to.toISOString().slice(0, 10)
             }, { onConflict: 'client_id,platform,metric_type,recorded_date' })
+          } else if (Object.keys(engagementData || {}).length === 0) {
+            // Metricool returns a bare {} when nothing was published on this
+            // platform within the window — nothing to aggregate engagement
+            // over. That's a normal, expected state (confirmed by checking
+            // the raw response directly), not a failure — logged quietly
+            // rather than as an error, and no row written since there's
+            // genuinely no reading to record.
+            console.log(`${client.name} / ${platform}: no posts in this window, nothing to aggregate.`)
           } else {
-            // This used to fail silently — no error, no write, no clue why.
-            // Logging the raw shape here so the actual cause shows up in
-            // Vercel logs on the next run instead of us guessing at it.
+            // Any other unexpected shape is still worth surfacing loudly.
             console.error(
               `Engagement data for ${client.name} / ${platform} was not a number — got:`,
               JSON.stringify(engagementData).slice(0, 300)
