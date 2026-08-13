@@ -188,7 +188,7 @@ export default function Topbar() {
       </div>
 
       <div className={styles.right}>
-        {role === 'admin' && allClients.length > 1 && (
+        {(role === 'admin' || role === 'editor') && allClients.length > 1 && (
           <div className={styles.switcherWrap}>
             <button
               className={styles.switcherBtn}
@@ -303,5 +303,6 @@ export default function Topbar() {
     </header>
   )
 }
+
 
 
