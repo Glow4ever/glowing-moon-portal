@@ -47,6 +47,14 @@ module.exports = async function handler(req, res) {
       const data = await response.json()
       if (!response.ok) throw new Error(JSON.stringify(data))
       posts = data.data || []
+      // Diagnostic: is Metricool paginating this response? If posts are
+      // consistently missing regardless of how many runs pass, an unhandled
+      // page limit is the leading suspect — this shows us the raw response
+      // shape so we can confirm or rule that out.
+      console.log(
+        `${client.name}: raw response top-level keys:`, JSON.stringify(Object.keys(data)),
+        '| posts returned:', posts.length
+      )
       // Diagnostic: exactly what Metricool returned, before any of our own
       // processing touches it — needed to check whether Instagram posts are
       // actually present in the raw response at all.
