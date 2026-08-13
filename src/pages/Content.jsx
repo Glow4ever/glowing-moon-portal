@@ -107,8 +107,31 @@ export default function Content() {
         return
       }
     }
+    // No explicit deep-link this time — try to restore whatever folder was
+    // last viewed for this client, instead of always resetting to root.
+    // Component state (`stack`) doesn't survive switching to another page
+    // and back, since React unmounts this page entirely — sessionStorage
+    // does, so that's where "last viewed" lives. Falls back to root if
+    // nothing was saved, or if the saved folder no longer resolves (e.g.
+    // it was deleted since).
+    const savedPath = sessionStorage.getItem(`contentLibraryPath:${client.id}`)
+    if (savedPath) {
+      const savedStack = buildStackFromPath(savedPath)
+      if (savedStack) {
+        setStack(savedStack)
+        return
+      }
+    }
     setStack([{ name: 'Content', path: `/Glowing Moon Portal/${client.name}/Content` }])
   }, [client?.name])
+
+  // Persist the current folder every time it changes, so it's there to
+  // restore next time this page mounts.
+  useEffect(() => {
+    if (client?.id && stack?.length) {
+      sessionStorage.setItem(`contentLibraryPath:${client.id}`, stack[stack.length - 1].path)
+    }
+  }, [client?.id, stack])
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
@@ -1415,6 +1438,7 @@ export default function Content() {
     </div>
   )
 }
+
 
 
 
