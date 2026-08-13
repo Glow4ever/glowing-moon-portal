@@ -143,15 +143,15 @@ module.exports = async function handler(req, res) {
     // for why that matters.
     const liveMetricoolIds = new Set(posts.map(p => String(p.id)))
     const syncedExistingRows = (existingRows || []).filter(r => r.metricool_id)
+    let clearedCount = 0, flaggedCount = 0, bumpedCount = 0
 
     for (const row of syncedExistingRows) {
       const stillLive = liveMetricoolIds.has(String(row.metricool_id))
 
       if (stillLive) {
-        // Found again — clear any prior miss streak for this row, since the
-        // two-strike rule requires CONSECUTIVE misses, not cumulative ones.
-        await supabase.from('calendar_prune_candidates').delete()
+        const { error, count } = await supabase.from('calendar_prune_candidates').delete({ count: 'exact' })
           .eq('client_id', client.id).eq('calendar_event_id', row.id)
+        if (count) clearedCount++
         continue
       }
 
@@ -166,6 +166,7 @@ module.exports = async function handler(req, res) {
           miss_count: existingCandidate.miss_count + 1,
           last_checked_at: new Date().toISOString()
         }).eq('id', existingCandidate.id)
+        bumpedCount++
       } else {
         await supabase.from('calendar_prune_candidates').insert({
           client_id: client.id,
@@ -175,8 +176,11 @@ module.exports = async function handler(req, res) {
           title: row.title,
           date: row.date
         })
+        flaggedCount++
       }
     }
+
+    console.log(`${client.name}: prune check — ${flaggedCount} newly flagged, ${bumpedCount} bumped to a repeat miss, ${clearedCount} cleared (reappeared).`)
 
     results.push({ client: client.name, postsChecked: posts.length, wouldCreate: created, wouldUpdate: updated, unchanged, status: 'ok' })
   }
