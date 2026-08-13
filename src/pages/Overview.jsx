@@ -80,7 +80,7 @@ export default function Overview() {
   const [nextSteps, setNextSteps] = useState(null)
 
   useEffect(() => { loadDashboard() }, [client?.id])
-  useEffect(() => { loadMetricoolPosts() }, [])
+  useEffect(() => { loadMetricoolPosts() }, [client?.id])
 
   async function loadMetricoolPosts() {
   try {
@@ -560,6 +560,7 @@ export default function Overview() {
     </div>
   )
 }
+
 
 
 
