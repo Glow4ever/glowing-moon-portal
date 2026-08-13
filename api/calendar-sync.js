@@ -134,6 +134,50 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // Prune candidate detection — reuses `posts` (Metricool's live schedule,
+    // already fetched above) and `existingRows` (already fetched above),
+    // no extra API call needed. Never deletes anything. A row only gets
+    // logged as a candidate, and only actually becomes eligible for
+    // deletion once it's missed TWO CONSECUTIVE runs — see the miss_count
+    // logic below and the table comment in 010_calendar_prune_candidates.sql
+    // for why that matters.
+    const liveMetricoolIds = new Set(posts.map(p => String(p.id)))
+    const syncedExistingRows = (existingRows || []).filter(r => r.metricool_id)
+
+    for (const row of syncedExistingRows) {
+      const stillLive = liveMetricoolIds.has(String(row.metricool_id))
+
+      if (stillLive) {
+        // Found again — clear any prior miss streak for this row, since the
+        // two-strike rule requires CONSECUTIVE misses, not cumulative ones.
+        await supabase.from('calendar_prune_candidates').delete()
+          .eq('client_id', client.id).eq('calendar_event_id', row.id)
+        continue
+      }
+
+      const { data: existingCandidate } = await supabase
+        .from('calendar_prune_candidates')
+        .select('id, miss_count')
+        .eq('client_id', client.id).eq('calendar_event_id', row.id)
+        .maybeSingle()
+
+      if (existingCandidate) {
+        await supabase.from('calendar_prune_candidates').update({
+          miss_count: existingCandidate.miss_count + 1,
+          last_checked_at: new Date().toISOString()
+        }).eq('id', existingCandidate.id)
+      } else {
+        await supabase.from('calendar_prune_candidates').insert({
+          client_id: client.id,
+          calendar_event_id: row.id,
+          metricool_id: row.metricool_id,
+          notes: row.notes,
+          title: row.title,
+          date: row.date
+        })
+      }
+    }
+
     results.push({ client: client.name, postsChecked: posts.length, wouldCreate: created, wouldUpdate: updated, unchanged, status: 'ok' })
   }
 
