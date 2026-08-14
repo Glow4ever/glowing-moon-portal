@@ -386,6 +386,8 @@ export default function Admin() {
       notification_email: editingClient.notification_email || null,
       cover_url: editingClient.cover_url || null,
       service_tier: editingClient.service_tier || null,
+      mission_statement: editingClient.mission_statement || null,
+      brand_pillars: editingClient.brand_pillars || null,
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -820,6 +822,26 @@ export default function Admin() {
                             <option value="flagship">Flagship / Sprint</option>
                           </select>
                         </div>
+                        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                          <label className={styles.label}>Mission Statement</label>
+                          <textarea
+                            className={styles.input}
+                            rows={2}
+                            style={{ resize: 'vertical' }}
+                            value={editingClient.mission_statement || ''}
+                            onChange={e => setEditingClient(p => ({...p, mission_statement: e.target.value}))}
+                            placeholder="Pull a real line from their strategy playbook — shows on their Overview banner"
+                          />
+                        </div>
+                        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                          <label className={styles.label}>Brand Pillars</label>
+                          <input
+                            className={styles.input}
+                            value={editingClient.brand_pillars || ''}
+                            onChange={e => setEditingClient(p => ({...p, brand_pillars: e.target.value}))}
+                            placeholder="Comma-separated, e.g. Authentic, Strategic, Approachable, Consistent"
+                          />
+                        </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Primary Accent</label>
                           <div className={styles.colorRow}>
@@ -1245,6 +1267,7 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
 
