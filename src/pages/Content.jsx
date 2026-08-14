@@ -556,6 +556,17 @@ export default function Content() {
       .eq('file_path', commentModal.path_lower)
       .order('created_at', { ascending: true })
     setThreadMessages(data || [])
+    if (client.notification_email) {
+      await apiFetch('/api/send-email', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'comment_reply',
+          notificationEmail: client.notification_email,
+          fileName: commentModal.name,
+          comment: commentText.trim()
+        })
+      })
+    }
     setCommentText('')
     setSubmittingComment(false)
   }
