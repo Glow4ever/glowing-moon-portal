@@ -279,22 +279,26 @@ export default function Admin() {
     const { data } = await supabase
       .from('file_comments')
       .select('*, clients(name, primary_color)')
+      .eq('resolved', false)
       .order('created_at', { ascending: false })
     if (data) setComments(data)
     setLoadingComments(false)
   }
 
   async function dismissComment(comment) {
-    await supabase.from('file_comments').delete().eq('id', comment.id)
+    // Marks resolved rather than deleting — the note stays in the folder's
+    // permanent history (visible from Content Library), it just drops off
+    // this "needs attention" queue and stops blocking the cycle's approval.
+    await supabase.from('file_comments').update({ resolved: true }).eq('id', comment.id)
     setComments(prev => prev.filter(c => c.id !== comment.id))
 
     // Resolving a revision note can change the cycle's derived stage back
     // toward in_review or approved — without this, the tracker keeps showing
-    // "revisions" even after the note is gone.
+    // "revisions" even after the note is resolved.
     if (comment.cycle_id) {
       const [{ data: statusRows }, { data: remainingComments }] = await Promise.all([
         supabase.from('file_status').select('status').eq('cycle_id', comment.cycle_id),
-        supabase.from('file_comments').select('id').eq('cycle_id', comment.cycle_id).limit(1)
+        supabase.from('file_comments').select('id').eq('cycle_id', comment.cycle_id).eq('resolved', false).limit(1)
       ])
       let recomputed = 'in_review'
       if ((remainingComments || []).length > 0) recomputed = 'revisions'
@@ -451,7 +455,7 @@ export default function Admin() {
   // visibly move the review banner or tracker made it more confusing than
   // useful in practice.
   async function clearCycle(cycle, client) {
-    const confirmed = window.confirm(`Permanently delete this review cycle for ${client.name} (${cycle.folder_label || cycle.folder_path})? This removes all approvals and revision notes tied to it and cannot be undone.`)
+    const confirmed = window.confirm(`Clear this review cycle for ${client.name} (${cycle.folder_label || cycle.folder_path})? This resets file approvals and status so you can start fresh. Revision notes stay visible in the folder's history and are not deleted.`)
     if (!confirmed) return
     setSettingStatus(true)
     await supabase.from('review_cycles').delete().eq('id', cycle.id)
@@ -1187,10 +1191,10 @@ export default function Admin() {
                     <button
                       className={styles.editBtn}
                       onClick={() => dismissComment(c)}
-                      title="Dismiss"
+                      title="Mark this note resolved — stays visible in the folder's history"
                       style={{ marginTop: '2px', flexShrink: 0 }}
                     >
-                      <i className="ti ti-check" /> Done
+                      <i className="ti ti-check" /> Mark Resolved
                     </button>
                   </div>
                 ))}
@@ -1241,5 +1245,6 @@ export default function Admin() {
     </div>
   )
 }
+
 
 
