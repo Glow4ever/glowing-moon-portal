@@ -379,6 +379,9 @@ export default function Admin() {
   async function saveClientBranding() {
     if (!editingClient) return
     setSaving(true)
+    const cleanedCadenceTargets = editingClient.cadence_targets
+      ? Object.fromEntries(Object.entries(editingClient.cadence_targets).filter(([, v]) => v !== undefined && v !== null))
+      : null
     await updateClientBranding(editingClient.id, {
       name: editingClient.name,
       primary_color: editingClient.primary_color,
@@ -388,6 +391,7 @@ export default function Admin() {
       service_tier: editingClient.service_tier || null,
       mission_statement: editingClient.mission_statement || null,
       brand_pillars: editingClient.brand_pillars || null,
+      cadence_targets: cleanedCadenceTargets && Object.keys(cleanedCadenceTargets).length > 0 ? cleanedCadenceTargets : null,
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -841,6 +845,32 @@ export default function Admin() {
                             onChange={e => setEditingClient(p => ({...p, brand_pillars: e.target.value}))}
                             placeholder="Comma-separated, e.g. Authentic, Strategic, Approachable, Consistent"
                           />
+                        </div>
+                        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                          <label className={styles.label}>Cadence Targets (posts/week, per platform)</label>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '10px' }}>
+                            {['facebook', 'instagram', 'linkedin', 'youtube', 'tiktok'].map(platform => (
+                              <div key={platform}>
+                                <label style={{ fontSize: '11px', color: 'var(--text3)', textTransform: 'capitalize', display: 'block', marginBottom: '4px' }}>{platform}</label>
+                                <input
+                                  className={styles.input}
+                                  type="number"
+                                  min="0"
+                                  step="0.5"
+                                  value={editingClient.cadence_targets?.[platform] ?? ''}
+                                  onChange={e => {
+                                    const val = e.target.value
+                                    setEditingClient(p => ({
+                                      ...p,
+                                      cadence_targets: { ...(p.cadence_targets || {}), [platform]: val === '' ? undefined : Number(val) }
+                                    }))
+                                  }}
+                                  placeholder="0"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Leave blank for platforms this client doesn't use — no card shows for those.</div>
                         </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Primary Accent</label>
