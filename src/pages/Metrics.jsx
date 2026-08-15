@@ -124,9 +124,24 @@ export default function Metrics() {
     return row ? Number(row.value) : null
   }
 
+  // Cadence is per-platform (unlike booking_conversions/link_clicks, which
+  // genuinely aren't platform-specific) — pull the most recent row for each
+  // platform that has one, rather than a single blended number.
+  function cadenceByPlatform() {
+    const byPlatform = {}
+    aggregates
+      .filter(a => a.metric_type === 'cadence' && a.platform)
+      .forEach(a => {
+        if (!byPlatform[a.platform] || a.period_end > byPlatform[a.platform].period_end) {
+          byPlatform[a.platform] = a
+        }
+      })
+    return Object.values(byPlatform).map(a => ({ platform: a.platform, value: Number(a.value) }))
+  }
+
   const audienceByPlatform = platformBreakdown('audience')
   const engagementByPlatform = platformBreakdown('engagement')
-  const cadence = latestAggregate('cadence')
+  const cadencePlatforms = cadenceByPlatform()
   const bookingConversions = latestAggregate('booking_conversions')
   const linkClicks = latestAggregate('link_clicks')
 
@@ -259,29 +274,59 @@ export default function Metrics() {
         </div>
       ))}
 
-      {/* Aggregate metrics: cadence always, conversions/clicks flagship-only */}
-      <div style={{ display: 'grid', gridTemplateColumns: isFlagship ? 'repeat(3, 1fr)' : '1fr', gap: '20px', marginBottom: '32px' }}>
-        <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
-          <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Cadence adherence</div>
-          <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{cadence !== null ? `${cadence}%` : '—'}</div>
-          {cadence === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>No data logged yet</div>}
+      {/* Cadence — per-platform, same section style as Audience/Engagement above */}
+      <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{
+              width: '8px', height: '8px', borderRadius: '50%', background: 'var(--teal)',
+              animation: 'gmmDotPulse 2.2s ease-in-out infinite', display: 'inline-block'
+            }} />
+            <span style={{ fontSize: '16px', color: 'var(--text1)', fontWeight: '500' }}>Cadence adherence</span>
+            <span style={{ fontSize: '13px', color: 'var(--text3)' }}>&middot; by platform</span>
+          </div>
+          <span style={{ fontSize: '13px', color: 'var(--text3)' }}>30 days vs. target</span>
         </div>
-        {isFlagship && (
-          <>
-            <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
-              <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Booking conversions</div>
-              <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{bookingConversions !== null ? bookingConversions : '—'}</div>
-              {bookingConversions === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>Not connected yet</div>}
-            </div>
-            <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
-              <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Tagged link clicks</div>
-              <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{linkClicks !== null ? linkClicks : '—'}</div>
-              {linkClicks === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>Not connected yet</div>}
-            </div>
-          </>
+        {cadencePlatforms.length === 0 ? (
+          <div style={{ fontSize: '14px', color: 'var(--text3)', padding: '8px 0' }}>
+            No cadence targets set yet — add weekly targets per platform in Admin to start tracking.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '20px' }}>
+            {cadencePlatforms.map(({ platform, value }) => {
+              const meta = PLATFORM_META[platform] || { label: platform, icon: 'ti-chart-bar', color: 'var(--text2)' }
+              const isOnTarget = value >= 100
+              return (
+                <div key={platform} style={{ background: 'var(--surface3, #1c1c1f)', borderRadius: '12px', padding: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                    <i className={`ti ${meta.icon}`} style={{ fontSize: '18px', color: meta.color }} aria-hidden="true" />
+                    <span style={{ fontSize: '14px', color: 'var(--text2)' }}>{meta.label}</span>
+                  </div>
+                  <div style={{ fontSize: '34px', fontWeight: '600', color: isOnTarget ? 'var(--teal)' : 'var(--text1)' }}>
+                    {value}%
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
 
+      {/* Booking conversions / link clicks — flagship only, genuinely not platform-specific */}
+      {isFlagship && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px', marginBottom: '32px' }}>
+          <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
+            <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Booking conversions</div>
+            <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{bookingConversions !== null ? bookingConversions : '—'}</div>
+            {bookingConversions === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>Not connected yet</div>}
+          </div>
+          <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
+            <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Tagged link clicks</div>
+            <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{linkClicks !== null ? linkClicks : '—'}</div>
+            {linkClicks === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>Not connected yet</div>}
+          </div>
+        </div>
+      )}
       {/* Qualitative log — flagship only, per the spec's scope */}
       {isFlagship && (
         <>
@@ -384,4 +429,5 @@ export default function Metrics() {
     </div>
   )
 }
+
 
