@@ -85,20 +85,20 @@ export default function Overview() {
   useEffect(() => { loadMetricoolPosts() }, [client?.id])
 
   async function loadMetricoolPosts() {
-  try {
-    const res = await apiFetch(`/api/metricool?clientId=${client?.id}`)
-    if (!res.ok) {
+    try {
+      const res = await apiFetch(`/api/metricool?clientId=${client?.id}`)
+      if (!res.ok) {
+        setMetricoolError(true)
+        return
+      }
+      const data = await res.json()
+      setMetricoolPosts(data.data || [])
+      setMetricoolError(false)
+    } catch (err) {
+      console.error('Metricool error:', err)
       setMetricoolError(true)
-      return
     }
-    const data = await res.json()
-    setMetricoolPosts(data.data || [])
-    setMetricoolError(false)
-  } catch (err) {
-    console.error('Metricool error:', err)
-    setMetricoolError(true)
   }
-}
 
   function getMediaForDate(dateStr, network) {
     const match = metricoolPosts.find(post => {
@@ -320,11 +320,19 @@ export default function Overview() {
         backgroundPosition: `right ${client.cover_position || 'center'}`,
         backgroundRepeat: 'no-repeat'
       } : {}}>
+        <div className={styles.heroGlow} />
+        <div className={styles.heroGlowTwo} />
         <div className={styles.bannerContent}>
           <div className={styles.bannerAvatar}>
             {client?.name?.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase() || 'GM'}
           </div>
           <div>
+            {!scheduleLoading && visibleWeekEvents.length > 0 && (
+              <div className={styles.heroEyebrow}>
+                <span className={styles.pulseDot} />
+                {visibleWeekEvents.length} {visibleWeekEvents.length === 1 ? 'piece' : 'pieces'} scheduled this week
+              </div>
+            )}
             <h2 className={styles.bannerTitle}>Welcome, {client?.name || 'Glowing Moon Media'}</h2>
             {client?.mission_statement ? (
               <p style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '17px', color: 'var(--text1)', maxWidth: '520px', lineHeight: '1.4', margin: '6px 0 10px' }}>
@@ -336,7 +344,7 @@ export default function Overview() {
             {client?.brand_pillars && (
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                 {client.brand_pillars.split(',').map(p => p.trim()).filter(Boolean).map(pillar => (
-                  <span key={pillar} style={{ fontSize: '11px', background: 'rgba(211,201,167,0.16)', color: 'var(--gold-light)', padding: '4px 11px', borderRadius: '20px', border: '0.5px solid rgba(211,201,167,0.3)' }}>
+                  <span key={pillar} className={styles.pillar}>
                     {pillar}
                   </span>
                 ))}
@@ -383,8 +391,14 @@ export default function Overview() {
           })}
         </div>
       ) : (
-        <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '18px 20px', marginBottom: '20px', fontSize: '13px', color: 'var(--text3)' }}>
-          Nothing active right now — all caught up.
+        <div className={styles.cardAllClear}>
+          <div className={styles.allClearIcon}>
+            <i className="ti ti-check" />
+          </div>
+          <div>
+            <div className={styles.allClearTitle}>All clear, nothing waiting on you</div>
+            <div className={styles.allClearSub}>New files land here the moment a cycle opens.</div>
+          </div>
         </div>
       )}
 
@@ -411,7 +425,11 @@ export default function Overview() {
       <div className={styles.grid}>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div className={styles.card} style={{ cursor: 'pointer' }} onClick={() => navigate('/metrics')}>
+          <div
+            className={`${styles.card} ${!perfLoading && perfHeadline ? styles.cardWin : ''}`}
+            style={{ cursor: 'pointer' }}
+            onClick={() => navigate('/metrics')}
+          >
             <div className={styles.cardTitle}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                 <i className="ti ti-trending-up" style={{ fontSize: '14px', color: 'var(--teal)' }} />Performance
@@ -533,11 +551,3 @@ export default function Overview() {
     </div>
   )
 }
-
-
-
-
-
-
-
-
