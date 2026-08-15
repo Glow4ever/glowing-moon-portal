@@ -119,6 +119,10 @@ export default function Topbar() {
       setLogoUrl(data.publicUrl + '?t=' + Date.now())
       setToast('Logo updated!')
       setTimeout(() => setToast(''), 2500)
+    } else {
+      console.error('Logo upload failed:', error.message)
+      setToast(`Upload failed: ${error.message}`)
+      setTimeout(() => setToast(''), 5000)
     }
     setUploading(false)
   }
@@ -303,6 +307,7 @@ export default function Topbar() {
     </header>
   )
 }
+
 
 
 
