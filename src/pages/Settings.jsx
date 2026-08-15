@@ -41,6 +41,9 @@ export default function Settings() {
       await updateClientBranding(client.id, { cover_url: data.publicUrl })
       setCoverPreview(data.publicUrl)
       showToast('Cover photo updated!')
+    } else {
+      console.error('Cover upload failed:', error.message)
+      showToast(`Upload failed: ${error.message}`)
     }
     setCoverSaving(false)
   }
@@ -185,4 +188,5 @@ export default function Settings() {
     </div>
   )
 }
+
 
