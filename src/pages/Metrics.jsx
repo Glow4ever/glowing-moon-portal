@@ -215,6 +215,42 @@ export default function Metrics() {
         </div>
       </div>
 
+      {/* ROI baselines — static, captured once at onboarding. Shown for both
+          tiers (unlike booking/clicks, neither of these is Flagship-only per
+          the ROI docs). Positioned first, before any live-tracked metric,
+          matching the documented reporting order: certain numbers before
+          uncertain ones. */}
+      {(client?.time_recovered_hours || client?.cost_avoidance_amount) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+          {client?.time_recovered_hours && (
+            <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.5rem' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '8px' }}>Time recovered</div>
+              <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
+                ~{client.time_recovered_hours} hrs/mo
+              </div>
+              {client?.time_recovered_value && (
+                <div style={{ fontSize: '14px', color: 'var(--teal)', marginTop: '4px' }}>
+                  ≈ ${(client.time_recovered_hours * client.time_recovered_value).toLocaleString()}/mo value
+                </div>
+              )}
+            </div>
+          )}
+          {client?.cost_avoidance_amount && (
+            <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.5rem' }}>
+              <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '8px' }}>Cost avoidance</div>
+              <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
+                ${Number(client.cost_avoidance_amount).toLocaleString()}/mo
+              </div>
+              {client?.cost_avoidance_label && (
+                <div style={{ fontSize: '14px', color: 'var(--text3)', marginTop: '4px' }}>
+                  vs. {client.cost_avoidance_label}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Platform breakdown: audience + engagement, full-width rows */}
       {[
         { key: 'audience', label: 'Audience growth', data: audienceByPlatform },
@@ -429,5 +465,3 @@ export default function Metrics() {
     </div>
   )
 }
-
-
