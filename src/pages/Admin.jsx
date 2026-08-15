@@ -392,6 +392,10 @@ export default function Admin() {
       mission_statement: editingClient.mission_statement || null,
       brand_pillars: editingClient.brand_pillars || null,
       cadence_targets: cleanedCadenceTargets && Object.keys(cleanedCadenceTargets).length > 0 ? cleanedCadenceTargets : null,
+      time_recovered_hours: editingClient.time_recovered_hours ?? null,
+      time_recovered_value: editingClient.time_recovered_value ?? null,
+      cost_avoidance_amount: editingClient.cost_avoidance_amount ?? null,
+      cost_avoidance_label: editingClient.cost_avoidance_label || null,
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -872,6 +876,51 @@ export default function Admin() {
                           </div>
                           <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Leave blank for platforms this client doesn't use — no card shows for those.</div>
                         </div>
+                        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                          <label className={styles.label}>ROI Baselines (captured once at onboarding, restated quarterly)</label>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                            <div>
+                              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Time recovered (hrs/mo)</label>
+                              <input
+                                className={styles.input}
+                                type="number" min="0" step="0.5"
+                                value={editingClient.time_recovered_hours ?? ''}
+                                onChange={e => setEditingClient(p => ({...p, time_recovered_hours: e.target.value === '' ? null : Number(e.target.value)}))}
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Their hourly value ($)</label>
+                              <input
+                                className={styles.input}
+                                type="number" min="0" step="1"
+                                value={editingClient.time_recovered_value ?? ''}
+                                onChange={e => setEditingClient(p => ({...p, time_recovered_value: e.target.value === '' ? null : Number(e.target.value)}))}
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Cost avoidance ($/mo)</label>
+                              <input
+                                className={styles.input}
+                                type="number" min="0" step="1"
+                                value={editingClient.cost_avoidance_amount ?? ''}
+                                onChange={e => setEditingClient(p => ({...p, cost_avoidance_amount: e.target.value === '' ? null : Number(e.target.value)}))}
+                                placeholder="0"
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>What it replaces</label>
+                              <input
+                                className={styles.input}
+                                value={editingClient.cost_avoidance_label || ''}
+                                onChange={e => setEditingClient(p => ({...p, cost_avoidance_label: e.target.value}))}
+                                placeholder="e.g. content team scaling"
+                              />
+                            </div>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Leave any field blank to hide that baseline until it's captured.</div>
+                        </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Primary Accent</label>
                           <div className={styles.colorRow}>
@@ -1297,7 +1346,3 @@ export default function Admin() {
     </div>
   )
 }
-
-
-
-
