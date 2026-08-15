@@ -28,7 +28,7 @@ module.exports = async function handler(req, res) {
 
   const { data: clients, error: clientsError } = await supabase
     .from('clients')
-    .select('id, name, metricool_blog_id')
+    .select('id, name, metricool_blog_id, cadence_targets')
     .not('metricool_blog_id', 'is', null)
 
   if (clientsError) return res.status(500).json({ error: clientsError.message })
@@ -189,6 +189,33 @@ module.exports = async function handler(req, res) {
     }
 
     console.log(`${client.name}: prune check — ${flaggedCount} newly flagged, ${bumpedCount} bumped to a repeat miss, ${clearedCount} cleared (reappeared).`)
+
+    // Cadence adherence — real posts delivered vs. the client's own target
+    // (set once in Admin, pulled from their strategy playbook), per
+    // platform. Reuses existingRows already fetched above for the
+    // create/update pass — no extra query needed. Not capped at 100%:
+    // over-delivering is real information worth showing, not clamping away.
+    if (client.cadence_targets && Object.keys(client.cadence_targets).length > 0) {
+      const cadenceWindowStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const cadenceWindowEnd = new Date().toISOString().slice(0, 10)
+      const recentSyncedRows = (existingRows || []).filter(r => r.date >= cadenceWindowStart && r.date <= cadenceWindowEnd)
+
+      for (const [platform, weeklyTarget] of Object.entries(client.cadence_targets)) {
+        if (!weeklyTarget || weeklyTarget <= 0) continue
+        const actualCount = recentSyncedRows.filter(r => r.notes === platform).length
+        const monthlyTarget = weeklyTarget * (30 / 7)
+        const adherence = Math.round((actualCount / monthlyTarget) * 100)
+
+        await supabase.from('metric_aggregates').upsert({
+          client_id: client.id,
+          metric_type: 'cadence',
+          platform,
+          value: adherence,
+          period_start: cadenceWindowStart,
+          period_end: cadenceWindowEnd
+        }, { onConflict: 'client_id,metric_type,platform,period_start,period_end' })
+      }
+    }
 
     results.push({ client: client.name, postsChecked: posts.length, wouldCreate: created, wouldUpdate: updated, unchanged, status: 'ok' })
   }
