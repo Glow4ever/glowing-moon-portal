@@ -1,7 +1,20 @@
 const { requireAuth } = require('./_auth')
 const { Resend } = require('resend')
+const { createClient } = require('@supabase/supabase-js')
 
 const resend = new Resend(process.env.RESEND_API_KEY)
+const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+
+// 'review', 'welcome', and 'comment_reply' all send to a caller-supplied
+// address (notificationEmail / recipientEmail) with caller-supplied
+// content — previously reachable by any authenticated user, meaning any
+// client login could fire an email that looks like it's from Glowing Moon
+// Media to any inbox they chose. Those three are admin/editor-only below.
+// 'approved' and 'comment' are left open to any authenticated user since
+// they're genuine client actions (approving content, leaving a revision
+// note) and both send to a fixed internal address, not a caller-supplied
+// one, so there's no equivalent exposure to close.
+const ADMIN_ONLY_TYPES = ['review', 'welcome', 'comment_reply']
 
 function sanitize(str) {
   if (typeof str !== 'string') return ''
@@ -20,6 +33,16 @@ module.exports = async function handler(req, res) {
   if (!user) return
 
   const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail } = req.body
+
+  if (ADMIN_ONLY_TYPES.includes(type)) {
+    const { data: roleRow } = await supabaseAdmin
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .single()
+    const isAdmin = roleRow?.role === 'admin' || roleRow?.role === 'editor'
+    if (!isAdmin) return res.status(403).json({ error: 'Forbidden' })
+  }
 
   const safeClient = sanitize(clientName)
   const safeMonth = sanitize(month)
