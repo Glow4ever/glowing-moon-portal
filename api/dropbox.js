@@ -18,6 +18,25 @@ const ADMIN_ONLY_ENDPOINTS = [
   'files/copy_v2',
 ]
 
+// Every allowed endpoint below except list_folder/continue takes a path
+// somewhere in its body — this is where each one keeps it. Used to scope
+// non-admin requests to the caller's own client folder. list_folder/continue
+// is deliberately absent: it only takes a cursor, not a path, and a cursor
+// can only be obtained by already having made a legitimately scoped
+// list_folder call in the first place, so there's nothing to check here.
+function getRequestedPath(endpoint, body) {
+  if (endpoint === 'files/search_v2') return body?.options?.path
+  return body?.path
+}
+
+// Client folders live at /Glowing Moon Portal/{clientName}/... — Dropbox
+// paths are case-insensitive, so this comparison is too.
+function pathBelongsToClient(path, clientName) {
+  if (typeof path !== 'string' || !clientName) return false
+  const prefix = `/glowing moon portal/${clientName.toLowerCase()}/`
+  return path.toLowerCase().startsWith(prefix)
+}
+
 async function getAccessToken() {
   const refresh_token = process.env.DROPBOX_REFRESH_TOKEN
   const client_id = process.env.DROPBOX_APP_KEY
@@ -51,7 +70,7 @@ module.exports = async function handler(req, res) {
 
   const { data: roleRow } = await supabaseAdmin
     .from('user_roles')
-    .select('role')
+    .select('role, client_id')
     .eq('user_id', user.id)
     .single()
 
@@ -63,6 +82,28 @@ module.exports = async function handler(req, res) {
 
   if (!ALLOWED_ENDPOINTS.includes(endpoint) && !ADMIN_ONLY_ENDPOINTS.includes(endpoint)) {
     return res.status(400).json({ error: 'Endpoint not permitted' })
+  }
+
+  // Path scoping — previously every allowed read endpoint trusted the
+  // client-supplied path completely, meaning any authenticated member
+  // could list, preview, or link any other client's folder just by naming
+  // it. Admin/editor stay unrestricted since they're expected to reach
+  // every client. Everyone else gets checked against their own client_id.
+  if (!isAdmin && ALLOWED_ENDPOINTS.includes(endpoint) && endpoint !== 'files/list_folder/continue') {
+    const requestedPath = getRequestedPath(endpoint, body)
+    if (!requestedPath) {
+      return res.status(400).json({ error: 'Missing path' })
+    }
+
+    const { data: clientRow } = await supabaseAdmin
+      .from('clients')
+      .select('name')
+      .eq('id', roleRow?.client_id)
+      .single()
+
+    if (!clientRow || !pathBelongsToClient(requestedPath, clientRow.name)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
   }
 
   try {
