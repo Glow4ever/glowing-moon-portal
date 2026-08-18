@@ -344,6 +344,37 @@ export default function Admin() {
         showToast(clientError.message ? `Failed to create client: ${clientError.message}` : 'Failed to create client.')
         return
       }
+
+      // Onboarding only ever wrote the Supabase row — it never created the
+      // matching Dropbox folders that Content.jsx and Assets.jsx expect at
+      // /Glowing Moon Portal/{name}/Content and /Assets. Every new client
+      // hit "trouble connecting to your files" until someone made those
+      // folders by hand. This creates them here instead. Deliberately not
+      // fatal: a Dropbox hiccup shouldn't block the client from existing,
+      // so failures here just surface as a heads-up toast, not an abort.
+      let folderWarning = null
+      try {
+        const clientFolderName = newClient.name.trim()
+        const folderResults = await Promise.all(
+          ['Assets', 'Content'].map(sub =>
+            apiFetch('/api/dropbox', {
+              method: 'POST',
+              body: JSON.stringify({
+                endpoint: 'files/create_folder_v2',
+                body: { path: `/Glowing Moon Portal/${clientFolderName}/${sub}`, autorename: false }
+              })
+            })
+          )
+        )
+        const failed = folderResults.filter(r => !r.ok && r.status !== 409) // 409 = already exists, fine
+        if (failed.length > 0) {
+          folderWarning = 'Client created, but Dropbox folders may need to be set up manually.'
+        }
+      } catch (folderErr) {
+        console.error('Dropbox folder creation error:', folderErr)
+        folderWarning = 'Client created, but Dropbox folders may need to be set up manually.'
+      }
+
       if (newMember.email) {
         const password = newMember.password || generatePassword()
         const { data, error } = await supabase.functions.invoke('create-user', {
@@ -378,7 +409,7 @@ export default function Admin() {
       setClientPortalRole('member')
       await loadUserContext()
       await loadTeam()
-      showToast('Client onboarded!')
+      showToast(folderWarning || 'Client onboarded!')
     } catch (err) {
       console.error('onboardClient error:', err)
       // Session tokens refresh on a background timer that browsers can
