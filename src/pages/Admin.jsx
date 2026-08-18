@@ -324,56 +324,75 @@ export default function Admin() {
   async function onboardClient() {
     if (!newClient.name.trim()) return
     setSaving(true)
-    const slug = newClient.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    const { data: clientData, error: clientError } = await supabase.from('clients').insert({
-      name: newClient.name.trim(),
-      slug,
-      primary_color: newClient.primary_color,
-      secondary_color: newClient.secondary_color,
-      active: true
-    }).select().single()
-    if (clientError) {
-      showToast('Failed to create client.')
-      setSaving(false)
-      return
-    }
-    if (newMember.email) {
-      const password = newMember.password || generatePassword()
-      const { data, error } = await supabase.functions.invoke('create-user', {
-        body: {
-          email: newMember.email,
-          password,
-          client_id: clientData.id,
-          role: clientPortalRole
-        }
-      })
-      if (error || data?.error) {
-        let message = 'Client created but user account failed. Add manually.'
-        try {
-          const body = await error?.context?.json()
-          if (body?.error) message = `Client created, but: ${body.error}`
-        } catch {}
-        if (data?.error) message = `Client created, but: ${data.error}`
-        showToast(message)
-        setSaving(false)
+    // Everything below is wrapped in try/catch/finally. Without it, any
+    // unexpected failure here (a stale auth token after the tab sat in the
+    // background, a network blip, anything) throws mid-function, `saving`
+    // never resets, and the button silently stops responding with no
+    // error shown — indistinguishable from the click doing nothing at all.
+    // The finally block guarantees setSaving(false) runs no matter how
+    // this exits, and the catch guarantees the person always sees why.
+    try {
+      const slug = newClient.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      const { data: clientData, error: clientError } = await supabase.from('clients').insert({
+        name: newClient.name.trim(),
+        slug,
+        primary_color: newClient.primary_color,
+        secondary_color: newClient.secondary_color,
+        active: true
+      }).select().single()
+      if (clientError) {
+        showToast(clientError.message ? `Failed to create client: ${clientError.message}` : 'Failed to create client.')
         return
       }
-      await apiFetch('/api/send-email', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'welcome',
-          clientName: newClient.name.trim(),
-          recipientEmail: newMember.email
+      if (newMember.email) {
+        const password = newMember.password || generatePassword()
+        const { data, error } = await supabase.functions.invoke('create-user', {
+          body: {
+            email: newMember.email,
+            password,
+            client_id: clientData.id,
+            role: clientPortalRole
+          }
         })
-      })
+        if (error || data?.error) {
+          let message = 'Client created but user account failed. Add manually.'
+          try {
+            const body = await error?.context?.json()
+            if (body?.error) message = `Client created, but: ${body.error}`
+          } catch {}
+          if (data?.error) message = `Client created, but: ${data.error}`
+          showToast(message)
+          return
+        }
+        await apiFetch('/api/send-email', {
+          method: 'POST',
+          body: JSON.stringify({
+            type: 'welcome',
+            clientName: newClient.name.trim(),
+            recipientEmail: newMember.email
+          })
+        })
+      }
+      setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
+      setNewMember({ email: '', password: '', client_id: '', role: 'member' })
+      setClientPortalRole('member')
+      await loadUserContext()
+      await loadTeam()
+      showToast('Client onboarded!')
+    } catch (err) {
+      console.error('onboardClient error:', err)
+      // Session tokens refresh on a background timer that browsers can
+      // throttle or pause when a tab sits inactive (e.g. tabbed away to
+      // check email mid-form). That shows up here as an auth failure on
+      // whichever request runs first, so it gets a specific message
+      // instead of a generic one.
+      const isAuthError = err?.message?.toLowerCase().includes('jwt') || err?.status === 401
+      showToast(isAuthError
+        ? 'Your session timed out while this tab was inactive. Please try again.'
+        : 'Something went wrong creating the client. Please try again.')
+    } finally {
+      setSaving(false)
     }
-    setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
-    setNewMember({ email: '', password: '', client_id: '', role: 'member' })
-    setClientPortalRole('member')
-    await loadUserContext()
-    await loadTeam()
-    showToast('Client onboarded!')
-    setSaving(false)
   }
 
   async function saveClientBranding() {
@@ -1346,3 +1365,4 @@ export default function Admin() {
     </div>
   )
 }
+
