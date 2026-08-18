@@ -5,7 +5,7 @@ import { useAuth } from './AuthContext'
 const ClientContext = createContext({})
 
 export function ClientProvider({ children }) {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
   const [role, setRole] = useState(null) // 'admin' or 'member'
   const [client, setClient] = useState(null) // current client object
   const [allClients, setAllClients] = useState([]) // admin only
@@ -13,9 +13,18 @@ export function ClientProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // AuthContext's `user` starts as null while it checks for an existing
+    // session, then resolves to either a real user or null once it knows
+    // for sure. Without this guard, that initial "null" is indistinguishable
+    // from a real logged-out state, so this effect would fire early, set
+    // loading=false with role=null, and any route gated on role (e.g.
+    // AdminRoute) would redirect away before auth even finished resolving —
+    // reproducible by hard-loading /admin directly. Wait for authLoading to
+    // clear before treating a null user as "actually logged out."
+    if (authLoading) return
     if (user) loadUserContext()
     else { setRole(null); setClient(null); setLoading(false) }
-  }, [user])
+  }, [user, authLoading])
 
   async function loadUserContext() {
     setLoading(true)
@@ -98,5 +107,6 @@ export function ClientProvider({ children }) {
 }
 
 export const useClient = () => useContext(ClientContext)
+
 
 
