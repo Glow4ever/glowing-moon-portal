@@ -1,53 +1,86 @@
 const { requireAuth } = require('./_auth')
 const { createClient } = require('@supabase/supabase-js')
+const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+// Same scoping rule as api/dropbox.js — client folders live at
+// /Glowing Moon Portal/{clientName}/..., Dropbox paths are case-insensitive.
+function pathBelongsToClient(path, clientName) {
+  if (typeof path !== 'string' || !clientName) return false
+  const prefix = `/glowing moon portal/${clientName.toLowerCase()}/`
+  return path.toLowerCase().startsWith(prefix)
+}
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', 'https://portal.glowingmoonmedia.com')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
 
   if (req.method === 'OPTIONS') return res.status(200).end()
+  if (req.method !== 'POST') return res.status(405).end()
 
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const userId = process.env.METRICOOL_USER_ID
-  const token = process.env.METRICOOL_API_TOKEN
+  const { path } = req.body
+  if (!path) return res.status(400).json({ error: 'No path provided' })
 
-  if (!userId || !token) return res.status(500).json({ error: 'Metricool env vars not set' })
+  // This previously had no role or path check at all beyond being logged
+  // in — any authenticated user could zip-download any folder in the
+  // shared namespace. Same fix shape as api/dropbox.js: admin/editor stay
+  // unrestricted, everyone else is scoped to their own client's folder.
+  const { data: roleRow } = await supabaseAdmin
+    .from('user_roles')
+    .select('role, client_id')
+    .eq('user_id', user.id)
+    .single()
 
-  let blogId = req.query.blogId
+  const isAdmin = roleRow?.role === 'admin' || roleRow?.role === 'editor'
 
-  if (!blogId && req.query.clientId) {
-    const { data: client } = await supabase
+  if (!isAdmin) {
+    const { data: clientRow } = await supabaseAdmin
       .from('clients')
-      .select('metricool_blog_id')
-      .eq('id', req.query.clientId)
+      .select('name')
+      .eq('id', roleRow?.client_id)
       .single()
-    blogId = client?.metricool_blog_id
+
+    if (!clientRow || !pathBelongsToClient(path, clientRow.name)) {
+      return res.status(403).json({ error: 'Forbidden' })
+    }
   }
 
-  if (!blogId) blogId = process.env.METRICOOL_BLOG_ID
-
-  const { start, end } = req.query
-  const startDate = start || new Date().toISOString().split('T')[0] + 'T00:00:00'
-  const endDate = end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] + 'T23:59:59'
-
-  const url = `https://app.metricool.com/api/v2/scheduler/posts?userId=${userId}&blogId=${blogId}&start=${startDate}&end=${endDate}&timezone=America/New_York`
+  const token = process.env.DROPBOX_REFRESH_TOKEN
+  const clientId = process.env.DROPBOX_APP_KEY
+  const clientSecret = process.env.DROPBOX_APP_SECRET
 
   try {
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { 'X-Mc-Auth': token, 'Content-Type': 'application/json' }
+    const tokenRes = await fetch('https://api.dropbox.com/oauth2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: token, client_id: clientId, client_secret: clientSecret })
+    })
+    const tokenData = await tokenRes.json()
+    const accessToken = tokenData.access_token
+
+    const zipRes = await fetch('https://content.dropboxapi.com/2/files/download_zip', {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + accessToken,
+        'Dropbox-API-Arg': JSON.stringify({ path }),
+        'Dropbox-API-Path-Root': JSON.stringify({ '.tag': 'namespace_id', namespace_id: '13502300579' })
+      }
     })
 
-    const data = await response.json()
-    if (!response.ok) return res.status(response.status).json(data)
-    return res.status(200).json(data)
+    if (!zipRes.ok) {
+      const err = await zipRes.text()
+      return res.status(500).json({ error: err.slice(0, 300) })
+    }
+
+    const folderName = path.split('/').pop()
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition', `attachment; filename="${folderName}.zip"`)
+    const buffer = await zipRes.arrayBuffer()
+    return res.send(Buffer.from(buffer))
   } catch (err) {
-    console.error('Metricool handler error:', err)
     return res.status(500).json({ error: err.message })
   }
 }
