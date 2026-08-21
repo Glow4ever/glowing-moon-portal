@@ -50,6 +50,7 @@ module.exports = async function handler(req, res) {
       .from('client_report_drafts')
       .select('period_end')
       .eq('client_id', client.id).eq('report_type', 'mid_month')
+      .eq('status', 'sent')
       .order('period_end', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -64,12 +65,14 @@ module.exports = async function handler(req, res) {
 
       const { data: existing } = await supabase
         .from('client_report_drafts')
-        .select('id')
+        .select('id, status')
         .eq('client_id', client.id).eq('report_type', 'mid_month')
         .eq('period_start', periodStart).eq('period_end', periodEnd)
         .maybeSingle()
 
-      if (!existing) {
+      // A cancelled draft for this exact window shouldn't block a fresh
+      // attempt — only an already-pending or already-sent one should.
+      if (!existing || existing.status === 'cancelled') {
         // Real posts published in the window — dedupe by metricool_id since
         // cross-posted content has one row per platform, not one per post.
         const { data: postRows } = await supabase
@@ -108,13 +111,15 @@ module.exports = async function handler(req, res) {
 
         draft += `\nAs always, reach out anytime if something's on your mind. Otherwise, see you at the next check-in!`
 
-        await supabase.from('client_report_drafts').insert({
+        await supabase.from('client_report_drafts').upsert({
           client_id: client.id,
           report_type: 'mid_month',
           period_start: periodStart,
           period_end: periodEnd,
-          draft_content: draft
-        })
+          draft_content: draft,
+          status: 'pending',
+          sent_at: null
+        }, { onConflict: 'client_id,report_type,period_start,period_end' })
         await supabase.from('notifications').insert({
           client_id: client.id,
           type: 'report_ready',
@@ -149,12 +154,12 @@ module.exports = async function handler(req, res) {
 
       const { data: existing } = await supabase
         .from('client_report_drafts')
-        .select('id')
+        .select('id, status')
         .eq('client_id', client.id).eq('report_type', 'month_in_review')
         .eq('period_start', effectiveStart).eq('period_end', periodEnd)
         .maybeSingle()
 
-      if (!existing) {
+      if (!existing || existing.status === 'cancelled') {
         const { data: snapRows } = await supabase
           .from('metric_snapshots')
           .select('platform, value, recorded_date')
@@ -195,13 +200,15 @@ module.exports = async function handler(req, res) {
           draft += `\nHighlights this period:\n` + logEntries.map(e => `- ${e.title || e.note}`).join('\n')
         }
 
-        await supabase.from('client_report_drafts').insert({
+        await supabase.from('client_report_drafts').upsert({
           client_id: client.id,
           report_type: 'month_in_review',
           period_start: effectiveStart,
           period_end: periodEnd,
-          draft_content: draft
-        })
+          draft_content: draft,
+          status: 'pending',
+          sent_at: null
+        }, { onConflict: 'client_id,report_type,period_start,period_end' })
         await supabase.from('notifications').insert({
           client_id: client.id,
           type: 'report_ready',
