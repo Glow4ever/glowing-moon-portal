@@ -88,14 +88,25 @@ module.exports = async function handler(req, res) {
           .eq('client_id', client.id)
           .gte('resolved_at', periodStart).lte('resolved_at', periodEnd)
 
-        let draft = `Here's what we handled for you between ${periodStart} and ${periodEnd}:\n\n`
-        draft += `- ${uniquePosts.length} piece${uniquePosts.length === 1 ? '' : 's'} of content published\n`
+        // Opener varies with what actually happened — a quiet period reads
+        // as "steady and consistent," not as an apology for low volume.
+        let draft = uniquePosts.length > 0
+          ? `Another two weeks in the books! Here's a quick look at what's been moving on your channels.\n\n`
+          : `Checking in for your two-week update — a quieter stretch behind the scenes as we kept things steady.\n\n`
+
+        draft += `${uniquePosts.length} piece${uniquePosts.length === 1 ? '' : 's'} of content went out`
         if (cycles && cycles.length > 0) {
-          draft += `- ${cycles.length} review cycle${cycles.length === 1 ? '' : 's'} completed (${cycles.map(c => c.folder_label).join(', ')})\n`
+          draft += `, and you turned around ${cycles.length === 1 ? 'a' : cycles.length} review${cycles.length === 1 ? '' : 's'} for us along the way (${cycles.map(c => c.folder_label).join(', ')}) — thanks for the quick turnaround.`
+        } else {
+          draft += `.`
         }
+        draft += `\n`
+
         if (uniquePosts.length > 0) {
-          draft += `\nWhat went out:\n` + uniquePosts.slice(0, 10).map(p => `- ${p.date}: ${p.title || '(untitled)'}`).join('\n')
+          draft += `\nWhat went out:\n` + uniquePosts.slice(0, 10).map(p => `- ${p.date}: ${p.title || '(untitled)'}`).join('\n') + '\n'
         }
+
+        draft += `\nAs always, reach out anytime if something's on your mind. Otherwise, see you at the next check-in!`
 
         await supabase.from('client_report_drafts').insert({
           client_id: client.id,
