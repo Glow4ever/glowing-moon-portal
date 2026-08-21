@@ -27,6 +27,11 @@ export default function Admin() {
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [comments, setComments] = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
+  const [reportDrafts, setReportDrafts] = useState([])
+  const [loadingReports, setLoadingReports] = useState(false)
+  const [editingDraft, setEditingDraft] = useState(null)
+  const [draftText, setDraftText] = useState('')
+  const [sendingDraft, setSendingDraft] = useState(false)
   const [resyncing, setResyncing] = useState({})
   const [trackerOpen, setTrackerOpen] = useState(null)
   const [settingStatus, setSettingStatus] = useState(false)
@@ -308,6 +313,69 @@ export default function Admin() {
     }
   }
 
+  async function loadReportDrafts() {
+    setLoadingReports(true)
+    const { data } = await supabase
+      .from('client_report_drafts')
+      .select('*, clients(name, notification_email)')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+    setReportDrafts(data || [])
+    setLoadingReports(false)
+  }
+
+  function openDraftForReview(draft) {
+    setEditingDraft(draft)
+    setDraftText(draft.draft_content)
+  }
+
+  async function sendReportDraft() {
+    if (!editingDraft) return
+    setSendingDraft(true)
+    const client = editingDraft.clients
+
+    // Logged into the same visible history a client already sees and
+    // trusts — mid-month notes and month-in-reviews show up the same way
+    // press mentions and qualitative wins already do.
+    await supabase.from('client_log_entries').insert({
+      client_id: editingDraft.client_id,
+      entry_type: editingDraft.report_type === 'mid_month' ? 'mid_month_note' : 'month_in_review',
+      entry_date: new Date().toISOString().slice(0, 10),
+      title: editingDraft.report_type === 'mid_month' ? 'Mid-month note' : 'Month in review',
+      note: draftText,
+      client_visible: true
+    })
+
+    if (client?.notification_email) {
+      await apiFetch('/api/send-email', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'client_report',
+          notificationEmail: client.notification_email,
+          reportType: editingDraft.report_type,
+          content: draftText
+        })
+      })
+    }
+
+    await supabase.from('client_report_drafts').update({
+      status: 'sent',
+      sent_at: new Date().toISOString(),
+      draft_content: draftText
+    }).eq('id', editingDraft.id)
+
+    setReportDrafts(prev => prev.filter(d => d.id !== editingDraft.id))
+    setEditingDraft(null)
+    showToast('Sent!')
+    setSendingDraft(false)
+  }
+
+  async function cancelReportDraft(draft) {
+    if (!window.confirm('Cancel this draft? The portal won\'t re-prompt until the next real due date.')) return
+    await supabase.from('client_report_drafts').update({ status: 'cancelled' }).eq('id', draft.id)
+    setReportDrafts(prev => prev.filter(d => d.id !== draft.id))
+  }
+
   function showToast(msg) {
     setToast(msg)
     setTimeout(() => setToast(''), 3000)
@@ -324,106 +392,56 @@ export default function Admin() {
   async function onboardClient() {
     if (!newClient.name.trim()) return
     setSaving(true)
-    // Everything below is wrapped in try/catch/finally. Without it, any
-    // unexpected failure here (a stale auth token after the tab sat in the
-    // background, a network blip, anything) throws mid-function, `saving`
-    // never resets, and the button silently stops responding with no
-    // error shown — indistinguishable from the click doing nothing at all.
-    // The finally block guarantees setSaving(false) runs no matter how
-    // this exits, and the catch guarantees the person always sees why.
-    try {
-      const slug = newClient.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-      const { data: clientData, error: clientError } = await supabase.from('clients').insert({
-        name: newClient.name.trim(),
-        slug,
-        primary_color: newClient.primary_color,
-        secondary_color: newClient.secondary_color,
-        active: true
-      }).select().single()
-      if (clientError) {
-        showToast(clientError.message ? `Failed to create client: ${clientError.message}` : 'Failed to create client.')
+    const slug = newClient.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+    const { data: clientData, error: clientError } = await supabase.from('clients').insert({
+      name: newClient.name.trim(),
+      slug,
+      primary_color: newClient.primary_color,
+      secondary_color: newClient.secondary_color,
+      active: true
+    }).select().single()
+    if (clientError) {
+      showToast('Failed to create client.')
+      setSaving(false)
+      return
+    }
+    if (newMember.email) {
+      const password = newMember.password || generatePassword()
+      const { data, error } = await supabase.functions.invoke('create-user', {
+        body: {
+          email: newMember.email,
+          password,
+          client_id: clientData.id,
+          role: clientPortalRole
+        }
+      })
+      if (error || data?.error) {
+        let message = 'Client created but user account failed. Add manually.'
+        try {
+          const body = await error?.context?.json()
+          if (body?.error) message = `Client created, but: ${body.error}`
+        } catch {}
+        if (data?.error) message = `Client created, but: ${data.error}`
+        showToast(message)
+        setSaving(false)
         return
       }
-
-      // Onboarding only ever wrote the Supabase row — it never created the
-      // matching Dropbox folders that Content.jsx and Assets.jsx expect at
-      // /Glowing Moon Portal/{name}/Content and /Assets. Every new client
-      // hit "trouble connecting to your files" until someone made those
-      // folders by hand. This creates them here instead. Deliberately not
-      // fatal: a Dropbox hiccup shouldn't block the client from existing,
-      // so failures here just surface as a heads-up toast, not an abort.
-      let folderWarning = null
-      try {
-        const clientFolderName = newClient.name.trim()
-        const folderResults = await Promise.all(
-          ['Assets', 'Content'].map(sub =>
-            apiFetch('/api/dropbox', {
-              method: 'POST',
-              body: JSON.stringify({
-                endpoint: 'files/create_folder_v2',
-                body: { path: `/Glowing Moon Portal/${clientFolderName}/${sub}`, autorename: false }
-              })
-            })
-          )
-        )
-        const failed = folderResults.filter(r => !r.ok && r.status !== 409) // 409 = already exists, fine
-        if (failed.length > 0) {
-          folderWarning = 'Client created, but Dropbox folders may need to be set up manually.'
-        }
-      } catch (folderErr) {
-        console.error('Dropbox folder creation error:', folderErr)
-        folderWarning = 'Client created, but Dropbox folders may need to be set up manually.'
-      }
-
-      if (newMember.email) {
-        const password = newMember.password || generatePassword()
-        const { data, error } = await supabase.functions.invoke('create-user', {
-          body: {
-            email: newMember.email,
-            password,
-            client_id: clientData.id,
-            role: clientPortalRole
-          }
+      await apiFetch('/api/send-email', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'welcome',
+          clientName: newClient.name.trim(),
+          recipientEmail: newMember.email
         })
-        if (error || data?.error) {
-          let message = 'Client created but user account failed. Add manually.'
-          try {
-            const body = await error?.context?.json()
-            if (body?.error) message = `Client created, but: ${body.error}`
-          } catch {}
-          if (data?.error) message = `Client created, but: ${data.error}`
-          showToast(message)
-          return
-        }
-        await apiFetch('/api/send-email', {
-          method: 'POST',
-          body: JSON.stringify({
-            type: 'welcome',
-            clientName: newClient.name.trim(),
-            recipientEmail: newMember.email
-          })
-        })
-      }
-      setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
-      setNewMember({ email: '', password: '', client_id: '', role: 'member' })
-      setClientPortalRole('member')
-      await loadUserContext()
-      await loadTeam()
-      showToast(folderWarning || 'Client onboarded!')
-    } catch (err) {
-      console.error('onboardClient error:', err)
-      // Session tokens refresh on a background timer that browsers can
-      // throttle or pause when a tab sits inactive (e.g. tabbed away to
-      // check email mid-form). That shows up here as an auth failure on
-      // whichever request runs first, so it gets a specific message
-      // instead of a generic one.
-      const isAuthError = err?.message?.toLowerCase().includes('jwt') || err?.status === 401
-      showToast(isAuthError
-        ? 'Your session timed out while this tab was inactive. Please try again.'
-        : 'Something went wrong creating the client. Please try again.')
-    } finally {
-      setSaving(false)
+      })
     }
+    setNewClient({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
+    setNewMember({ email: '', password: '', client_id: '', role: 'member' })
+    setClientPortalRole('member')
+    await loadUserContext()
+    await loadTeam()
+    showToast('Client onboarded!')
+    setSaving(false)
   }
 
   async function saveClientBranding() {
@@ -437,6 +455,7 @@ export default function Admin() {
       primary_color: editingClient.primary_color,
       secondary_color: editingClient.secondary_color,
       notification_email: editingClient.notification_email || null,
+      retainer_start_date: editingClient.retainer_start_date || null,
       cover_url: editingClient.cover_url || null,
       service_tier: editingClient.service_tier || null,
       mission_statement: editingClient.mission_statement || null,
@@ -604,7 +623,7 @@ export default function Admin() {
       </div>
 
       <div className={styles.tabs}>
-        {['clients','team','revisions','audit'].map(t => (
+        {['clients','team','revisions','reports','audit'].map(t => (
           <button
             key={t}
             className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`}
@@ -612,9 +631,10 @@ export default function Admin() {
               setTab(t)
               if (t === 'audit') loadAuditLogs()
               if (t === 'revisions') loadComments()
+              if (t === 'reports') loadReportDrafts()
             }}
           >
-            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : t === 'revisions' ? 'Revisions' : 'Audit Log'}
+            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : t === 'revisions' ? 'Revisions' : t === 'reports' ? 'Reports' : 'Audit Log'}
           </button>
         ))}
       </div>
@@ -867,6 +887,16 @@ export default function Admin() {
                             onChange={e => setEditingClient(p => ({...p, notification_email: e.target.value}))}
                             placeholder="client@example.com"
                           />
+                        </div>
+                        <div className={styles.field}>
+                          <label className={styles.label}>Retainer Start Date</label>
+                          <input
+                            className={styles.input}
+                            type="date"
+                            value={editingClient.retainer_start_date || ''}
+                            onChange={e => setEditingClient(p => ({...p, retainer_start_date: e.target.value || null}))}
+                          />
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Drives mid-month notes (every 14 days) — set this once at signing.</div>
                         </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Service Tier</label>
@@ -1355,6 +1385,79 @@ export default function Admin() {
         </div>
       )}
 
+      {tab === 'reports' && (
+        <div>
+          <div className={styles.sectionLabel}>Pending Reports</div>
+          {loadingReports && <div className={styles.empty}>Loading...</div>}
+          {!loadingReports && reportDrafts.length === 0 && (
+            <div className={styles.empty}>Nothing pending — drafts show up here as they come due.</div>
+          )}
+          {reportDrafts.map(draft => (
+            <div key={draft.id} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '16px 20px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text1)' }}>{draft.clients?.name}</span>
+                <span style={{ fontSize: '12px', background: 'var(--gold-bg)', color: 'var(--gold-light)', padding: '3px 10px', borderRadius: '20px' }}>
+                  {draft.report_type === 'mid_month' ? 'Mid-month note' : 'Month in review'}
+                </span>
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '12px' }}>
+                {draft.period_start} to {draft.period_end}
+              </div>
+              <button className="btn btn-gold" onClick={() => openDraftForReview(draft)} style={{ fontSize: '13px' }}>
+                Review &amp; Send
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editingDraft && (
+        <div
+          onClick={() => setEditingDraft(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--surface1)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '24px', maxWidth: '520px', width: '90%' }}
+          >
+            <div style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text1)', marginBottom: '4px' }}>
+              {editingDraft.report_type === 'mid_month' ? 'Mid-month note' : 'Month in review'} — {editingDraft.clients?.name}
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '12px' }}>
+              Edit freely before sending — this goes out exactly as written below.
+            </div>
+            <textarea
+              value={draftText}
+              onChange={e => setDraftText(e.target.value)}
+              rows={12}
+              style={{ width: '100%', background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '8px', padding: '12px', fontSize: '14px', lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
+            />
+            <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => cancelReportDraft(editingDraft)}
+                style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', padding: '9px 16px', borderRadius: '7px', fontSize: '13px', cursor: 'pointer' }}
+              >
+                Cancel this draft
+              </button>
+              <button
+                onClick={() => setEditingDraft(null)}
+                style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', padding: '9px 16px', borderRadius: '7px', fontSize: '13px', cursor: 'pointer' }}
+              >
+                Close
+              </button>
+              <button
+                className="btn btn-gold"
+                onClick={sendReportDraft}
+                disabled={sendingDraft}
+                style={{ fontSize: '13px' }}
+              >
+                {sendingDraft ? 'Sending...' : 'Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === 'audit' && (
         <div>
           <div className={styles.sectionLabel}>Recent Activity (last 100 events)</div>
@@ -1396,4 +1499,3 @@ export default function Admin() {
     </div>
   )
 }
-
