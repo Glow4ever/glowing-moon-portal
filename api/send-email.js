@@ -1,20 +1,7 @@
 const { requireAuth } = require('./_auth')
 const { Resend } = require('resend')
-const { createClient } = require('@supabase/supabase-js')
 
 const resend = new Resend(process.env.RESEND_API_KEY)
-const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-
-// 'review', 'welcome', and 'comment_reply' all send to a caller-supplied
-// address (notificationEmail / recipientEmail) with caller-supplied
-// content — previously reachable by any authenticated user, meaning any
-// client login could fire an email that looks like it's from Glowing Moon
-// Media to any inbox they chose. Those three are admin/editor-only below.
-// 'approved' and 'comment' are left open to any authenticated user since
-// they're genuine client actions (approving content, leaving a revision
-// note) and both send to a fixed internal address, not a caller-supplied
-// one, so there's no equivalent exposure to close.
-const ADMIN_ONLY_TYPES = ['review', 'welcome', 'comment_reply']
 
 function sanitize(str) {
   if (typeof str !== 'string') return ''
@@ -32,17 +19,7 @@ module.exports = async function handler(req, res) {
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail } = req.body
-
-  if (ADMIN_ONLY_TYPES.includes(type)) {
-    const { data: roleRow } = await supabaseAdmin
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .single()
-    const isAdmin = roleRow?.role === 'admin' || roleRow?.role === 'editor'
-    if (!isAdmin) return res.status(403).json({ error: 'Forbidden' })
-  }
+  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType } = req.body
 
   const safeClient = sanitize(clientName)
   const safeMonth = sanitize(month)
@@ -50,6 +27,8 @@ module.exports = async function handler(req, res) {
   const safeFile = sanitize(fileName)
   const safeComment = sanitize(comment)
   const safeRecipient = sanitize(recipientEmail)
+  const safeContent = sanitize(content)
+  const safeReportType = sanitize(reportType)
 
   const portalLink = 'https://portal.glowingmoonmedia.com/content'
   const loginLink = 'https://portal.glowingmoonmedia.com/login'
@@ -180,6 +159,38 @@ module.exports = async function handler(req, res) {
                       </div>
                       <p style="margin:24px 0 0;font-size:14px;color:#888;">
                         <a href="${portalLink}" style="color:#D3C9A7;text-decoration:none;">View the full thread in your portal →</a>
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
+        `
+      })
+    }
+
+    if (type === 'client_report') {
+      const isMonthly = safeReportType === 'month_in_review'
+      await resend.emails.send({
+        from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+        to: safeEmail,
+        subject: isMonthly ? 'Your month in review' : 'A quick update on your content',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #D3C9A7;">
+                  <tr>
+                    <td style="padding:40px;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+                      <h1 style="margin:0 0 20px;font-size:24px;font-weight:700;color:#ffffff;">${isMonthly ? 'Your Month in Review' : "Here's what we've been up to"}</h1>
+                      <div style="font-size:15px;color:#ddd;line-height:1.7;white-space:pre-wrap;">${safeContent}</div>
+                      <p style="margin:28px 0 0;font-size:14px;color:#888;">
+                        <a href="${portalLink}" style="color:#D3C9A7;text-decoration:none;">View your full portal →</a>
                       </p>
                     </td>
                   </tr>
