@@ -40,10 +40,26 @@ module.exports = async function handler(req, res) {
   for (const client of clients) {
     const startDate = new Date(client.retainer_start_date + 'T00:00:00')
 
-    // ---------- MID-MONTH NOTE (every 14 days, client's own clock) ----------
-    const daysSince = Math.floor((today - startDate) / (1000 * 60 * 60 * 24))
-    if (daysSince > 0 && daysSince % 14 === 0) {
-      const periodStart = isoDate(new Date(today.getTime() - 14 * 24 * 60 * 60 * 1000))
+    // ---------- MID-MONTH NOTE (at least 14 days since the last one, client's own clock) ----------
+    // Deliberately NOT an exact "daysSince % 14 === 0" check — that's
+    // fragile to a single missed cron run (a deploy hiccup, anything) and
+    // would then silently wait until the next exact 14-day mark instead of
+    // catching up. Checking "has it been >= 14 days since the last note"
+    // is self-healing: if a run gets missed, the next run just catches it.
+    const { data: lastMidMonth } = await supabase
+      .from('client_report_drafts')
+      .select('period_end')
+      .eq('client_id', client.id).eq('report_type', 'mid_month')
+      .order('period_end', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const lastMidMonthDate = lastMidMonth ? new Date(lastMidMonth.period_end + 'T00:00:00') : startDate
+    const daysSinceLastNote = Math.floor((today - lastMidMonthDate) / (1000 * 60 * 60 * 24))
+    const daysSinceStart = Math.floor((today - startDate) / (1000 * 60 * 60 * 24))
+
+    if (daysSinceStart > 0 && daysSinceLastNote >= 14) {
+      const periodStart = isoDate(lastMidMonthDate)
       const periodEnd = todayStr
 
       const { data: existing } = await supabase
