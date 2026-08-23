@@ -162,22 +162,36 @@ module.exports = async function handler(req, res) {
       if (!existing || existing.status === 'cancelled') {
         const { data: snapRows } = await supabase
           .from('metric_snapshots')
-          .select('platform, value, recorded_date')
-          .eq('client_id', client.id).eq('metric_type', 'audience')
+          .select('platform, metric_type, value, recorded_date')
+          .eq('client_id', client.id).in('metric_type', ['audience', 'engagement'])
           .gte('recorded_date', effectiveStart).lte('recorded_date', periodEnd)
           .order('recorded_date', { ascending: true })
 
-        const byPlatform = {}
+        const audienceByPlatform = {}
+        const engagementByPlatform = {}
         ;(snapRows || []).forEach(r => {
-          if (!byPlatform[r.platform]) byPlatform[r.platform] = []
-          byPlatform[r.platform].push(Number(r.value))
+          const bucket = r.metric_type === 'audience' ? audienceByPlatform : engagementByPlatform
+          if (!bucket[r.platform]) bucket[r.platform] = []
+          bucket[r.platform].push(Number(r.value))
         })
-        const growthLines = Object.entries(byPlatform)
+
+        // Real per-platform figures — start, end, absolute change, and
+        // percent growth — not just a bare delta.
+        const platformStats = Object.entries(audienceByPlatform)
           .filter(([, values]) => values.length > 1)
           .map(([platform, values]) => {
-            const delta = values[values.length - 1] - values[0]
-            return `${platform}: ${delta >= 0 ? '+' : ''}${Math.round(delta)}`
+            const start = values[0]
+            const end = values[values.length - 1]
+            const delta = end - start
+            const pct = start > 0 ? Math.round((delta / start) * 100) : null
+            return { platform, start, end, delta, pct }
           })
+        const totalAudienceNow = Object.values(audienceByPlatform)
+          .reduce((sum, values) => sum + values[values.length - 1], 0)
+        const standout = platformStats.filter(p => p.delta > 0).sort((a, b) => b.delta - a.delta)[0]
+
+        const avgEngagementByPlatform = Object.entries(engagementByPlatform)
+          .map(([platform, values]) => ({ platform, avg: values.reduce((s, v) => s + v, 0) / values.length }))
 
         const { data: logEntries } = await supabase
           .from('client_log_entries')
@@ -186,19 +200,33 @@ module.exports = async function handler(req, res) {
           .gte('entry_date', effectiveStart).lte('entry_date', periodEnd)
           .in('entry_type', ['press_mention', 'qualitative_win'])
 
-        let draft = `Month in Review${isPartial ? ' — first partial period' : ''}: ${effectiveStart} to ${periodEnd}\n\n`
-        if (client.time_recovered_hours) {
-          draft += `Time recovered: ~${client.time_recovered_hours} hrs/mo`
-          if (client.time_recovered_value) draft += ` (≈ $${(client.time_recovered_hours * client.time_recovered_value).toLocaleString()}/mo value)`
-          draft += `\n`
+        let draft = isPartial
+          ? `Your first few weeks are in the books! Here's where things stand as we get rolling.\n\n`
+          : `Here's your month in review — a look back at what the last few weeks added up to.\n\n`
+
+        if (platformStats.length > 0) {
+          draft += `Here's how things moved this period. `
+          if (totalAudienceNow > 0) draft += `You're sitting at ${totalAudienceNow.toLocaleString()} total followers across every connected platform. `
+          if (standout) {
+            draft += `${standout.platform.charAt(0).toUpperCase() + standout.platform.slice(1)} led the way this period — ${standout.start.toLocaleString()} to ${standout.end.toLocaleString()}, up ${standout.delta >= 0 ? '+' : ''}${Math.round(standout.delta)}${standout.pct !== null ? ` (${standout.pct >= 0 ? '+' : ''}${standout.pct}%)` : ''}. `
+          }
+          const others = platformStats.filter(p => p !== standout)
+          if (others.length > 0) {
+            draft += `Elsewhere: ` + others.map(p => `${p.platform} ${p.delta >= 0 ? '+' : ''}${Math.round(p.delta)}${p.pct !== null ? ` (${p.pct >= 0 ? '+' : ''}${p.pct}%)` : ''}`).join(', ') + '. '
+          }
+          if (avgEngagementByPlatform.length > 0) {
+            draft += `\n\nEngagement this period: ` + avgEngagementByPlatform.map(e => `${e.platform} averaging ${e.avg.toFixed(1)}%`).join(', ') + '.'
+          }
+          draft += '\n'
+        } else {
+          draft += `Performance breakdown: still early days on the trend lines — check back next month as more history builds in.\n`
         }
-        if (client.cost_avoidance_amount) {
-          draft += `Cost avoidance: $${Number(client.cost_avoidance_amount).toLocaleString()}/mo vs. ${client.cost_avoidance_label || 'the alternative'}\n`
-        }
-        draft += `\nAudience growth:\n${growthLines.length > 0 ? growthLines.join('\n') : 'Still building history — check back next month.'}\n`
+
         if (logEntries && logEntries.length > 0) {
-          draft += `\nHighlights this period:\n` + logEntries.map(e => `- ${e.title || e.note}`).join('\n')
+          draft += `\nA couple of things worth celebrating from this stretch:\n` + logEntries.map(e => `- ${e.title || e.note}`).join('\n') + '\n'
         }
+
+        draft += `\nEach month is a chance to reflect on what we've built together — a growing presence that brings real credibility. Thank you for trusting us with this. We look forward to seeing where next month leads. Reach out anytime if you want to talk through any of it.`
 
         await supabase.from('client_report_drafts').upsert({
           client_id: client.id,
