@@ -6,7 +6,7 @@
 @keyframes glowPulseGold { 0%, 100% { box-shadow: 0 0 0 rgba(201,168,76,0); } 50% { box-shadow: 0 0 26px var(--brand-primary-40, rgba(201,168,76,0.18)); } }
 @keyframes glowPulseTeal { 0%, 100% { box-shadow: 0 0 0 rgba(94,214,175,0); } 50% { box-shadow: 0 0 22px rgba(94,214,175,0.14); } }
 
-.banner { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 48px 26px; margin-bottom: 22px; display: flex; align-items: center; justify-content: space-between; position: relative; overflow: hidden; }
+.banner { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 48px 26px; margin-bottom: 22px; display: flex; align-items: center; justify-content: space-between; position: relative; overflow: hidden; min-height: 220px; }
 .banner::after { content: ''; position: absolute; right: -60px; top: -60px; width: 260px; height: 260px; border-radius: 50%; background: radial-gradient(circle, rgba(201,168,76,0.06) 0%, transparent 65%); pointer-events: none; }
 
 .heroGlow { position: absolute; width: 420px; height: 420px; border-radius: 50%; top: -160px; right: -100px; background: radial-gradient(circle, var(--brand-primary-40, rgba(201,168,76,0.14)) 0%, transparent 70%); pointer-events: none; animation: heroDrift 9s ease-in-out infinite alternate; z-index: 0; }
@@ -63,7 +63,7 @@
 
 @media (max-width: 768px) {
   .page { padding: 16px 12px 48px; }
-  .banner { padding: 24px 16px; }
+  .banner { padding: 24px 16px; min-height: 190px; }
   .bannerSub { display: none; }
   .statsGrid { grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
   .statCard { padding: 10px 10px; }
