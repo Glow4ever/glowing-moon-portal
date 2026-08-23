@@ -10,9 +10,10 @@
 .navBtn { width: 29px; height: 29px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface2); color: var(--text2); display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 13px; transition: all 0.15s; }
 .navBtn:hover { border-color: var(--gold-border); color: var(--gold-light); }
 .calGrid { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 18px; }
-.dayNames { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--border); }
+.gridScroll { overflow-x: auto; }
+.dayNames { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid var(--border); min-width: 700px; }
 .dayName { text-align: center; padding: 9px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); }
-.cells { display: grid; grid-template-columns: repeat(7, 1fr); }
+.cells { display: grid; grid-template-columns: repeat(7, 1fr); min-width: 700px; }
 .cell { min-height: 80px; padding: 8px 6px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); cursor: pointer; transition: background 0.1s; }
 .cell:nth-child(7n) { border-right: none; }
 .cell:hover { background: var(--surface3); }
