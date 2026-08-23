@@ -135,9 +135,10 @@ export default function Admin() {
   async function loadAttentionQueue() {
     const WAITING_THRESHOLD_DAYS = 3
 
-    const [{ data: pendingClients }, { data: commentRows }] = await Promise.all([
+    const [{ data: pendingClients }, { data: commentRows }, { data: pendingReports }] = await Promise.all([
       supabase.from('clients').select('id, name, approval_status, approval_sent_at').eq('approval_status', 'pending'),
-      supabase.from('file_comments').select('client_id, file_path, sender_role, created_at').order('created_at', { ascending: true })
+      supabase.from('file_comments').select('client_id, file_path, sender_role, created_at').order('created_at', { ascending: true }),
+      supabase.from('client_report_drafts').select('id, client_id, report_type').eq('status', 'pending')
     ])
 
     const items = []
@@ -165,6 +166,18 @@ export default function Admin() {
     Object.entries(waitingOnAdminByClient).forEach(([clientId, count]) => {
       const c = allClients.find(cl => cl.id === clientId)
       items.push({ type: 'waiting_admin', clientId, clientName: c?.name || 'A client', count })
+    })
+
+    // Report ready — a mid-month note or month-in-review has been assembled
+    // and is waiting on admin to review, edit, and send.
+    ;(pendingReports || []).forEach(r => {
+      const c = allClients.find(cl => cl.id === r.client_id)
+      items.push({
+        type: 'report_ready',
+        clientId: r.client_id,
+        clientName: c?.name || 'A client',
+        reportType: r.report_type
+      })
     })
 
     setAttentionQueue(items)
@@ -677,6 +690,22 @@ export default function Admin() {
                           style={{ marginTop: '10px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
                         >
                           Open tracker
+                        </button>
+                      </div>
+                    )
+                  }
+                  if (item.type === 'report_ready') {
+                    return (
+                      <div key={i} style={{ background: 'var(--teal-bg)', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 0 16px 0 rgba(29,158,117,0.18)', border: '1px solid rgba(29,158,117,0.3)' }}>
+                        <div style={{ fontSize: '11px', color: 'var(--teal)', marginBottom: '4px' }}>Report ready</div>
+                        <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
+                          {item.reportType === 'mid_month' ? 'Mid-month note' : 'Month in review'} drafted for {item.clientName}
+                        </div>
+                        <button
+                          onClick={() => { setTab('reports'); loadReportDrafts() }}
+                          style={{ marginTop: '10px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
+                        >
+                          Review &amp; send
                         </button>
                       </div>
                     )
