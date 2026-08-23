@@ -196,6 +196,7 @@ function getMediaForEvent(ev) {
       </div>
 
       <div className={styles.calGrid}>
+        <div className={styles.gridScroll}>
         <div className={styles.dayNames}>
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
             <div key={d} className={styles.dayName}>{d}</div>
@@ -240,6 +241,7 @@ function getMediaForEvent(ev) {
               </div>
             )
           })}
+        </div>
         </div>
       </div>
 
@@ -395,8 +397,3 @@ function getMediaForEvent(ev) {
     </div>
   )
 }
-
-
-
-
-
