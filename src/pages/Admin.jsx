@@ -30,6 +30,10 @@ export default function Admin() {
   const [reportDrafts, setReportDrafts] = useState([])
   const [loadingReports, setLoadingReports] = useState(false)
   const [editingDraft, setEditingDraft] = useState(null)
+  const [trackedLinks, setTrackedLinks] = useState([])
+  const [loadingLinks, setLoadingLinks] = useState(false)
+  const [newLink, setNewLink] = useState({ client_id: '', slug: '', destination_url: '', label: '' })
+  const [savingLink, setSavingLink] = useState(false)
   const [draftText, setDraftText] = useState('')
   const [sendingDraft, setSendingDraft] = useState(false)
   const [resyncing, setResyncing] = useState({})
@@ -389,6 +393,47 @@ export default function Admin() {
     setReportDrafts(prev => prev.filter(d => d.id !== draft.id))
   }
 
+  async function loadTrackedLinks() {
+    setLoadingLinks(true)
+    const { data: links } = await supabase
+      .from('tracked_links')
+      .select('*, clients(name)')
+      .order('created_at', { ascending: false })
+    const { data: clickRows } = await supabase.from('link_clicks').select('link_id')
+    const clickCounts = {}
+    ;(clickRows || []).forEach(r => { clickCounts[r.link_id] = (clickCounts[r.link_id] || 0) + 1 })
+    setTrackedLinks((links || []).map(l => ({ ...l, clickCount: clickCounts[l.id] || 0 })))
+    setLoadingLinks(false)
+  }
+
+  async function createTrackedLink() {
+    if (!newLink.client_id || !newLink.slug || !newLink.destination_url) {
+      return showToast('Client, slug, and destination URL are all required')
+    }
+    setSavingLink(true)
+    const cleanSlug = newLink.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-')
+    const { error } = await supabase.from('tracked_links').insert({
+      client_id: newLink.client_id,
+      slug: cleanSlug,
+      destination_url: newLink.destination_url.trim(),
+      label: newLink.label.trim() || null
+    })
+    if (error) {
+      showToast(error.code === '23505' ? 'That slug is already taken — try another' : 'Could not create link')
+    } else {
+      setNewLink({ client_id: '', slug: '', destination_url: '', label: '' })
+      await loadTrackedLinks()
+      showToast('Link created!')
+    }
+    setSavingLink(false)
+  }
+
+  async function deleteTrackedLink(link) {
+    if (!window.confirm(`Delete this link? Existing click history for "${link.label || link.slug}" will be lost.`)) return
+    await supabase.from('tracked_links').delete().eq('id', link.id)
+    setTrackedLinks(prev => prev.filter(l => l.id !== link.id))
+  }
+
   function showToast(msg) {
     setToast(msg)
     setTimeout(() => setToast(''), 3000)
@@ -636,7 +681,7 @@ export default function Admin() {
       </div>
 
       <div className={styles.tabs}>
-        {['clients','team','revisions','reports','audit'].map(t => (
+        {['clients','team','revisions','reports','links','audit'].map(t => (
           <button
             key={t}
             className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`}
@@ -645,9 +690,10 @@ export default function Admin() {
               if (t === 'audit') loadAuditLogs()
               if (t === 'revisions') loadComments()
               if (t === 'reports') loadReportDrafts()
+              if (t === 'links') loadTrackedLinks()
             }}
           >
-            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : t === 'revisions' ? 'Revisions' : t === 'reports' ? 'Reports' : 'Audit Log'}
+            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : t === 'revisions' ? 'Revisions' : t === 'reports' ? 'Reports' : t === 'links' ? 'Links' : 'Audit Log'}
           </button>
         ))}
       </div>
@@ -1484,6 +1530,81 @@ export default function Admin() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {tab === 'links' && (
+        <div>
+          <div className={styles.sectionLabel}>New Tracked Link</div>
+          <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '16px 20px', marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end' }}>
+            <div>
+              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Client</label>
+              <select
+                value={newLink.client_id}
+                onChange={e => setNewLink(p => ({ ...p, client_id: e.target.value }))}
+                style={{ background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', minWidth: '160px' }}
+              >
+                <option value="">Select client</option>
+                {(allClients || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Slug</label>
+              <input
+                value={newLink.slug}
+                onChange={e => setNewLink(p => ({ ...p, slug: e.target.value }))}
+                placeholder="evohealth-podcast-oct"
+                style={{ background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', minWidth: '180px' }}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: '200px' }}>
+              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Destination URL</label>
+              <input
+                value={newLink.destination_url}
+                onChange={e => setNewLink(p => ({ ...p, destination_url: e.target.value }))}
+                placeholder="https://evohealthconsulting.com/book"
+                style={{ width: '100%', background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Label (optional)</label>
+              <input
+                value={newLink.label}
+                onChange={e => setNewLink(p => ({ ...p, label: e.target.value }))}
+                placeholder="Podcast episode"
+                style={{ background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', minWidth: '140px' }}
+              />
+            </div>
+            <button className="btn btn-gold" onClick={createTrackedLink} disabled={savingLink} style={{ fontSize: '13px' }}>
+              {savingLink ? 'Creating...' : 'Create Link'}
+            </button>
+          </div>
+
+          <div className={styles.sectionLabel}>All Links</div>
+          {loadingLinks && <div className={styles.empty}>Loading...</div>}
+          {!loadingLinks && trackedLinks.length === 0 && (
+            <div className={styles.empty}>No tracked links yet — create one above once your short-link domain is attached in Vercel.</div>
+          )}
+          {trackedLinks.map(link => (
+            <div key={link.id} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '14px 20px', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: '500' }}>
+                  {link.clients?.name} — {link.label || link.slug}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+                  /go/{link.slug} &rarr; {link.destination_url}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--teal)', fontWeight: '600' }}>{link.clickCount} clicks</span>
+                <i
+                  className="ti ti-trash"
+                  onClick={() => deleteTrackedLink(link)}
+                  style={{ fontSize: '16px', color: 'var(--text3)', cursor: 'pointer' }}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
