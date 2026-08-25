@@ -446,14 +446,44 @@ export default function Overview() {
               <div style={{ fontSize: '13px', color: 'var(--text3)' }}>Tracking daily — trend lines fill in as more data comes through.</div>
             )}
           </div>
-          <div className={styles.card}>
+          <div className={styles.card} style={{ cursor: (client?.roi_show_time_hours || client?.roi_show_cost_avoidance) ? 'pointer' : 'default' }} onClick={() => (client?.roi_show_time_hours || client?.roi_show_cost_avoidance) && navigate('/metrics')}>
             <div className={styles.cardTitle}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                <i className="ti ti-target-arrow" style={{ fontSize: '14px', color: 'var(--text3)' }} />ROI tracking
+                <i className="ti ti-target-arrow" style={{ fontSize: '14px', color: client?.roi_show_time_hours || client?.roi_show_cost_avoidance ? 'var(--teal)' : 'var(--text3)' }} />ROI tracking
               </span>
             </div>
-            <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text2)', margin: '4px 0 4px' }}>In development</div>
-            <div style={{ fontSize: '12px', color: 'var(--text3)' }}>Booking conversions and link performance, coming soon</div>
+            {(() => {
+              if (client?.time_recovered_hours && client?.roi_show_time_hours) {
+                const monthsSinceStart = client?.retainer_start_date
+                  ? (Date.now() - new Date(client.retainer_start_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24 * 30.44)
+                  : null
+                const cumulativeHours = monthsSinceStart ? Math.round(client.time_recovered_hours * monthsSinceStart) : null
+                return (
+                  <>
+                    <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text1)', margin: '4px 0 4px' }}>
+                      {cumulativeHours !== null ? `~${cumulativeHours} hrs saved` : `~${client.time_recovered_hours} hrs/mo`}
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text3)' }}>View full metrics &rarr;</div>
+                  </>
+                )
+              }
+              if (client?.cost_avoidance_amount && client?.roi_show_cost_avoidance) {
+                return (
+                  <>
+                    <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text1)', margin: '4px 0 4px' }}>
+                      ${Number(client.cost_avoidance_amount).toLocaleString()}/mo avoided
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text3)' }}>View full metrics &rarr;</div>
+                  </>
+                )
+              }
+              return (
+                <>
+                  <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text2)', margin: '4px 0 4px' }}>In development</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text3)' }}>Booking conversions and link performance, coming soon</div>
+                </>
+              )
+            })()}
           </div>
         </div>
 
