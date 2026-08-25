@@ -151,6 +151,18 @@ export default function Metrics() {
     return Object.values(byPlatform).map(a => ({ platform: a.platform, value: Number(a.value) }))
   }
 
+  // Cumulative time recovered, not a flat monthly restatement — grows
+  // continuously from the actual retainer start date rather than resetting
+  // every time it's viewed. Falls back to null (handled at render) if
+  // retainer_start_date was never set, since there's no start point to
+  // measure from.
+  const monthsSinceStart = client?.retainer_start_date
+    ? (Date.now() - new Date(client.retainer_start_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24 * 30.44)
+    : null
+  const cumulativeHoursRecovered = (client?.time_recovered_hours && monthsSinceStart)
+    ? client.time_recovered_hours * monthsSinceStart
+    : null
+
   const audienceByPlatform = platformBreakdown('audience')
   const engagementByPlatform = platformBreakdown('engagement')
   const cadencePlatforms = cadenceByPlatform()
@@ -232,22 +244,38 @@ export default function Metrics() {
           the ROI docs). Positioned first, before any live-tracked metric,
           matching the documented reporting order: certain numbers before
           uncertain ones. */}
-      {(client?.time_recovered_hours || client?.cost_avoidance_amount) && (
+      {((client?.time_recovered_hours && client?.roi_show_time_hours) || (client?.cost_avoidance_amount && client?.roi_show_cost_avoidance)) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '20px' }}>
-          {client?.time_recovered_hours && (
+          {client?.time_recovered_hours && client?.roi_show_time_hours && (
             <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.5rem' }}>
               <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '8px' }}>Time recovered</div>
-              <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
-                ~{client.time_recovered_hours} hrs/mo
-              </div>
-              {client?.time_recovered_value && (
+              {cumulativeHoursRecovered !== null ? (
+                <>
+                  <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
+                    ~{Math.round(cumulativeHoursRecovered)} hrs saved
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '4px' }}>
+                    since {new Date(client.retainer_start_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} &middot; ~{client.time_recovered_hours} hrs/mo
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
+                    ~{client.time_recovered_hours} hrs/mo
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '4px' }}>
+                    Set a retainer start date in Admin to show cumulative hours saved
+                  </div>
+                </>
+              )}
+              {client?.time_recovered_value && client?.roi_show_time_value && (
                 <div style={{ fontSize: '14px', color: 'var(--teal)', marginTop: '4px' }}>
                   ≈ ${(client.time_recovered_hours * client.time_recovered_value).toLocaleString()}/mo value
                 </div>
               )}
             </div>
           )}
-          {client?.cost_avoidance_amount && (
+          {client?.cost_avoidance_amount && client?.roi_show_cost_avoidance && (
             <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.5rem' }}>
               <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '8px' }}>Cost avoidance</div>
               <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
