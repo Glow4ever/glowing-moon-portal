@@ -523,6 +523,9 @@ export default function Admin() {
       time_recovered_value: editingClient.time_recovered_value ?? null,
       cost_avoidance_amount: editingClient.cost_avoidance_amount ?? null,
       cost_avoidance_label: editingClient.cost_avoidance_label || null,
+      roi_show_time_hours: !!editingClient.roi_show_time_hours,
+      roi_show_time_value: !!editingClient.roi_show_time_value,
+      roi_show_cost_avoidance: !!editingClient.roi_show_cost_avoidance,
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -1074,7 +1077,36 @@ export default function Admin() {
                               />
                             </div>
                           </div>
-                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Leave any field blank to hide that baseline until it's captured.</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px', marginBottom: '12px' }}>Leave any field blank to keep it internal — none of these fields alone make anything client-visible.</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '18px', padding: '12px', background: 'var(--surface3)', borderRadius: '8px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13px', color: 'var(--text2)', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={!!editingClient.roi_show_time_hours}
+                                onChange={e => setEditingClient(p => ({...p, roi_show_time_hours: e.target.checked}))}
+                              />
+                              Show hours saved
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13px', color: 'var(--text2)', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={!!editingClient.roi_show_time_value}
+                                onChange={e => setEditingClient(p => ({...p, roi_show_time_value: e.target.checked}))}
+                              />
+                              Show dollar value of time
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '7px', fontSize: '13px', color: 'var(--text2)', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={!!editingClient.roi_show_cost_avoidance}
+                                onChange={e => setEditingClient(p => ({...p, roi_show_cost_avoidance: e.target.checked}))}
+                              />
+                              Show cost avoidance
+                            </label>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>
+                            Each is off by default — nothing shows to this client on Metrics, Overview, or in reports until you turn it on here, even if a number's already entered above.
+                          </div>
                         </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Primary Accent</label>
@@ -1536,6 +1568,9 @@ export default function Admin() {
       {tab === 'links' && (
         <div>
           <div className={styles.sectionLabel}>New Tracked Link</div>
+          <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '14px', lineHeight: '1.5' }}>
+            Facebook &amp; LinkedIn: paste the link directly in the caption. Instagram captions aren't clickable — use this as the bio link or a Story link sticker instead.
+          </div>
           <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '16px 20px', marginBottom: '20px', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end' }}>
             <div>
               <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Client</label>
