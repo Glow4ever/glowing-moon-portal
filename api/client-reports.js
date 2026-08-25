@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
 
   const { data: clients, error: clientsError } = await supabase
     .from('clients')
-    .select('id, name, retainer_start_date, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label')
+    .select('id, name, retainer_start_date, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
     .not('retainer_start_date', 'is', null)
 
   if (clientsError) return res.status(500).json({ error: clientsError.message })
@@ -203,6 +203,28 @@ module.exports = async function handler(req, res) {
         let draft = isPartial
           ? `Your first few weeks are in the books! Here's where things stand as we get rolling.\n\n`
           : `Here's your month in review — a look back at what the last few weeks added up to.\n\n`
+
+        // ROI baselines — only ever mentioned if explicitly marked visible
+        // for this specific client. A number existing in the system is not
+        // enough on its own; each client has its own real sensitivities
+        // (comparing cost-avoidance to an existing team member, attaching
+        // a dollar figure to a CEO's personal time) that this is deliberately
+        // built to respect rather than assume.
+        const roiLines = []
+        if (client.time_recovered_hours && client.roi_show_time_hours) {
+          let line = `you're getting back roughly ${client.time_recovered_hours} hours a month`
+          if (client.time_recovered_value && client.roi_show_time_value) {
+            line += ` (≈ $${(client.time_recovered_hours * client.time_recovered_value).toLocaleString()} at your stated rate)`
+          }
+          roiLines.push(line)
+        }
+        if (client.cost_avoidance_amount && client.roi_show_cost_avoidance) {
+          roiLines.push(`this replaces roughly $${Number(client.cost_avoidance_amount).toLocaleString()}/mo you'd otherwise be spending on ${client.cost_avoidance_label || 'the alternative'}`)
+        }
+        if (roiLines.length > 0) {
+          const joinedRoi = roiLines.length === 2 ? roiLines.join(' and ') : roiLines[0]
+          draft += `First, the sure thing: ${joinedRoi} — true regardless of anything else this month.\n\n`
+        }
 
         if (platformStats.length > 0) {
           draft += `Here's how things moved this period. `
