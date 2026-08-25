@@ -40,6 +40,7 @@ export default function Metrics() {
   const [loading, setLoading] = useState(true)
   const [snapshots, setSnapshots] = useState([])
   const [aggregates, setAggregates] = useState([])
+  const [realLinkClicks, setRealLinkClicks] = useState(null)
   const [logEntries, setLogEntries] = useState([])
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
@@ -52,14 +53,25 @@ export default function Metrics() {
   async function loadMetrics() {
     setLoading(true)
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const [{ data: snapData }, { data: aggData }, { data: logData }] = await Promise.all([
+    const [{ data: snapData }, { data: aggData }, { data: logData }, { data: linkRows }] = await Promise.all([
       supabase.from('metric_snapshots').select('*').eq('client_id', client.id).gte('recorded_date', since).order('recorded_date', { ascending: true }),
       supabase.from('metric_aggregates').select('*').eq('client_id', client.id).order('period_start', { ascending: false }),
-      supabase.from('client_log_entries').select('*').eq('client_id', client.id).order('entry_date', { ascending: false })
+      supabase.from('client_log_entries').select('*').eq('client_id', client.id).order('entry_date', { ascending: false }),
+      // Real click volume — count of clicks in the last 30 days across this
+      // client's tracked links, not an aggregated snapshot. Genuine
+      // directional volume, no fabricated per-click dollar value, matching
+      // the Attribution Chain doc's own stated approach.
+      supabase.from('tracked_links').select('id, link_clicks(clicked_at)').eq('client_id', client.id)
     ])
     setSnapshots(snapData || [])
     setAggregates(aggData || [])
     setLogEntries(logData || [])
+    const sinceTs = new Date(since).getTime()
+    const clickCount = (linkRows || []).reduce((sum, link) => {
+      const recentClicks = (link.link_clicks || []).filter(c => new Date(c.clicked_at).getTime() >= sinceTs)
+      return sum + recentClicks.length
+    }, 0)
+    setRealLinkClicks((linkRows || []).length > 0 ? clickCount : null)
     setLoading(false)
   }
 
@@ -348,18 +360,22 @@ export default function Metrics() {
         )}
       </div>
 
-      {/* Booking conversions / link clicks — flagship only, genuinely not platform-specific */}
+      {/* Tagged link clicks — both tiers, per the ROI docs (this is one of
+          the few things Pulse gets identically to Flagship). Real click
+          volume from tracked_links/link_clicks, not a placeholder. */}
+      <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem', marginBottom: isFlagship ? '20px' : '32px' }}>
+        <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Tagged link clicks &middot; 30 days</div>
+        <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{realLinkClicks !== null ? realLinkClicks : '—'}</div>
+        {realLinkClicks === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>No tracked links set up yet</div>}
+      </div>
+
+      {/* Booking conversions — flagship only, CRM-based, genuinely differs by tier */}
       {isFlagship && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px', marginBottom: '32px' }}>
+        <div style={{ marginBottom: '32px' }}>
           <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
             <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Booking conversions</div>
             <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{bookingConversions !== null ? bookingConversions : '—'}</div>
             {bookingConversions === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>Not connected yet</div>}
-          </div>
-          <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.75rem' }}>
-            <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Tagged link clicks</div>
-            <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{linkClicks !== null ? linkClicks : '—'}</div>
-            {linkClicks === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>Not connected yet</div>}
           </div>
         </div>
       )}
