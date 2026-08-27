@@ -424,7 +424,12 @@ export default function Admin() {
     } else {
       setNewLink({ client_id: '', slug: '', destination_url: '', label: '', platform: '' })
       await loadTrackedLinks()
-      showToast('Link created!')
+      try {
+        await navigator.clipboard.writeText(`https://linkquick.org/go/${cleanSlug}`)
+        showToast('Link created and copied!')
+      } catch {
+        showToast('Link created!')
+      }
     }
     setSavingLink(false)
   }
@@ -433,6 +438,18 @@ export default function Admin() {
     if (!window.confirm(`Delete this link? Existing click history for "${link.label || link.slug}" will be lost.`)) return
     await supabase.from('tracked_links').delete().eq('id', link.id)
     setTrackedLinks(prev => prev.filter(l => l.id !== link.id))
+  }
+
+  async function copyTrackedLink(link) {
+    // Domain hardcoded here since tracked_links has no domain field of its
+    // own — update this if the short-link domain ever changes.
+    const fullUrl = `https://linkquick.org/go/${link.slug}`
+    try {
+      await navigator.clipboard.writeText(fullUrl)
+      showToast('Link copied!')
+    } catch (err) {
+      showToast('Could not copy — try selecting it manually')
+    }
   }
 
   function showToast(msg) {
@@ -1649,8 +1666,15 @@ export default function Admin() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 <span style={{ fontSize: '13px', color: 'var(--teal)', fontWeight: '600' }}>{link.clickCount} clicks</span>
                 <i
+                  className="ti ti-copy"
+                  onClick={() => copyTrackedLink(link)}
+                  title="Copy full link"
+                  style={{ fontSize: '16px', color: 'var(--text3)', cursor: 'pointer' }}
+                />
+                <i
                   className="ti ti-trash"
                   onClick={() => deleteTrackedLink(link)}
+                  title="Delete link"
                   style={{ fontSize: '16px', color: 'var(--text3)', cursor: 'pointer' }}
                 />
               </div>
