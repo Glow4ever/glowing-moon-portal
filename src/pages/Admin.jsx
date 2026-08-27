@@ -32,7 +32,7 @@ export default function Admin() {
   const [editingDraft, setEditingDraft] = useState(null)
   const [trackedLinks, setTrackedLinks] = useState([])
   const [loadingLinks, setLoadingLinks] = useState(false)
-  const [newLink, setNewLink] = useState({ client_id: '', slug: '', destination_url: '', label: '' })
+  const [newLink, setNewLink] = useState({ client_id: '', slug: '', destination_url: '', label: '', platform: '' })
   const [savingLink, setSavingLink] = useState(false)
   const [draftText, setDraftText] = useState('')
   const [sendingDraft, setSendingDraft] = useState(false)
@@ -416,12 +416,13 @@ export default function Admin() {
       client_id: newLink.client_id,
       slug: cleanSlug,
       destination_url: newLink.destination_url.trim(),
-      label: newLink.label.trim() || null
+      label: newLink.label.trim() || null,
+      platform: newLink.platform || null
     })
     if (error) {
       showToast(error.code === '23505' ? 'That slug is already taken — try another' : 'Could not create link')
     } else {
-      setNewLink({ client_id: '', slug: '', destination_url: '', label: '' })
+      setNewLink({ client_id: '', slug: '', destination_url: '', label: '', platform: '' })
       await loadTrackedLinks()
       showToast('Link created!')
     }
@@ -1602,6 +1603,21 @@ export default function Admin() {
               />
             </div>
             <div>
+              <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Platform</label>
+              <select
+                value={newLink.platform}
+                onChange={e => setNewLink(p => ({ ...p, platform: e.target.value }))}
+                style={{ background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', minWidth: '130px' }}
+              >
+                <option value="">Select platform</option>
+                <option value="facebook">Facebook</option>
+                <option value="instagram">Instagram</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="youtube">YouTube</option>
+                <option value="tiktok">TikTok</option>
+              </select>
+            </div>
+            <div>
               <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Label (optional)</label>
               <input
                 value={newLink.label}
@@ -1624,7 +1640,7 @@ export default function Admin() {
             <div key={link.id} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '14px 20px', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: '500' }}>
-                  {link.clients?.name} — {link.label || link.slug}
+                  {link.clients?.name}{link.platform && ` · ${link.platform}`} — {link.label || link.slug}
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
                   /go/{link.slug} &rarr; {link.destination_url}
