@@ -13,6 +13,26 @@ const { createClient } = require('@supabase/supabase-js')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
+// Link-preview crawlers fetch a URL automatically the instant it's pasted
+// or scheduled anywhere — Facebook/Instagram/WhatsApp (facebookexternalhit),
+// LinkedIn, Slack, Twitter/X, Discord, Telegram, and generic search bots all
+// do this to generate a preview card. Confirmed live: EvoHealth's LinkedIn
+// link showed 37 "clicks" that were actually facebookexternalhit fetching
+// the same URL repeatedly within seconds — not real visitors. These still
+// get redirected correctly (so the preview card renders the right page),
+// they just don't count as a click.
+const BOT_PATTERNS = [
+  'facebookexternalhit', 'linkedinbot', 'twitterbot', 'slackbot',
+  'telegrambot', 'whatsapp', 'discordbot', 'googlebot', 'bingbot',
+  'bot', 'crawler', 'spider', 'preview', 'facebot', 'ia_archiver'
+]
+
+function isBotRequest(userAgent) {
+  if (!userAgent) return false
+  const ua = userAgent.toLowerCase()
+  return BOT_PATTERNS.some(pattern => ua.includes(pattern))
+}
+
 module.exports = async function handler(req, res) {
   const { slug } = req.query
   if (!slug) return res.redirect(302, 'https://glowingmoonmedia.com')
@@ -32,10 +52,13 @@ module.exports = async function handler(req, res) {
   // Log first, then redirect — if the click-log insert fails for any
   // reason, the visitor should still reach their destination. Tracking
   // failing silently is fine; sending someone to a dead link is not.
-  try {
-    await supabase.from('link_clicks').insert({ link_id: link.id })
-  } catch (err) {
-    console.error(`Click log failed for slug ${slug}:`, err.message)
+  // Skipped entirely for known preview-crawler bots — see BOT_PATTERNS above.
+  if (!isBotRequest(req.headers['user-agent'])) {
+    try {
+      await supabase.from('link_clicks').insert({ link_id: link.id })
+    } catch (err) {
+      console.error(`Click log failed for slug ${slug}:`, err.message)
+    }
   }
 
   return res.redirect(302, link.destination_url)
