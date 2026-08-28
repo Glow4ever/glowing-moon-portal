@@ -41,6 +41,7 @@ export default function Metrics() {
   const [snapshots, setSnapshots] = useState([])
   const [aggregates, setAggregates] = useState([])
   const [realLinkClicks, setRealLinkClicks] = useState(null)
+  const [cumulativeLinkClicks, setCumulativeLinkClicks] = useState(null)
   const [logEntries, setLogEntries] = useState([])
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
@@ -71,7 +72,12 @@ export default function Metrics() {
       const recentClicks = (link.link_clicks || []).filter(c => new Date(c.clicked_at).getTime() >= sinceTs)
       return sum + recentClicks.length
     }, 0)
+    // All-time total from the same fetched data — a tracked link can't
+    // predate the client relationship anyway, so "all clicks ever" and
+    // "clicks since retainer start" are the same number here.
+    const cumulativeClickCount = (linkRows || []).reduce((sum, link) => sum + (link.link_clicks || []).length, 0)
     setRealLinkClicks((linkRows || []).length > 0 ? clickCount : null)
+    setCumulativeLinkClicks((linkRows || []).length > 0 ? cumulativeClickCount : null)
     setLoading(false)
   }
 
@@ -161,6 +167,9 @@ export default function Metrics() {
     : null
   const cumulativeHoursRecovered = (client?.time_recovered_hours && monthsSinceStart)
     ? client.time_recovered_hours * monthsSinceStart
+    : null
+  const cumulativeCostAvoided = (client?.cost_avoidance_amount && monthsSinceStart)
+    ? client.cost_avoidance_amount * monthsSinceStart
     : null
 
   const audienceByPlatform = platformBreakdown('audience')
@@ -278,9 +287,20 @@ export default function Metrics() {
           {client?.cost_avoidance_amount && client?.roi_show_cost_avoidance && (
             <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.5rem' }}>
               <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '8px' }}>Cost avoidance</div>
-              <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
-                ${Number(client.cost_avoidance_amount).toLocaleString()}/mo
-              </div>
+              {cumulativeCostAvoided !== null ? (
+                <>
+                  <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
+                    ${Math.round(cumulativeCostAvoided).toLocaleString()} avoided
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '4px' }}>
+                    since {new Date(client.retainer_start_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })} &middot; ${Number(client.cost_avoidance_amount).toLocaleString()}/mo
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
+                  ${Number(client.cost_avoidance_amount).toLocaleString()}/mo
+                </div>
+              )}
               {client?.cost_avoidance_label && (
                 <div style={{ fontSize: '14px', color: 'var(--text3)', marginTop: '4px' }}>
                   vs. {client.cost_avoidance_label}
@@ -395,6 +415,9 @@ export default function Metrics() {
         <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>Tagged link clicks &middot; 30 days</div>
         <div style={{ fontSize: '34px', fontWeight: '600', color: 'var(--text1)' }}>{realLinkClicks !== null ? realLinkClicks : '—'}</div>
         {realLinkClicks === null && <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>No tracked links set up yet</div>}
+        {cumulativeLinkClicks !== null && (
+          <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '6px' }}>{cumulativeLinkClicks} total since links were set up</div>
+        )}
       </div>
 
       {/* Booking conversions — flagship only, CRM-based, genuinely differs by tier */}
