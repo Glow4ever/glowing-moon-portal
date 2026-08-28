@@ -317,7 +317,7 @@ export default function Metrics() {
               <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '8px' }}>Cost avoidance</div>
               {cumulativeCostAvoided !== null ? (
                 <>
-                  <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--text1)' }}>
+                  <div style={{ fontSize: '28px', fontWeight: '600', color: 'var(--teal)' }}>
                     ${Math.round(cumulativeCostAvoided).toLocaleString()} avoided
                   </div>
                   <div style={{ fontSize: '13px', color: 'var(--text3)', marginTop: '4px' }}>
