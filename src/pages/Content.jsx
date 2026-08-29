@@ -152,6 +152,7 @@ export default function Content() {
   const [fileApproving, setFileApproving] = useState({})
   const [reopeningFile, setReopeningFile] = useState({})
   const [sendReviewModal, setSendReviewModal] = useState(false)
+  const [selectedForReview, setSelectedForReview] = useState(new Set())
   const [sendReviewPlanned, setSendReviewPlanned] = useState('')
   const [sendReviewDueDate, setSendReviewDueDate] = useState('')
   const [sendingReview, setSendingReview] = useState(false)
@@ -341,8 +342,21 @@ export default function Content() {
     await loadCycles()
   }
 
+  function toggleFileForReview(pathLower) {
+    setSelectedForReview(prev => {
+      const next = new Set(prev)
+      if (next.has(pathLower)) next.delete(pathLower)
+      else next.add(pathLower)
+      return next
+    })
+  }
+
   async function openSendReviewModal() {
     setSendReviewModal(true)
+    if (selectedForReview.size > 0) {
+      setSendReviewFileCount(selectedForReview.size)
+      return
+    }
     setSendReviewFileCount(null)
     try {
       const files = await listDropboxFilesRecursive(currentPath)
@@ -361,6 +375,16 @@ export default function Content() {
     }
     setSendingReview(true)
     const folderLabel = stack[stack.length - 1].name
+    const isSelective = selectedForReview.size > 0
+
+    // Captured BEFORE any clearing happens — this is the only source of
+    // truth for "which files were already approved," since a file with no
+    // status row at all defaults to in_review. Without carrying this
+    // forward, a selective send targeting one file would incorrectly make
+    // every other file in the folder look unreviewed again too.
+    const previouslyApprovedPaths = isSelective
+      ? Object.entries(fileStatuses).filter(([path, status]) => status === 'approved' && !selectedForReview.has(path)).map(([path]) => path)
+      : []
 
     try {
       // Clear any existing file_status rows for files in this folder so a
@@ -398,6 +422,20 @@ export default function Content() {
         return
       }
 
+      // Re-affirm every previously-approved file under the new cycle, so a
+      // selective send on one file doesn't reopen everything else.
+      if (previouslyApprovedPaths.length > 0) {
+        await supabase.from('file_status').insert(
+          previouslyApprovedPaths.map(path => ({
+            client_id: client.id,
+            cycle_id: newCycle.id,
+            file_path: path,
+            status: 'approved',
+            updated_at: new Date().toISOString()
+          }))
+        )
+      }
+
       const yearMatch = folderLabel.match(/\d{4}/)
       if (yearMatch) {
         const year = parseInt(yearMatch[0])
@@ -418,14 +456,16 @@ export default function Content() {
         await apiFetch('/api/send-email', {
           method: 'POST',
           body: JSON.stringify({
-            type: 'review',
+            type: isSelective ? 'file_revised' : 'review',
             clientName: client.name,
             month: folderLabel,
+            fileName: isSelective ? [...selectedForReview].map(p => p.split('/').pop()).join(', ') : undefined,
             notificationEmail: client.notification_email
           })
         })
       }
 
+      setSelectedForReview(new Set())
       await loadCycles()
       await loadStatusData()
       setSendReviewModal(false)
@@ -745,10 +785,15 @@ export default function Content() {
           </div>
         </div>
         {(role === 'admin' || role === 'editor') && (
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {stack?.length > 1 && !(isPending && isViewingReviewFolder) && (
               <button className="btn btn-gold" onClick={openSendReviewModal}>
-                <i className="ti ti-send" /> Send for Review
+                <i className="ti ti-send" /> {selectedForReview.size > 0 ? `Send ${selectedForReview.size} Selected` : 'Send for Review'}
+              </button>
+            )}
+            {selectedForReview.size > 0 && (
+              <button className="btn" style={{ fontSize: '12px', color: 'var(--text3)' }} onClick={() => setSelectedForReview(new Set())}>
+                Clear selection
               </button>
             )}
             {isPending && isViewingReviewFolder && currentCycle && (
@@ -1159,7 +1204,17 @@ export default function Content() {
                         )}
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: '4px' }}>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        {(role === 'admin' || role === 'editor') && !cycles.some(c => c.folder_path === currentPath) && (
+                          <input
+                            type="checkbox"
+                            checked={selectedForReview.has(f.path_lower)}
+                            onChange={e => { e.stopPropagation(); toggleFileForReview(f.path_lower) }}
+                            onClick={e => e.stopPropagation()}
+                            title="Select for review"
+                            style={{ cursor: 'pointer' }}
+                          />
+                        )}
                         <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
                         {(role === 'admin' || role === 'editor') && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
                       </div>
@@ -1262,7 +1317,17 @@ export default function Content() {
                         )}
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: '4px' }}>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        {(role === 'admin' || role === 'editor') && !cycles.some(c => c.folder_path === currentPath) && (
+                          <input
+                            type="checkbox"
+                            checked={selectedForReview.has(f.path_lower)}
+                            onChange={e => { e.stopPropagation(); toggleFileForReview(f.path_lower) }}
+                            onClick={e => e.stopPropagation()}
+                            title="Select for review"
+                            style={{ cursor: 'pointer' }}
+                          />
+                        )}
                         <button className={styles.thumbActionBtn} onClick={e => { e.stopPropagation(); handleDownload(f) }}><i className="ti ti-download" /></button>
                         {(role === 'admin' || role === 'editor') && <button className={styles.thumbDeleteBtn} onClick={e => { e.stopPropagation(); handleDeleteFile(f) }}><i className="ti ti-trash" /></button>}
                       </div>
@@ -1361,7 +1426,17 @@ export default function Content() {
                         )}
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: '4px' }}>
+                      <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                        {(role === 'admin' || role === 'editor') && !cycles.some(c => c.folder_path === currentPath) && (
+                          <input
+                            type="checkbox"
+                            checked={selectedForReview.has(f.path_lower)}
+                            onChange={e => { e.stopPropagation(); toggleFileForReview(f.path_lower) }}
+                            onClick={e => e.stopPropagation()}
+                            title="Select for review"
+                            style={{ cursor: 'pointer' }}
+                          />
+                        )}
                         <button className={styles.thumbActionBtn} onClick={() => handleDownload(f)}><i className="ti ti-download" /></button>
                       </div>
                     )}
@@ -1402,12 +1477,23 @@ export default function Content() {
           <div className={styles.modal} onClick={e => e.stopPropagation()}>
             <div className={styles.modalTitle}>Send for Review</div>
             <div style={{ fontSize: '12px', color: 'var(--text2)', marginBottom: '16px' }}>
-              Sending <strong style={{ color: 'var(--text1)' }}>{stack?.[stack.length - 1]?.name}</strong> (
-              {sendReviewFileCount === null
-                ? 'counting files…'
-                : `${sendReviewFileCount} file${sendReviewFileCount !== 1 ? 's' : ''}`}
-              ) to {client?.name} for review.
-              {sendReviewFileCount === 0 && (
+              {selectedForReview.size > 0 ? (
+                <>
+                  Sending <strong style={{ color: 'var(--text1)' }}>{selectedForReview.size} selected file{selectedForReview.size !== 1 ? 's' : ''}</strong> in <strong style={{ color: 'var(--text1)' }}>{stack?.[stack.length - 1]?.name}</strong> to {client?.name} for review.
+                  <div style={{ color: 'var(--teal)', marginTop: '6px' }}>
+                    Everything else already approved in this folder stays approved — only the selected file{selectedForReview.size !== 1 ? 's' : ''} will show as needing another look.
+                  </div>
+                </>
+              ) : (
+                <>
+                  Sending <strong style={{ color: 'var(--text1)' }}>{stack?.[stack.length - 1]?.name}</strong> (
+                  {sendReviewFileCount === null
+                    ? 'counting files…'
+                    : `${sendReviewFileCount} file${sendReviewFileCount !== 1 ? 's' : ''}`}
+                  ) to {client?.name} for review.
+                </>
+              )}
+              {sendReviewFileCount === 0 && selectedForReview.size === 0 && (
                 <div style={{ color: '#F0997B', marginTop: '6px' }}>
                   This folder and its subfolders don't have any files yet — nothing to send.
                 </div>
