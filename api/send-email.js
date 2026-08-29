@@ -171,6 +171,37 @@ module.exports = async function handler(req, res) {
       })
     }
 
+    if (type === 'file_revised') {
+      await resend.emails.send({
+        from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+        to: safeEmail,
+        subject: `A revised file is ready for your review`,
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;">
+              <tr><td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #D3C9A7;">
+                  <tr>
+                    <td style="padding:40px;">
+                      <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+                      <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">One file, revised and ready</h1>
+                      <p style="margin:0 0 24px;font-size:15px;color:#888;line-height:1.6;">We've updated <strong style="color:#fff;">${safeFile}</strong> based on your note — take a look whenever you get a chance.</p>
+                      <p style="margin:0;font-size:14px;color:#888;">
+                        <a href="${portalLink}" style="color:#D3C9A7;text-decoration:none;">Review it in your portal →</a>
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+          </body>
+          </html>
+        `
+      })
+    }
+
     if (type === 'client_report') {
       const isMonthly = safeReportType === 'month_in_review'
       await resend.emails.send({
