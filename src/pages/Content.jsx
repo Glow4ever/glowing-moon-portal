@@ -150,6 +150,7 @@ export default function Content() {
   const [revisionPaths, setRevisionPaths] = useState({})
   const [bulkApproving, setBulkApproving] = useState(false)
   const [fileApproving, setFileApproving] = useState({})
+  const [reopeningFile, setReopeningFile] = useState({})
   const [sendReviewModal, setSendReviewModal] = useState(false)
   const [sendReviewPlanned, setSendReviewPlanned] = useState('')
   const [sendReviewDueDate, setSendReviewDueDate] = useState('')
@@ -650,6 +651,47 @@ export default function Content() {
     await upsertApproved([file])
   }
 
+  async function reopenFileForReview(file) {
+    // Flips one file back to in_review within the SAME already-open cycle
+    // — no new review cycle needed, since a cycle stays active until every
+    // file in it is approved anyway. This also fixes a real data-integrity
+    // gap: if a revised file gets uploaded under the same filename
+    // (overwriting in place), its old 'approved' status would otherwise
+    // sit there stale forever, never prompting the client to look again.
+    if (!client?.id || !currentCycle) return
+    setReopeningFile(p => ({ ...p, [file.path_lower]: true }))
+
+    const { error } = await supabase.from('file_status').upsert({
+      client_id: client.id,
+      cycle_id: currentCycle.id,
+      file_path: file.path_lower,
+      status: 'in_review',
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'client_id,file_path' })
+
+    if (error) {
+      console.error('Reopen file error:', error)
+      setReopeningFile(p => ({ ...p, [file.path_lower]: false }))
+      return
+    }
+
+    setFileStatuses(prev => ({ ...prev, [file.path_lower]: 'in_review' }))
+    setReopeningFile(p => ({ ...p, [file.path_lower]: false }))
+    await recomputeCycleStage(currentCycle.id)
+
+    if (client.notification_email) {
+      await apiFetch('/api/send-email', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'file_revised',
+          clientName: client.name,
+          fileName: file.name,
+          notificationEmail: client.notification_email
+        })
+      })
+    }
+  }
+
   async function approveAllRemaining() {
     const targets = entries
       .filter(e => e.type !== 'folder')
@@ -1104,6 +1146,15 @@ export default function Content() {
                                 Mark Resolved
                               </button>
                             )}
+                            {(role === 'admin' || role === 'editor') && status === 'approved' && (
+                              <button
+                                onClick={() => reopenFileForReview(f)}
+                                disabled={reopeningFile[f.path_lower]}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--gold-light)', color: 'var(--gold-light)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+                              >
+                                {reopeningFile[f.path_lower] ? 'Sending...' : 'Resend for Review'}
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -1198,6 +1249,15 @@ export default function Content() {
                                 Mark Resolved
                               </button>
                             )}
+                            {(role === 'admin' || role === 'editor') && status === 'approved' && (
+                              <button
+                                onClick={() => reopenFileForReview(f)}
+                                disabled={reopeningFile[f.path_lower]}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--gold-light)', color: 'var(--gold-light)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+                              >
+                                {reopeningFile[f.path_lower] ? 'Sending...' : 'Resend for Review'}
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
@@ -1286,6 +1346,15 @@ export default function Content() {
                                 style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--teal)', color: 'var(--teal)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
                               >
                                 Mark Resolved
+                              </button>
+                            )}
+                            {(role === 'admin' || role === 'editor') && status === 'approved' && (
+                              <button
+                                onClick={() => reopenFileForReview(f)}
+                                disabled={reopeningFile[f.path_lower]}
+                                style={{ marginLeft: '6px', background: 'transparent', border: '0.5px solid var(--gold-light)', color: 'var(--gold-light)', borderRadius: '5px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+                              >
+                                {reopeningFile[f.path_lower] ? 'Sending...' : 'Resend for Review'}
                               </button>
                             )}
                           </>
@@ -1469,14 +1538,3 @@ export default function Content() {
     </div>
   )
 }
-
-
-
-
-
-
-
-
-
-
-
