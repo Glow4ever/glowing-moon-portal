@@ -33,6 +33,8 @@ export default function Admin() {
   const [trackedLinks, setTrackedLinks] = useState([])
   const [loadingLinks, setLoadingLinks] = useState(false)
   const [newLink, setNewLink] = useState({ client_id: '', slug: '', destination_url: '', label: '', platform: '' })
+  const [editingLink, setEditingLink] = useState(null)
+  const [savingLinkEdit, setSavingLinkEdit] = useState(false)
   const [savingLink, setSavingLink] = useState(false)
   const [draftText, setDraftText] = useState('')
   const [sendingDraft, setSendingDraft] = useState(false)
@@ -432,6 +434,46 @@ export default function Admin() {
       }
     }
     setSavingLink(false)
+  }
+
+  function startEditingLink(link) {
+    setEditingLink({
+      id: link.id,
+      originalSlug: link.slug,
+      slug: link.slug,
+      destination_url: link.destination_url,
+      label: link.label || '',
+      platform: link.platform || ''
+    })
+  }
+
+  async function saveEditedLink() {
+    if (!editingLink.slug || !editingLink.destination_url) {
+      return showToast('Slug and destination URL are both required')
+    }
+    const cleanSlug = editingLink.slug.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-')
+    const slugChanged = cleanSlug !== editingLink.originalSlug
+    if (slugChanged && !window.confirm(
+      `You're changing this link's actual URL from /go/${editingLink.originalSlug} to /go/${cleanSlug}. ` +
+      `If the old link is already pasted anywhere live (a caption, a bio, a post), it will stop working the moment you save. Continue?`
+    )) {
+      return
+    }
+    setSavingLinkEdit(true)
+    const { error } = await supabase.from('tracked_links').update({
+      slug: cleanSlug,
+      destination_url: editingLink.destination_url.trim(),
+      label: editingLink.label.trim() || null,
+      platform: editingLink.platform || null
+    }).eq('id', editingLink.id)
+    if (error) {
+      showToast(error.code === '23505' ? 'That slug is already taken — try another' : 'Could not save changes')
+    } else {
+      setEditingLink(null)
+      await loadTrackedLinks()
+      showToast('Link updated!')
+    }
+    setSavingLinkEdit(false)
   }
 
   async function deleteTrackedLink(link) {
@@ -1654,30 +1696,93 @@ export default function Admin() {
             <div className={styles.empty}>No tracked links yet — create one above once your short-link domain is attached in Vercel.</div>
           )}
           {trackedLinks.map(link => (
-            <div key={link.id} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '14px 20px', marginBottom: '10px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: '500' }}>
-                  {link.clients?.name}{link.platform && ` · ${link.platform}`} — {link.label || link.slug}
+            <div key={link.id} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '14px 20px', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: '500' }}>
+                    {link.clients?.name}{link.platform && ` · ${link.platform}`} — {link.label || link.slug}
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
+                    /go/{link.slug} &rarr; {link.destination_url}
+                  </div>
                 </div>
-                <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '2px' }}>
-                  /go/{link.slug} &rarr; {link.destination_url}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <span style={{ fontSize: '13px', color: 'var(--teal)', fontWeight: '600' }}>{link.clickCount} clicks</span>
+                  <i
+                    className="ti ti-copy"
+                    onClick={() => copyTrackedLink(link)}
+                    title="Copy full link"
+                    style={{ fontSize: '16px', color: 'var(--text3)', cursor: 'pointer' }}
+                  />
+                  <i
+                    className="ti ti-pencil"
+                    onClick={() => editingLink?.id === link.id ? setEditingLink(null) : startEditingLink(link)}
+                    title="Edit link"
+                    style={{ fontSize: '16px', color: editingLink?.id === link.id ? 'var(--gold-light)' : 'var(--text3)', cursor: 'pointer' }}
+                  />
+                  <i
+                    className="ti ti-trash"
+                    onClick={() => deleteTrackedLink(link)}
+                    title="Delete link"
+                    style={{ fontSize: '16px', color: 'var(--text3)', cursor: 'pointer' }}
+                  />
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <span style={{ fontSize: '13px', color: 'var(--teal)', fontWeight: '600' }}>{link.clickCount} clicks</span>
-                <i
-                  className="ti ti-copy"
-                  onClick={() => copyTrackedLink(link)}
-                  title="Copy full link"
-                  style={{ fontSize: '16px', color: 'var(--text3)', cursor: 'pointer' }}
-                />
-                <i
-                  className="ti ti-trash"
-                  onClick={() => deleteTrackedLink(link)}
-                  title="Delete link"
-                  style={{ fontSize: '16px', color: 'var(--text3)', cursor: 'pointer' }}
-                />
-              </div>
+
+              {editingLink?.id === link.id && (
+                <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '0.5px solid var(--border)', display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end' }}>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Slug</label>
+                    <input
+                      value={editingLink.slug}
+                      onChange={e => setEditingLink(p => ({ ...p, slug: e.target.value }))}
+                      style={{ background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', minWidth: '160px' }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: '200px' }}>
+                    <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Destination URL</label>
+                    <input
+                      value={editingLink.destination_url}
+                      onChange={e => setEditingLink(p => ({ ...p, destination_url: e.target.value }))}
+                      style={{ width: '100%', background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Platform</label>
+                    <select
+                      value={editingLink.platform}
+                      onChange={e => setEditingLink(p => ({ ...p, platform: e.target.value }))}
+                      style={{ background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', minWidth: '130px' }}
+                    >
+                      <option value="">Select platform</option>
+                      <option value="facebook">Facebook</option>
+                      <option value="instagram">Instagram</option>
+                      <option value="linkedin">LinkedIn</option>
+                      <option value="youtube">YouTube</option>
+                      <option value="tiktok">TikTok</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '11px', color: 'var(--text3)', display: 'block', marginBottom: '4px' }}>Label</label>
+                    <input
+                      value={editingLink.label}
+                      onChange={e => setEditingLink(p => ({ ...p, label: e.target.value }))}
+                      style={{ background: 'var(--surface3)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '7px', padding: '9px 10px', fontSize: '13px', minWidth: '140px' }}
+                    />
+                  </div>
+                  <button onClick={() => setEditingLink(null)} style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '7px', padding: '9px 14px', fontSize: '13px', cursor: 'pointer' }}>
+                    Cancel
+                  </button>
+                  <button className="btn btn-gold" onClick={saveEditedLink} disabled={savingLinkEdit} style={{ fontSize: '13px' }}>
+                    {savingLinkEdit ? 'Saving...' : 'Save'}
+                  </button>
+                  {editingLink.slug !== editingLink.originalSlug && (
+                    <div style={{ fontSize: '11px', color: '#F0997B', width: '100%' }}>
+                      Changing the slug breaks the old link if it's already live anywhere — you'll get a confirmation before this saves.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
