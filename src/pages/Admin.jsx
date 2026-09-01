@@ -72,7 +72,7 @@ export default function Admin() {
   async function loadTrackerRollup() {
     const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
       supabase.from('file_status').select('client_id, status'),
-      supabase.from('file_comments').select('client_id, file_path')
+      supabase.from('file_comments').select('client_id, file_path, sender_role').eq('resolved', false)
     ])
 
     const rollup = {}
@@ -83,9 +83,12 @@ export default function Admin() {
       else rollup[r.client_id].in_review++
     })
 
-    // revision overrides in_review — count unique file paths with comments
+    // revision overrides in_review — count unique file paths with unresolved
+    // CLIENT comments only. Admin's own notes are informational, not a
+    // signal that this client is waiting on a revision.
     const revisionByClient = {}
     ;(commentRows || []).forEach(r => {
+      if (r.sender_role === 'admin') return
       if (!revisionByClient[r.client_id]) revisionByClient[r.client_id] = new Set()
       revisionByClient[r.client_id].add(r.file_path)
     })
@@ -111,10 +114,16 @@ export default function Admin() {
     const cycleIds = cycleRows.map(c => c.id)
     const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
       supabase.from('file_status').select('cycle_id, status').in('cycle_id', cycleIds),
-      supabase.from('file_comments').select('cycle_id').in('cycle_id', cycleIds)
+      supabase.from('file_comments').select('cycle_id, sender_role').in('cycle_id', cycleIds).eq('resolved', false)
     ])
 
-    const revisionCycles = new Set((commentRows || []).map(r => r.cycle_id))
+    // Only unresolved CLIENT comments should mark a cycle as needing
+    // revisions — an admin note left alongside a send-for-review is
+    // informational, and an already-resolved comment shouldn't still be
+    // blocking anything either. This query previously had neither filter.
+    const revisionCycles = new Set(
+      (commentRows || []).filter(r => r.sender_role !== 'admin').map(r => r.cycle_id)
+    )
     const rollupByCycle = {}
     ;(statusRows || []).forEach(r => {
       if (!rollupByCycle[r.cycle_id]) rollupByCycle[r.cycle_id] = { approved: 0, in_review: 0 }
@@ -322,10 +331,11 @@ export default function Admin() {
     if (comment.cycle_id) {
       const [{ data: statusRows }, { data: remainingComments }] = await Promise.all([
         supabase.from('file_status').select('status').eq('cycle_id', comment.cycle_id),
-        supabase.from('file_comments').select('id').eq('cycle_id', comment.cycle_id).eq('resolved', false).limit(1)
+        supabase.from('file_comments').select('id, sender_role').eq('cycle_id', comment.cycle_id).eq('resolved', false)
       ])
+      const clientRemaining = (remainingComments || []).filter(r => r.sender_role !== 'admin')
       let recomputed = 'in_review'
-      if ((remainingComments || []).length > 0) recomputed = 'revisions'
+      if (clientRemaining.length > 0) recomputed = 'revisions'
       else if ((statusRows || []).length > 0 && statusRows.every(r => r.status === 'approved')) recomputed = 'approved'
       await supabase.from('review_cycles').update({ stage: recomputed }).eq('id', comment.cycle_id)
       await loadCyclesByClient()
