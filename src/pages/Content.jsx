@@ -148,6 +148,7 @@ export default function Content() {
   const [fileStatuses, setFileStatuses] = useState({})
   const [dueDates, setDueDates] = useState({})
   const [revisionPaths, setRevisionPaths] = useState({})
+  const [approvedAt, setApprovedAt] = useState({})
   const [bulkApproving, setBulkApproving] = useState(false)
   const [fileApproving, setFileApproving] = useState({})
   const [reopeningFile, setReopeningFile] = useState({})
@@ -226,17 +227,20 @@ export default function Content() {
 
   async function loadStatusData() {
     const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
-      supabase.from('file_status').select('file_path, status, due_date, cycle_id').eq('client_id', client.id),
+      supabase.from('file_status').select('file_path, status, due_date, cycle_id, updated_at').eq('client_id', client.id),
       supabase.from('file_comments').select('file_path').eq('client_id', client.id).eq('resolved', false)
     ])
     const statusMap = {}
     const dueMap = {}
+    const approvedAtMap = {}
     ;(statusRows || []).forEach(r => {
       statusMap[r.file_path] = r.status
       if (r.due_date) dueMap[r.file_path] = r.due_date
+      if (r.status === 'approved' && r.updated_at) approvedAtMap[r.file_path] = r.updated_at
     })
     setFileStatuses(statusMap)
     setDueDates(dueMap)
+    setApprovedAt(approvedAtMap)
     const revMap = {}
     ;(commentRows || []).forEach(r => { revMap[r.file_path] = true })
     setRevisionPaths(revMap)
@@ -273,6 +277,17 @@ export default function Content() {
     if (getFileDisplayStatus(file.path_lower) === 'approved') return false
     const modified = new Date(file.client_modified).getTime()
     return Date.now() - modified < 7 * 24 * 60 * 60 * 1000
+  }
+
+  function wasModifiedSinceApproval(file) {
+    // Resend for Review should only ever show when the underlying file
+    // actually changed after approval (a same-filename reupload leaving a
+    // stale 'approved' status behind) — not on every approved file
+    // unconditionally, which just invites confusion or accidental clicks
+    // on files nobody touched.
+    const approvedTimestamp = approvedAt[file.path_lower]
+    if (!approvedTimestamp || !file?.client_modified) return false
+    return new Date(file.client_modified).getTime() > new Date(approvedTimestamp).getTime()
   }
 
   function getFileDisplayStatus(pathLower) {
@@ -755,6 +770,14 @@ export default function Content() {
   const others = fileSource.filter(e => e.type !== 'folder' && e.type !== 'photo' && e.type !== 'video')
   const allFiles = [...photos, ...videos, ...others]
 
+  // Catches the case a per-file badge can't: an unresolved comment whose
+  // original file_path no longer matches anything currently in the
+  // folder (revised and reuploaded under a new filename, not an exact
+  // overwrite). The thread survives at the folder level by design — this
+  // just makes sure there's always a way to actually reach it.
+  const currentPathPrefix = (currentPath || '').toLowerCase()
+  const folderHasUnresolvedNote = Object.keys(revisionPaths).some(p => p.startsWith(currentPathPrefix + '/') || p === currentPathPrefix)
+
   const statusCounts = allFiles.reduce((acc, f) => {
     const s = getFileDisplayStatus(f.path_lower)
     acc[s] = (acc[s] || 0) + 1
@@ -795,6 +818,15 @@ export default function Content() {
         </div>
         {(role === 'admin' || role === 'editor') && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {folderHasUnresolvedNote && (
+              <button
+                className="btn"
+                style={{ color: '#F0997B', border: '0.5px solid #F0997B' }}
+                onClick={() => openThread(allFiles[0] || { name: stack?.[stack.length - 1]?.name, path_lower: currentPath })}
+              >
+                <i className="ti ti-message" /> Revision Notes
+              </button>
+            )}
             {stack?.length > 1 && !(isPending && isViewingReviewFolder) && (
               <button className="btn btn-gold" onClick={openSendReviewModal}>
                 <i className="ti ti-send" /> {selectedForReview.size > 0 ? `Send ${selectedForReview.size} Selected` : 'Send for Review'}
@@ -1200,7 +1232,7 @@ export default function Content() {
                                 Mark Resolved
                               </button>
                             )}
-                            {(role === 'admin' || role === 'editor') && status === 'approved' && (
+                            {(role === 'admin' || role === 'editor') && status === 'approved' && wasModifiedSinceApproval(f) && (
                               <button
                                 onClick={() => reopenFileForReview(f)}
                                 disabled={reopeningFile[f.path_lower]}
@@ -1313,7 +1345,7 @@ export default function Content() {
                                 Mark Resolved
                               </button>
                             )}
-                            {(role === 'admin' || role === 'editor') && status === 'approved' && (
+                            {(role === 'admin' || role === 'editor') && status === 'approved' && wasModifiedSinceApproval(f) && (
                               <button
                                 onClick={() => reopenFileForReview(f)}
                                 disabled={reopeningFile[f.path_lower]}
@@ -1422,7 +1454,7 @@ export default function Content() {
                                 Mark Resolved
                               </button>
                             )}
-                            {(role === 'admin' || role === 'editor') && status === 'approved' && (
+                            {(role === 'admin' || role === 'editor') && status === 'approved' && wasModifiedSinceApproval(f) && (
                               <button
                                 onClick={() => reopenFileForReview(f)}
                                 disabled={reopeningFile[f.path_lower]}
