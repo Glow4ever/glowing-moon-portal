@@ -217,10 +217,11 @@ export default function Content() {
   async function recomputeCycleStage(cycleId) {
     const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
       supabase.from('file_status').select('status').eq('cycle_id', cycleId),
-      supabase.from('file_comments').select('id').eq('cycle_id', cycleId).eq('resolved', false).limit(1)
+      supabase.from('file_comments').select('id, sender_role').eq('cycle_id', cycleId).eq('resolved', false)
     ])
+    const clientUnresolved = (commentRows || []).filter(r => r.sender_role !== 'admin')
     let stage = 'in_review'
-    if ((commentRows || []).length > 0) stage = 'revisions'
+    if (clientUnresolved.length > 0) stage = 'revisions'
     else if ((statusRows || []).length > 0 && statusRows.every(r => r.status === 'approved')) stage = 'approved'
     await supabase.from('review_cycles').update({ stage }).eq('id', cycleId)
     await loadCycles()
@@ -230,7 +231,7 @@ export default function Content() {
   async function loadStatusData() {
     const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
       supabase.from('file_status').select('file_path, status, due_date, cycle_id, updated_at').eq('client_id', client.id),
-      supabase.from('file_comments').select('file_path, folder_path').eq('client_id', client.id).eq('resolved', false)
+      supabase.from('file_comments').select('file_path, folder_path, sender_role').eq('client_id', client.id).eq('resolved', false)
     ])
     const statusMap = {}
     const dueMap = {}
@@ -249,7 +250,13 @@ export default function Content() {
       if (r.folder_path) foldersWithNotes.add(r.folder_path.toLowerCase())
     })
     setUnresolvedNoteFolders(foldersWithNotes)
-    ;(commentRows || []).forEach(r => { revMap[r.file_path] = true })
+    // Only client feedback should mark a file as 'needs revision' — an
+    // admin note sent alongside a review is informational, not the client
+    // asking for a change, and showing it as a revision flag has it
+    // backwards.
+    ;(commentRows || []).forEach(r => {
+      if (r.sender_role !== 'admin') revMap[r.file_path] = true
+    })
     setRevisionPaths(revMap)
   }
 
