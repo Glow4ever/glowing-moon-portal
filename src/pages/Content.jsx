@@ -489,6 +489,15 @@ export default function Content() {
     setUploading(false)
     if (client?.id) incrementFileCount(client.id, 'content', selected.length)
     await logAction('upload', 'content', { count: selected.length, folder: stack?.[stack.length - 1]?.name }, client?.id)
+    // A new file lands with no file_status row, which defaults to
+    // "in review" — but a folder's cached cycle stage doesn't know that on
+    // its own. Without this, a folder that was fully approved would keep
+    // showing "Approved" in Admin's tracker even after a fresh, unreviewed
+    // file gets added to it.
+    if (currentCycle) {
+      await recomputeCycleStage(currentCycle.id)
+      await loadStatusData()
+    }
   }
 
   async function handleDeleteFile(file) {
