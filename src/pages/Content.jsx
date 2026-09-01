@@ -148,6 +148,7 @@ export default function Content() {
   const [fileStatuses, setFileStatuses] = useState({})
   const [dueDates, setDueDates] = useState({})
   const [revisionPaths, setRevisionPaths] = useState({})
+  const [unresolvedNoteFolders, setUnresolvedNoteFolders] = useState(new Set())
   const [approvedAt, setApprovedAt] = useState({})
   const [bulkApproving, setBulkApproving] = useState(false)
   const [fileApproving, setFileApproving] = useState({})
@@ -228,7 +229,7 @@ export default function Content() {
   async function loadStatusData() {
     const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
       supabase.from('file_status').select('file_path, status, due_date, cycle_id, updated_at').eq('client_id', client.id),
-      supabase.from('file_comments').select('file_path').eq('client_id', client.id).eq('resolved', false)
+      supabase.from('file_comments').select('file_path, folder_path').eq('client_id', client.id).eq('resolved', false)
     ])
     const statusMap = {}
     const dueMap = {}
@@ -242,6 +243,11 @@ export default function Content() {
     setDueDates(dueMap)
     setApprovedAt(approvedAtMap)
     const revMap = {}
+    const foldersWithNotes = new Set()
+    ;(commentRows || []).forEach(r => {
+      if (r.folder_path) foldersWithNotes.add(r.folder_path.toLowerCase())
+    })
+    setUnresolvedNoteFolders(foldersWithNotes)
     ;(commentRows || []).forEach(r => { revMap[r.file_path] = true })
     setRevisionPaths(revMap)
   }
@@ -770,25 +776,12 @@ export default function Content() {
   const others = fileSource.filter(e => e.type !== 'folder' && e.type !== 'photo' && e.type !== 'video')
   const allFiles = [...photos, ...videos, ...others]
 
-  // Catches the case a per-file badge can't: an unresolved comment whose
-  // original file_path no longer matches anything currently in the
-  // folder (revised and reuploaded under a new filename, not an exact
-  // overwrite). The thread survives at the folder level by design — this
-  // just makes sure there's always a way to actually reach it.
-  //
-  // Checked in BOTH directions on purpose: a comment's recorded location
-  // can end up either deeper than or shallower than the folder currently
-  // being viewed. Shallower happens for real — e.g. a comment left back
-  // when files sat directly in a month folder, before that got
-  // reorganized into weekly subfolders. The comment's own folder never
-  // moves with a later reorganization, so a one-directional check misses
-  // exactly that case.
+  // Direct check against folder_path — the authoritative field, set once
+  // when a comment is made and never touched again, exactly so it stays
+  // reliable even if files inside that folder get renamed or replaced
+  // later. No need to derive or guess this from file_path at all.
   const currentPathPrefix = (currentPath || '').toLowerCase()
-  const folderHasUnresolvedNote = Object.keys(revisionPaths).some(p => {
-    const lastSlash = p.lastIndexOf('/')
-    const commentFolder = lastSlash > -1 ? p.substring(0, lastSlash) : p
-    return currentPathPrefix.startsWith(commentFolder) || commentFolder.startsWith(currentPathPrefix)
-  })
+  const folderHasUnresolvedNote = unresolvedNoteFolders.has(currentPathPrefix)
 
   const statusCounts = allFiles.reduce((acc, f) => {
     const s = getFileDisplayStatus(f.path_lower)
