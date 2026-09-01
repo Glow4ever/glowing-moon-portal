@@ -19,7 +19,7 @@ module.exports = async function handler(req, res) {
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType } = req.body
+  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType, note } = req.body
 
   const safeClient = sanitize(clientName)
   const safeMonth = sanitize(month)
@@ -29,6 +29,7 @@ module.exports = async function handler(req, res) {
   const safeRecipient = sanitize(recipientEmail)
   const safeContent = sanitize(content)
   const safeReportType = sanitize(reportType)
+  const safeNote = sanitize(note)
 
   const portalLink = 'https://portal.glowingmoonmedia.com/content'
   const loginLink = 'https://portal.glowingmoonmedia.com/login'
@@ -56,6 +57,7 @@ module.exports = async function handler(req, res) {
                     <td style="background:#111113;padding:40px 40px 32px;">
                       <h1 style="margin:0 0 8px;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">Your ${safeMonth} content<br>is ready to review</h1>
                       <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">Hi ${safeClient}, your content package for <strong style="color:#fff;">${safeMonth}</strong> has been uploaded to your portal. Take a look, leave any revision notes on specific files, and approve when everything looks good.</p>
+                      ${safeNote ? `<div style="margin:20px 0 0;padding:16px 20px;background:#1a1a1c;border-left:3px solid #D3C9A7;border-radius:4px;"><p style="margin:0;font-size:15px;color:#fff;line-height:1.6;">${safeNote}</p></div>` : ''}
                     </td>
                   </tr>
                   <tr>
@@ -188,6 +190,7 @@ module.exports = async function handler(req, res) {
                       <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
                       <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">One file, revised and ready</h1>
                       <p style="margin:0 0 24px;font-size:15px;color:#888;line-height:1.6;">We've updated <strong style="color:#fff;">${safeFile}</strong> based on your note — take a look whenever you get a chance.</p>
+                      ${safeNote ? `<div style="margin:0 0 24px;padding:16px 20px;background:#1a1a1c;border-left:3px solid #D3C9A7;border-radius:4px;"><p style="margin:0;font-size:15px;color:#fff;line-height:1.6;">${safeNote}</p></div>` : ''}
                       <p style="margin:0;font-size:14px;color:#888;">
                         <a href="${portalLink}" style="color:#D3C9A7;text-decoration:none;">Review it in your portal →</a>
                       </p>
