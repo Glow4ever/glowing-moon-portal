@@ -157,6 +157,7 @@ export default function Content() {
   const [selectedForReview, setSelectedForReview] = useState(new Set())
   const [sendReviewPlanned, setSendReviewPlanned] = useState('')
   const [sendReviewDueDate, setSendReviewDueDate] = useState('')
+  const [sendReviewNote, setSendReviewNote] = useState('')
   const [sendingReview, setSendingReview] = useState(false)
   const [reviewFiles, setReviewFiles] = useState([])
   const [loadingReviewFiles, setLoadingReviewFiles] = useState(false)
@@ -374,6 +375,7 @@ export default function Content() {
 
   async function openSendReviewModal() {
     setSendReviewModal(true)
+    setSendReviewNote('')
     if (selectedForReview.size > 0) {
       setSendReviewFileCount(selectedForReview.size)
       return
@@ -443,6 +445,23 @@ export default function Content() {
         return
       }
 
+      // An optional note from admin, written the same way every other
+      // comment in this system works — a real, permanent entry in the
+      // folder's thread, not just email text that vanishes from history.
+      // Tagged to the first file in the batch as a label; the folder-level
+      // thread is what actually matters, same as everywhere else.
+      if (sendReviewNote.trim()) {
+        await supabase.from('file_comments').insert({
+          client_id: client.id,
+          cycle_id: newCycle.id,
+          folder_path: currentPath,
+          file_path: allFiles[0]?.path_lower || currentPath,
+          comment: sendReviewNote.trim(),
+          sender_role: 'admin',
+          read: false
+        })
+      }
+
       // Re-affirm every previously-approved file under the new cycle, so a
       // selective send on one file doesn't reopen everything else.
       if (previouslyApprovedPaths.length > 0) {
@@ -481,7 +500,8 @@ export default function Content() {
             clientName: client.name,
             month: folderLabel,
             fileName: isSelective ? [...selectedForReview].map(p => p.split('/').pop()).join(', ') : undefined,
-            notificationEmail: client.notification_email
+            notificationEmail: client.notification_email,
+            note: sendReviewNote.trim() || undefined
           })
         })
       }
@@ -492,6 +512,7 @@ export default function Content() {
       setSendReviewModal(false)
       setSendReviewPlanned('')
       setSendReviewDueDate('')
+      setSendReviewNote('')
     } catch (err) {
       console.error('Send for review error:', err)
     }
@@ -1579,6 +1600,20 @@ export default function Content() {
                 >
                   <i className="ti ti-calendar-event" aria-hidden="true" />
                 </button>
+              </div>
+            </div>
+            <div className={styles.field}>
+              <label className={styles.label}>Note to include (optional)</label>
+              <textarea
+                className={styles.input}
+                value={sendReviewNote}
+                onChange={e => setSendReviewNote(e.target.value)}
+                placeholder="e.g. Fixed the pacing you flagged on the last one"
+                rows={3}
+                style={{ resize: 'vertical', fontFamily: 'inherit' }}
+              />
+              <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>
+                Goes out in the notification email and stays permanently in this folder's Revision Notes thread.
               </div>
             </div>
             <div className={styles.modalActions}>
