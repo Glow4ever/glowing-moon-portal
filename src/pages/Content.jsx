@@ -775,8 +775,20 @@ export default function Content() {
   // folder (revised and reuploaded under a new filename, not an exact
   // overwrite). The thread survives at the folder level by design — this
   // just makes sure there's always a way to actually reach it.
+  //
+  // Checked in BOTH directions on purpose: a comment's recorded location
+  // can end up either deeper than or shallower than the folder currently
+  // being viewed. Shallower happens for real — e.g. a comment left back
+  // when files sat directly in a month folder, before that got
+  // reorganized into weekly subfolders. The comment's own folder never
+  // moves with a later reorganization, so a one-directional check misses
+  // exactly that case.
   const currentPathPrefix = (currentPath || '').toLowerCase()
-  const folderHasUnresolvedNote = Object.keys(revisionPaths).some(p => p.startsWith(currentPathPrefix + '/') || p === currentPathPrefix)
+  const folderHasUnresolvedNote = Object.keys(revisionPaths).some(p => {
+    const lastSlash = p.lastIndexOf('/')
+    const commentFolder = lastSlash > -1 ? p.substring(0, lastSlash) : p
+    return currentPathPrefix.startsWith(commentFolder) || commentFolder.startsWith(currentPathPrefix)
+  })
 
   const statusCounts = allFiles.reduce((acc, f) => {
     const s = getFileDisplayStatus(f.path_lower)
