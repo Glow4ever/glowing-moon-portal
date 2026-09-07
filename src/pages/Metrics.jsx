@@ -62,20 +62,21 @@ export default function Metrics() {
       // client's tracked links, not an aggregated snapshot. Genuine
       // directional volume, no fabricated per-click dollar value, matching
       // the Attribution Chain doc's own stated approach.
-      supabase.from('tracked_links').select('id, link_clicks(clicked_at)').eq('client_id', client.id)
+      supabase.from('tracked_links').select('id, link_clicks(clicked_at, is_bot)').eq('client_id', client.id)
     ])
     setSnapshots(snapData || [])
     setAggregates(aggData || [])
     setLogEntries(logData || [])
     const sinceTs = new Date(since).getTime()
     const clickCount = (linkRows || []).reduce((sum, link) => {
-      const recentClicks = (link.link_clicks || []).filter(c => new Date(c.clicked_at).getTime() >= sinceTs)
+      const recentClicks = (link.link_clicks || []).filter(c => !c.is_bot && new Date(c.clicked_at).getTime() >= sinceTs)
       return sum + recentClicks.length
     }, 0)
     // All-time total from the same fetched data — a tracked link can't
     // predate the client relationship anyway, so "all clicks ever" and
-    // "clicks since retainer start" are the same number here.
-    const cumulativeClickCount = (linkRows || []).reduce((sum, link) => sum + (link.link_clicks || []).length, 0)
+    // "clicks since retainer start" are the same number here. Bot-flagged
+    // clicks excluded — see api/go-redirect.js for how that gets set.
+    const cumulativeClickCount = (linkRows || []).reduce((sum, link) => sum + (link.link_clicks || []).filter(c => !c.is_bot).length, 0)
     setRealLinkClicks((linkRows || []).length > 0 ? clickCount : null)
     setCumulativeLinkClicks((linkRows || []).length > 0 ? cumulativeClickCount : null)
     setLoading(false)
