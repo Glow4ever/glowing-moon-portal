@@ -47,7 +47,11 @@ const PLATFORM_CONFIG = {
     engagementMetric: 'engagement',
     engagementParamName: 'subject',
     engagementParamValue: 'posts',
-    reachField: 'impressionsUnique'
+    reachField: 'impressionsUnique',
+    // Facebook and LinkedIn's /posts endpoint has no publishedAt field —
+    // 'created' is the closest available and matches Instagram/YouTube's
+    // publishedAt in an analytics endpoint returning already-live posts.
+    dateField: 'created'
   },
   instagram: {
     audienceMetric: 'followers',
@@ -56,7 +60,8 @@ const PLATFORM_CONFIG = {
     engagementMetric: 'engagement',
     engagementParamName: 'subject',
     engagementParamValue: 'posts',
-    reachField: 'reach'
+    reachField: 'reach',
+    dateField: 'publishedAt'
   },
   linkedin: {
     audienceMetric: 'Followers', // capitalized — confirmed from live account, not a typo
@@ -65,7 +70,8 @@ const PLATFORM_CONFIG = {
     engagementMetric: 'engagement',
     engagementParamName: 'metricType', // timelines uses metricType
     engagementParamValue: 'posts',
-    reachField: 'uniqueImpressions'
+    reachField: 'uniqueImpressions',
+    dateField: 'created'
   },
   youtube: {
     audienceMetric: 'totalSubscribers',
@@ -85,7 +91,8 @@ const PLATFORM_CONFIG = {
     // total-plays proxy is more honest signal than omitting YouTube from
     // reach entirely, but this is NOT apples-to-apples with the other three
     // platforms' true-unique numbers.
-    reachField: 'views'
+    reachField: 'views',
+    dateField: 'publishedAt'
   }
 }
 
@@ -122,7 +129,7 @@ export default async function handler(req, res) {
 
   const { data: clients, error: clientsError } = await supabase
     .from('clients')
-    .select('id, name, metricool_blog_id')
+    .select('id, name, metricool_blog_id, retainer_start_date, created_at')
     .not('metricool_blog_id', 'is', null)
 
   if (clientsError) {
@@ -135,6 +142,13 @@ export default async function handler(req, res) {
   const results = []
 
   for (const client of clients) {
+    // Full history since the retainer began — reach and streak both need
+    // this, unlike audience/engagement above which stay windowed to a
+    // recent slice. Falls back to account creation if no retainer date is
+    // set, so this never silently produces an empty window.
+    const sinceStart = new Date(client.retainer_start_date || client.created_at)
+    const publishDatesForClient = new Set()
+
     for (const [platform, config] of Object.entries(PLATFORM_CONFIG)) {
       try {
         // Audience snapshot
@@ -203,17 +217,20 @@ export default async function handler(req, res) {
           }
         }
 
-        // Reach snapshot — this endpoint shape is different on purpose:
-        // one call returns every post published in the window with its
-        // own stats attached, so reach is summed here rather than asked
-        // of Metricool as a single aggregate the way engagement is above.
-        // Recorded as a daily delta (like engagement), not a running
-        // total — the cumulative reach shown anywhere in the portal is
-        // computed by summing these daily rows, same pattern as reading
-        // cumulative hours from monthly time_recovered_hours elsewhere.
+        // Reach snapshot — pulls EVERY post since the retainer started,
+        // not a recent window. This writes the current true total each
+        // run (upsert overwrites today's row), the same read semantics
+        // as audience's "latest value" rather than engagement's "sum of
+        // daily deltas". That distinction matters: a post's reach keeps
+        // growing for days after it publishes, so a narrow window that
+        // only ever catches a post once, on its publish day, permanently
+        // undercounts. Pulling full history every run means a post's
+        // contribution to the total updates as it naturally gains reach,
+        // and nothing gets double-counted since each day's write replaces
+        // the previous total rather than adding to it.
         if (config.reachField) {
           const reachParams = {
-            from: isoWithOffset(from),
+            from: isoWithOffset(sinceStart),
             to: isoWithOffset(to),
             timezone: 'America/New_York',
             userId,
@@ -221,6 +238,11 @@ export default async function handler(req, res) {
           }
           const postsData = await metricoolFetch(`/posts/${platform}`, reachParams)
           const posts = Array.isArray(postsData) ? postsData : (postsData?.data || [])
+
+          posts.forEach(post => {
+            const dateVal = post[config.dateField]
+            if (dateVal) publishDatesForClient.add(String(dateVal).slice(0, 10))
+          })
 
           if (posts.length > 0) {
             const totalReach = posts.reduce((sum, post) => sum + (post[config.reachField] || 0), 0)
@@ -232,10 +254,9 @@ export default async function handler(req, res) {
               recorded_date: to.toISOString().slice(0, 10)
             }, { onConflict: 'client_id,platform,metric_type,recorded_date' })
           }
-          // Zero posts in the window is a normal, expected state (nothing
-          // published that day) — no row written, nothing to log as an
-          // error, matching how the engagement empty-response case below
-          // is handled.
+          // Zero posts across the ENTIRE retainer history (not just a
+          // recent window) is the only case with nothing to write —
+          // genuinely rare, and still not an error.
         }
 
         results.push({ client: client.name, platform, status: 'ok' })
@@ -253,6 +274,44 @@ export default async function handler(req, res) {
         }
         results.push({ client: client.name, platform, status: isMissingConnection ? 'not_connected' : 'error', message: err.message })
       }
+    }
+
+    // Publish streak — consecutive ISO weeks (Monday-start), counting
+    // back from the current week, with a post on ANY platform. Built
+    // from real publish dates pulled fresh this run, not from
+    // calendar_events — that table is a rolling scheduling window that
+    // gets pruned (confirmed live: 158 of EvoHealth's past events were
+    // sitting in calendar_prune_candidates the day this was diagnosed),
+    // so it can't be trusted as publishing history.
+    try {
+      const weekKey = dateStr => {
+        const d = new Date(dateStr + 'T00:00:00Z')
+        const day = (d.getUTCDay() + 6) % 7
+        d.setUTCDate(d.getUTCDate() - day)
+        return d.toISOString().slice(0, 10)
+      }
+      const postedWeeks = new Set([...publishDatesForClient].map(weekKey))
+      const todayKey = weekKey(new Date().toISOString().slice(0, 10))
+      let streak = 0
+      let cursor = new Date()
+      cursor.setUTCDate(cursor.getUTCDate() - ((cursor.getUTCDay() + 6) % 7))
+      while (true) {
+        const key = cursor.toISOString().slice(0, 10)
+        if (!postedWeeks.has(key)) {
+          // Don't break the streak just because the current week hasn't
+          // published yet — only count it as a miss once the week ends.
+          if (key === todayKey) {
+            cursor.setUTCDate(cursor.getUTCDate() - 7)
+            continue
+          }
+          break
+        }
+        streak++
+        cursor.setUTCDate(cursor.getUTCDate() - 7)
+      }
+      await supabase.from('clients').update({ publish_streak_weeks: streak }).eq('id', client.id)
+    } catch (err) {
+      console.error(`Streak computation failed for ${client.name}:`, err.message)
     }
   }
 
