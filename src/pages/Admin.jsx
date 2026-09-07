@@ -596,6 +596,7 @@ export default function Admin() {
       roi_show_time_hours: !!editingClient.roi_show_time_hours,
       roi_show_time_value: !!editingClient.roi_show_time_value,
       roi_show_cost_avoidance: !!editingClient.roi_show_cost_avoidance,
+      primary_frame: editingClient.primary_frame || 'operations',
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -1103,6 +1104,30 @@ export default function Admin() {
                             ))}
                           </div>
                           <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Leave blank for platforms this client doesn't use — no card shows for those.</div>
+                        </div>
+                        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                          <label className={styles.label}>Portal Frame</label>
+                          <div style={{ display: 'flex', gap: '10px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text2)', cursor: 'pointer', padding: '10px 14px', background: editingClient.primary_frame === 'credibility' ? 'var(--surface3)' : 'transparent', border: '0.5px solid var(--border)', borderRadius: '8px' }}>
+                              <input
+                                type="radio"
+                                name="primary_frame"
+                                checked={editingClient.primary_frame === 'credibility'}
+                                onChange={() => setEditingClient(p => ({...p, primary_frame: 'credibility'}))}
+                              />
+                              Credibility — leads with reach, library growth, and presence milestones
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text2)', cursor: 'pointer', padding: '10px 14px', background: editingClient.primary_frame !== 'credibility' ? 'var(--surface3)' : 'transparent', border: '0.5px solid var(--border)', borderRadius: '8px' }}>
+                              <input
+                                type="radio"
+                                name="primary_frame"
+                                checked={editingClient.primary_frame !== 'credibility'}
+                                onChange={() => setEditingClient(p => ({...p, primary_frame: 'operations'}))}
+                              />
+                              Operations — leads with time recovered and cost avoidance
+                            </label>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Changes which Overview layout this client sees. Credibility fits person-led brands where content builds an individual's standing. Operations fits teams where content supports an existing marketing function.</div>
                         </div>
                         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
                           <label className={styles.label}>ROI Baselines (captured once at onboarding, restated quarterly)</label>
