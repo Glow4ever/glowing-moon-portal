@@ -95,9 +95,12 @@ export default function Overview() {
 
     const startDate = client.retainer_start_date || client.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10)
 
-    const [{ data: reachRows }, { data: audienceRows }] = await Promise.all([
+    const [{ data: reachRows }, { data: audienceRows }, { count: outcomeCount }] = await Promise.all([
       supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'reach').order('recorded_date', { ascending: false }),
-      supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'audience').order('recorded_date', { ascending: false })
+      supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'audience').order('recorded_date', { ascending: false }),
+      // Attributed outcomes — the closest thing to real ROI. RLS already
+      // limits clients to client_visible rows, so no extra filter needed.
+      supabase.from('client_log_entries').select('id', { count: 'exact', head: true }).eq('client_id', client.id).eq('entry_type', 'attributed_outcome')
     ])
 
     // Reach is a current-value metric now, same read pattern as audience
@@ -139,6 +142,7 @@ export default function Overview() {
     const streak = client.publish_streak_weeks || 0
 
     setCredData({
+      outcomeCount: outcomeCount || 0,
       totalReach,
       byPlatform,
       growthByPlatform,
@@ -565,42 +569,26 @@ export default function Overview() {
               })
             )}
           </div>
-          {(client?.roi_show_time_hours || client?.roi_show_cost_avoidance) && (
-            <div className={styles.card} style={{ cursor: 'pointer' }} onClick={() => navigate('/metrics')}>
-              <div className={styles.cardTitle}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                  <i className="ti ti-target-arrow" style={{ fontSize: '14px', color: 'var(--teal)' }} />ROI tracking
-                </span>
-              </div>
-              {(() => {
-                if (client?.time_recovered_hours && client?.roi_show_time_hours) {
-                  const monthsSinceStart = client?.retainer_start_date
-                    ? (Date.now() - new Date(client.retainer_start_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24 * 30.44)
-                    : null
-                  const cumulativeHours = monthsSinceStart ? Math.round(client.time_recovered_hours * monthsSinceStart) : null
-                  return (
-                    <>
-                      <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text1)', margin: '4px 0 4px' }}>
-                        {cumulativeHours !== null ? `~${cumulativeHours} hrs saved` : `~${client.time_recovered_hours} hrs/mo`}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text3)' }}>View full metrics &rarr;</div>
-                    </>
-                  )
-                }
-                if (client?.cost_avoidance_amount && client?.roi_show_cost_avoidance) {
-                  return (
-                    <>
-                      <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text1)', margin: '4px 0 4px' }}>
-                        ${Number(client.cost_avoidance_amount).toLocaleString()}/mo avoided
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text3)' }}>View full metrics &rarr;</div>
-                    </>
-                  )
-                }
-                return null
-              })()}
+          {/* Outcomes lead this card in the credibility frame. Efficiency
+              (hours/cost) is a counterfactual that only holds where a real
+              alternative existed, so it drops to a secondary line here and
+              only when the client's toggles allow it. */}
+          <div className={styles.card} style={{ cursor: 'pointer' }} onClick={() => navigate('/metrics')}>
+            <div className={styles.cardTitle}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                <i className="ti ti-target-arrow" style={{ fontSize: '14px', color: 'var(--teal)' }} />Outcomes
+              </span>
             </div>
-          )}
+            <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text1)', margin: '4px 0 4px' }}>
+              {credLoading ? 'Loading...' : `${credData?.outcomeCount ?? 0} outcome${credData?.outcomeCount === 1 ? '' : 's'} attributed to content`}
+            </div>
+            {client?.time_recovered_hours && client?.roi_show_time_hours && client?.retainer_start_date && (
+              <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '2px' }}>
+                ~{Math.round(client.time_recovered_hours * ((Date.now() - new Date(client.retainer_start_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24 * 30.44)))} hrs returned to the team
+              </div>
+            )}
+            <div style={{ fontSize: '12px', color: 'var(--text3)' }}>View the outcomes log &rarr;</div>
+          </div>
         </div>
         ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
