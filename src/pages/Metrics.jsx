@@ -12,10 +12,23 @@ const PLATFORM_META = {
 }
 
 const LOG_TYPE_META = {
+  attributed_outcome: { label: 'Outcome', bg: 'rgba(29,158,117,0.22)',  color: 'var(--teal)' },
   press_mention:    { label: 'Press',     bg: 'rgba(127,119,221,0.15)', color: '#AFA9EC' },
   qualitative_win:  { label: 'Win',       bg: 'rgba(29,158,117,0.15)',  color: 'var(--teal)' },
   check_in_note:    { label: 'Check-in',  bg: 'var(--gold-bg)',         color: 'var(--gold-light)' },
   crm_lead_summary: { label: 'CRM',       bg: 'rgba(211,201,167,0.12)', color: 'var(--text2)' }
+}
+
+// Attributed outcomes are the honest answer to "did this generate anything."
+// They are not auto-trackable and never will be — a prospect mentioning
+// content in a call doesn't fire a webhook. Categories are deliberately few
+// and concrete so the count means something when it's read back in a room.
+const OUTCOME_CATEGORIES = {
+  inquiry:          'Inbound inquiry',
+  deal:             'Deal / client won',
+  referral_partner: 'Referral partner',
+  hire:             'Hire / candidate',
+  mention:          'Mentioned in conversation'
 }
 
 function sparklinePoints(values) {
@@ -45,7 +58,7 @@ export default function Metrics() {
   const [logEntries, setLogEntries] = useState([])
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState('')
-  const [form, setForm] = useState({ entry_type: 'press_mention', entry_date: new Date().toISOString().slice(0, 10), title: '', note: '', link: '', client_visible: true })
+  const [form, setForm] = useState({ entry_type: 'attributed_outcome', outcome_category: 'mention', reported_by: '', entry_date: new Date().toISOString().slice(0, 10), title: '', note: '', link: '', client_visible: true })
 
   useEffect(() => {
     if (client?.id) loadMetrics()
@@ -97,12 +110,14 @@ export default function Metrics() {
       title: form.title.trim() || null,
       note: form.note.trim(),
       link: form.link.trim() || null,
-      client_visible: form.client_visible
+      client_visible: form.client_visible,
+      outcome_category: form.entry_type === 'attributed_outcome' ? form.outcome_category : null,
+      reported_by: form.entry_type === 'attributed_outcome' && form.reported_by.trim() ? form.reported_by.trim() : null
     })
     if (error) {
       showToast('Could not save entry')
     } else {
-      setForm(p => ({ ...p, title: '', note: '', link: '' }))
+      setForm(p => ({ ...p, title: '', note: '', link: '', reported_by: '' }))
       await loadMetrics()
       showToast('Logged')
     }
@@ -181,6 +196,14 @@ export default function Metrics() {
 
   const visibleLogEntries = isAdmin ? logEntries : logEntries.filter(e => e.client_visible)
 
+  // Attributed outcomes surface separately from the general log, and for
+  // every tier — this is the closest the portal gets to real ROI, so it
+  // isn't gated behind Flagship the way the broader qualitative log is.
+  const outcomes = visibleLogEntries.filter(e => e.entry_type === 'attributed_outcome')
+  const quarterStart = (() => { const d = new Date(); return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1).toISOString().slice(0, 10) })()
+  const outcomesThisQuarter = outcomes.filter(e => e.entry_date >= quarterStart).length
+  const outcomesByCategory = outcomes.reduce((acc, e) => { if (e.outcome_category) acc[e.outcome_category] = (acc[e.outcome_category] || 0) + 1; return acc }, {})
+
   // Growth-highlight hero — tells the "we're moving the needle" story instead
   // of leaving the client to piece it together from cards. Only claims real
   // growth once there's real history to back it (hasHistory), never
@@ -249,11 +272,56 @@ export default function Metrics() {
         </div>
       </div>
 
-      {/* ROI baselines — static, captured once at onboarding. Shown for both
-          tiers (unlike booking/clicks, neither of these is Flagship-only per
-          the ROI docs). Positioned first, before any live-tracked metric,
-          matching the documented reporting order: certain numbers before
-          uncertain ones. */}
+      {/* Outcomes — the reframed ROI. Cost avoidance and time recovered
+          are counterfactuals (what the client didn't have to do); they
+          only mean something where a real alternative existed, which is
+          the operations frame. What clients are actually paying for is
+          downstream: an inquiry, a deal, a partner who checked them out
+          first. Those can't be auto-tracked, so they get logged, and this
+          section is where that record lives, ahead of everything else. */}
+      <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--teal)', borderRadius: '14px', padding: '1.5rem 1.75rem', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '12px', marginBottom: outcomes.length ? '14px' : '4px' }}>
+          <div>
+            <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '8px' }}>Outcomes attributed to content</div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px' }}>
+              <span style={{ fontSize: '34px', fontWeight: '600', color: 'var(--teal)', lineHeight: 1 }}>{outcomes.length}</span>
+              <span style={{ fontSize: '14px', color: 'var(--text3)' }}>since {client?.retainer_start_date ? new Date(client.retainer_start_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'the start'} &middot; {outcomesThisQuarter} this quarter</span>
+            </div>
+          </div>
+          {Object.keys(outcomesByCategory).length > 0 && (
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {Object.entries(outcomesByCategory).map(([cat, n]) => (
+                <span key={cat} style={{ fontSize: '12px', background: 'rgba(29,158,117,0.12)', color: 'var(--teal)', padding: '4px 10px', borderRadius: '20px' }}>{n} {OUTCOME_CATEGORIES[cat] || cat}</span>
+              ))}
+            </div>
+          )}
+        </div>
+        {outcomes.length === 0 ? (
+          <div style={{ fontSize: '13px', color: 'var(--text3)' }}>
+            {isAdmin ? 'Nothing logged yet. When a prospect, partner, or hire references the content, log it below — this is the number that answers "is it working."' : 'Logged as they happen. A prospect mentioning the content, a partner who looked first, a referral that traced back.'}
+          </div>
+        ) : (
+          <div>
+            {outcomes.slice(0, 5).map((e, i) => (
+              <div key={e.id} style={{ display: 'flex', gap: '14px', alignItems: 'baseline', padding: '10px 0', borderTop: i === 0 ? '0.5px solid var(--border)' : 'none', borderBottom: '0.5px solid var(--border)' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text3)', width: '64px', flexShrink: 0 }}>{new Date(e.entry_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                <span style={{ fontSize: '12px', color: 'var(--teal)', flexShrink: 0, whiteSpace: 'nowrap' }}>{OUTCOME_CATEGORIES[e.outcome_category] || 'Outcome'}</span>
+                <span style={{ fontSize: '14px', color: 'var(--text1)', flex: 1 }}>{e.note}{e.reported_by && <span style={{ color: 'var(--text3)', fontSize: '12px' }}> &middot; via {e.reported_by}</span>}</span>
+              </div>
+            ))}
+            {outcomes.length > 5 && <div style={{ fontSize: '12px', color: 'var(--text3)', marginTop: '10px' }}>+{outcomes.length - 5} more in the log below</div>}
+          </div>
+        )}
+      </div>
+
+      {/* Efficiency — the counterfactual baselines (time recovered, cost
+          avoidance), captured once at onboarding. These describe what the
+          client didn't have to do, not what the content produced, so they
+          sit under Outcomes and are labeled as efficiency rather than ROI.
+          Visibility stays per-client via the existing toggles. */}
+      {((client?.time_recovered_hours && client?.roi_show_time_hours) || (client?.cost_avoidance_amount && client?.roi_show_cost_avoidance)) && (
+        <div style={{ fontSize: '12px', fontWeight: '600', letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', margin: '4px 0 10px' }}>Efficiency</div>
+      )}
       {((client?.time_recovered_hours && client?.roi_show_time_hours) || (client?.cost_avoidance_amount && client?.roi_show_cost_avoidance)) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px', marginBottom: '20px' }}>
           {client?.time_recovered_hours && client?.roi_show_time_hours && (
@@ -459,8 +527,10 @@ export default function Metrics() {
           </div>
         </div>
       )}
-      {/* Qualitative log — flagship only, per the spec's scope */}
-      {isFlagship && (
+      {/* Qualitative log — flagship only for clients, per the spec's scope.
+          Admins always see it so an outcome can be logged for any tier;
+          the Outcomes section above is what every client sees. */}
+      {(isFlagship || isAdmin) && (
         <>
           {isAdmin && (
             <div style={{ marginBottom: '24px' }}>
@@ -471,11 +541,30 @@ export default function Metrics() {
                   onChange={e => setForm(p => ({ ...p, entry_type: e.target.value }))}
                   style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '8px', padding: '11px 12px', fontSize: '15px', minWidth: '160px' }}
                 >
+                  <option value="attributed_outcome">Attributed outcome</option>
                   <option value="press_mention">Press mention</option>
                   <option value="qualitative_win">Qualitative win</option>
                   <option value="check_in_note">Check-in note</option>
                   <option value="crm_lead_summary">CRM lead summary</option>
                 </select>
+                {form.entry_type === 'attributed_outcome' && (
+                  <>
+                    <select
+                      value={form.outcome_category}
+                      onChange={e => setForm(p => ({ ...p, outcome_category: e.target.value }))}
+                      style={{ background: 'var(--surface2)', border: '0.5px solid var(--teal)', color: 'var(--text1)', borderRadius: '8px', padding: '11px 12px', fontSize: '15px', minWidth: '190px' }}
+                    >
+                      {Object.entries(OUTCOME_CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Reported by (optional)"
+                      value={form.reported_by}
+                      onChange={e => setForm(p => ({ ...p, reported_by: e.target.value }))}
+                      style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '8px', padding: '11px 12px', fontSize: '15px', width: '180px' }}
+                    />
+                  </>
+                )}
                 <input
                   type="date"
                   value={form.entry_date}
@@ -484,7 +573,7 @@ export default function Metrics() {
                 />
                 <input
                   type="text"
-                  placeholder="Note — e.g. podcast invite from The Recovery Room"
+                  placeholder={form.entry_type === 'attributed_outcome' ? "What happened — e.g. prospect said they'd seen our LinkedIn posts before reaching out" : "Note — e.g. podcast invite from The Recovery Room"}
                   value={form.note}
                   onChange={e => setForm(p => ({ ...p, note: e.target.value }))}
                   style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '8px', padding: '11px 12px', fontSize: '15px', flex: 1, minWidth: '240px' }}
@@ -517,7 +606,7 @@ export default function Metrics() {
                     {new Date(entry.entry_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                   </span>
                   <span style={{ fontSize: '13px', background: meta.bg, color: meta.color, padding: '3px 10px', borderRadius: '20px', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                    {meta.label}
+                    {entry.entry_type === 'attributed_outcome' && entry.outcome_category ? OUTCOME_CATEGORIES[entry.outcome_category] : meta.label}
                   </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {entry.title && <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '3px' }}>{entry.title}</div>}
