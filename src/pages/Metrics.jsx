@@ -199,6 +199,18 @@ export default function Metrics() {
   // Attributed outcomes surface separately from the general log, and for
   // every tier — this is the closest the portal gets to real ROI, so it
   // isn't gated behind Flagship the way the broader qualitative log is.
+  // Reach — latest per platform from metric_snapshots, summed across platforms.
+  // Matches the Overview credibility-frame read semantics: current true total
+  // (each row overwrites the previous daily total for that platform), not a
+  // sum of daily deltas.
+  const latestReachByPlatform = {}
+  ;(snapshots || []).filter(r => r.metric_type === 'reach').forEach(r => {
+    if (!latestReachByPlatform[r.platform] || r.recorded_date > latestReachByPlatform[r.platform].recorded_date) {
+      latestReachByPlatform[r.platform] = r
+    }
+  })
+  const totalReach = Object.values(latestReachByPlatform).reduce((sum, r) => sum + Number(r.value || 0), 0)
+
   const outcomes = visibleLogEntries.filter(e => e.entry_type === 'attributed_outcome')
   const quarterStart = (() => { const d = new Date(); return new Date(d.getFullYear(), Math.floor(d.getMonth() / 3) * 3, 1).toISOString().slice(0, 10) })()
   const outcomesThisQuarter = outcomes.filter(e => e.entry_date >= quarterStart).length
@@ -272,17 +284,47 @@ export default function Metrics() {
         </div>
       </div>
 
-      {/* Outcomes — the reframed ROI. Cost avoidance and time recovered
-          are counterfactuals (what the client didn't have to do); they
-          only mean something where a real alternative existed, which is
-          the operations frame. What clients are actually paying for is
-          downstream: an inquiry, a deal, a partner who checked them out
-          first. Those can't be auto-tracked, so they get logged, and this
-          section is where that record lives, ahead of everything else. */}
+      {/* Reach — auto-tracked, cumulative since the sync began. Bridges
+          the trending-performance hero above (audience growth, a trailing
+          signal) and the outcomes log below (attributed results, a leading
+          signal). Neither requires the content to go viral; both measure
+          whether real people are seeing the work. */}
+      <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '1.5rem 1.75rem', marginBottom: '20px' }}>
+        <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '10px' }}>People reached by content</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '34px', fontWeight: '600', color: 'var(--teal)', lineHeight: 1 }}>
+            {totalReach > 0 ? totalReach.toLocaleString() : '—'}
+          </span>
+          {totalReach > 0 && (
+            <span style={{ fontSize: '14px', color: 'var(--text3)' }}>
+              cumulative across all platforms
+            </span>
+          )}
+          {totalReach === 0 && (
+            <span style={{ fontSize: '14px', color: 'var(--text3)' }}>
+              syncs daily — first numbers arrive within 24 hours
+            </span>
+          )}
+        </div>
+        {Object.keys(latestReachByPlatform).length > 0 && (
+          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '12px' }}>
+            {Object.entries(latestReachByPlatform).map(([platform, r]) => (
+              <span key={platform} style={{ fontSize: '12px', color: 'var(--text3)', textTransform: 'capitalize' }}>
+                {platform} <span style={{ color: 'var(--text2)' }}>{Number(r.value || 0).toLocaleString()}</span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Outcomes — logged manually when a stakeholder, prospect, partner,
+          or hire references or connects to the content. Auto-tracking this
+          is not possible by nature of how it surfaces; the value is in
+          having a running record at all, not in the mechanism. */}
       <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--teal)', borderRadius: '14px', padding: '1.5rem 1.75rem', marginBottom: '20px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '12px', marginBottom: outcomes.length ? '14px' : '4px' }}>
           <div>
-            <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '8px' }}>Outcomes attributed to content</div>
+            <div style={{ fontSize: '14px', color: 'var(--text3)', marginBottom: '8px' }}>Logged outcomes attributed to content</div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px' }}>
               <span style={{ fontSize: '34px', fontWeight: '600', color: 'var(--teal)', lineHeight: 1 }}>{outcomes.length}</span>
               <span style={{ fontSize: '14px', color: 'var(--text3)' }}>since {client?.retainer_start_date ? new Date(client.retainer_start_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) : 'the start'} &middot; {outcomesThisQuarter} this quarter</span>
