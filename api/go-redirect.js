@@ -27,6 +27,17 @@ const BOT_PATTERNS = [
   'bot', 'crawler', 'spider', 'preview', 'facebot', 'ia_archiver'
 ]
 
+// Clicks within this many minutes of each other, on the SAME link, count
+// toward the burst threshold below.
+const BURST_WINDOW_MINUTES = 60
+// Confirmed against real data: EvoHealth's YouTube link took 20-59 clicks
+// within a single hour, four separate times, all landing at the same hour
+// of day roughly 48 hours apart — a pattern no 3-subscriber audience
+// produces. This threshold sits comfortably under the smallest observed
+// burst (20) while staying well above anything a genuine small-audience
+// spike would produce.
+const BURST_THRESHOLD = 15
+
 function isBotRequest(userAgent) {
   if (!userAgent) return false
   const ua = userAgent.toLowerCase()
@@ -52,13 +63,28 @@ module.exports = async function handler(req, res) {
   // Log first, then redirect — if the click-log insert fails for any
   // reason, the visitor should still reach their destination. Tracking
   // failing silently is fine; sending someone to a dead link is not.
-  // Skipped entirely for known preview-crawler bots — see BOT_PATTERNS above.
-  if (!isBotRequest(req.headers['user-agent'])) {
-    try {
-      await supabase.from('link_clicks').insert({ link_id: link.id })
-    } catch (err) {
-      console.error(`Click log failed for slug ${slug}:`, err.message)
+  //
+  // Every click gets logged now, bots included — is_bot is a flag, not a
+  // skip, so counting "real" clicks is a filter downstream rather than
+  // data that's simply gone. This is what let the retroactive EvoHealth
+  // cleanup happen at all: the rows existed to look at.
+  try {
+    const userAgent = req.headers['user-agent'] || null
+    let isBot = isBotRequest(userAgent)
+
+    if (!isBot) {
+      const windowStart = new Date(Date.now() - BURST_WINDOW_MINUTES * 60 * 1000).toISOString()
+      const { count } = await supabase
+        .from('link_clicks')
+        .select('id', { count: 'exact', head: true })
+        .eq('link_id', link.id)
+        .gte('clicked_at', windowStart)
+      if ((count || 0) >= BURST_THRESHOLD) isBot = true
     }
+
+    await supabase.from('link_clicks').insert({ link_id: link.id, user_agent: userAgent, is_bot: isBot })
+  } catch (err) {
+    console.error(`Click log failed for slug ${slug}:`, err.message)
   }
 
   return res.redirect(302, link.destination_url)
