@@ -152,7 +152,11 @@ export default function Admin() {
 
     const [{ data: pendingClients }, { data: commentRows }, { data: pendingReports }] = await Promise.all([
       supabase.from('clients').select('id, name, approval_status, approval_sent_at').eq('approval_status', 'pending'),
-      supabase.from('file_comments').select('client_id, file_path, sender_role, created_at').order('created_at', { ascending: true }),
+      // resolved = false was missing here — without it, a comment stayed
+      // "waiting on admin" forever even after being resolved, since
+      // resolving sets a flag on the comment itself rather than requiring
+      // a new admin reply row. This card genuinely never cleared.
+      supabase.from('file_comments').select('client_id, file_path, folder_path, sender_role, created_at').eq('resolved', false).order('created_at', { ascending: true }),
       supabase.from('client_report_drafts').select('id, client_id, report_type').eq('status', 'pending')
     ])
 
@@ -173,14 +177,19 @@ export default function Admin() {
       lastMessageByThread[`${r.client_id}::${r.file_path}`] = r
     })
     const waitingOnAdminByClient = {}
+    const oldestFolderByClient = {}
     Object.values(lastMessageByThread).forEach(r => {
       if (r.sender_role !== 'admin') {
         waitingOnAdminByClient[r.client_id] = (waitingOnAdminByClient[r.client_id] || 0) + 1
+        // commentRows is sorted oldest-first, so the first folder_path seen
+        // for a client is genuinely the oldest unresolved one — the most
+        // overdue, and the one worth jumping straight to.
+        if (!oldestFolderByClient[r.client_id]) oldestFolderByClient[r.client_id] = r.folder_path
       }
     })
     Object.entries(waitingOnAdminByClient).forEach(([clientId, count]) => {
       const c = allClients.find(cl => cl.id === clientId)
-      items.push({ type: 'waiting_admin', clientId, clientName: c?.name || 'A client', count })
+      items.push({ type: 'waiting_admin', clientId, clientName: c?.name || 'A client', count, folderPath: oldestFolderByClient[clientId] })
     })
 
     // Report ready — a mid-month note or month-in-review has been assembled
@@ -819,10 +828,17 @@ export default function Admin() {
                           {item.count} revision note{item.count !== 1 ? 's' : ''} unanswered for {item.clientName}
                         </div>
                         <button
-                          onClick={() => setTrackerOpen(item.clientId)}
+                          onClick={() => {
+                            if (item.folderPath) {
+                              switchClient(item.clientId)
+                              navigate('/content', { state: { jumpToFolderPath: item.folderPath } })
+                            } else {
+                              setTrackerOpen(item.clientId)
+                            }
+                          }}
                           style={{ marginTop: '10px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
                         >
-                          Open tracker
+                          {item.folderPath ? 'Open folder' : 'Open tracker'}
                         </button>
                       </div>
                     )
