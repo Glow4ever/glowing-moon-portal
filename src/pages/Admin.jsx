@@ -189,6 +189,7 @@ export default function Admin() {
       const c = allClients.find(cl => cl.id === r.client_id)
       items.push({
         type: 'report_ready',
+        draftId: r.id,
         clientId: r.client_id,
         clientName: c?.name || 'A client',
         reportType: r.report_type
@@ -405,13 +406,25 @@ export default function Admin() {
     setReportDrafts(prev => prev.filter(d => d.id !== draft.id))
   }
 
+  async function skipDraftFromQueue(draftId) {
+    // Same action as cancelReportDraft, callable directly from the Needs
+    // Attention card — no navigation to the Reports tab required just to
+    // dismiss one. No confirm dialog here on purpose: skipping from the
+    // queue is a lighter-weight, lower-stakes action than cancelling a
+    // draft you're already reviewing in full.
+    if (!draftId) return
+    await supabase.from('client_report_drafts').update({ status: 'cancelled' }).eq('id', draftId)
+    setAttentionQueue(prev => prev.filter(item => item.draftId !== draftId))
+    setReportDrafts(prev => prev.filter(d => d.id !== draftId))
+  }
+
   async function loadTrackedLinks() {
     setLoadingLinks(true)
     const { data: links } = await supabase
       .from('tracked_links')
       .select('*, clients(name)')
       .order('created_at', { ascending: false })
-    const { data: clickRows } = await supabase.from('link_clicks').select('link_id')
+    const { data: clickRows } = await supabase.from('link_clicks').select('link_id').eq('is_bot', false)
     const clickCounts = {}
     ;(clickRows || []).forEach(r => { clickCounts[r.link_id] = (clickCounts[r.link_id] || 0) + 1 })
     setTrackedLinks((links || []).map(l => ({ ...l, clickCount: clickCounts[l.id] || 0 })))
@@ -821,12 +834,21 @@ export default function Admin() {
                         <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
                           {item.reportType === 'mid_month' ? 'Mid-month note' : 'Month in review'} drafted for {item.clientName}
                         </div>
-                        <button
-                          onClick={() => { setTab('reports'); loadReportDrafts() }}
-                          style={{ marginTop: '10px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
-                        >
-                          Review &amp; send
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                          <button
+                            onClick={() => { setTab('reports'); loadReportDrafts() }}
+                            style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
+                          >
+                            Review &amp; send
+                          </button>
+                          <button
+                            onClick={() => skipDraftFromQueue(item.draftId)}
+                            title="Won't re-prompt until the next real due date"
+                            style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text3)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
+                          >
+                            Skip
+                          </button>
+                        </div>
                       </div>
                     )
                   }
