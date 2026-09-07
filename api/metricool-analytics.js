@@ -240,7 +240,12 @@ export default async function handler(req, res) {
           const posts = Array.isArray(postsData) ? postsData : (postsData?.data || [])
 
           posts.forEach(post => {
-            const dateVal = post[config.dateField]
+            // Confirmed live: this field is a nested {dateTime, timezone}
+            // object on all four platforms, not a flat date string. The
+            // original String(dateVal) coercion produced "[object Object]"
+            // for every post, silently breaking streak calculation entirely
+            // — every post collapsed to the same garbage non-date string.
+            const dateVal = post[config.dateField]?.dateTime
             if (dateVal) publishDatesForClient.add(String(dateVal).slice(0, 10))
           })
 
