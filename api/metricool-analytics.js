@@ -23,6 +23,21 @@
 // per platform) rather than guessing from the pattern of platforms already
 // confirmed. Facebook, Instagram, LinkedIn, and YouTube are all verified
 // directly against a live account.
+//
+// reachField (added later) was verified the same way, against
+// /api/v2/analytics/posts/{platform} — a different, simpler endpoint than
+// the timelines/aggregation pair above: one call returns every post in the
+// window with its own stats already attached, no separate metric/subject
+// params needed. The field name for "unique people reached" is NOT
+// consistent across platforms, confirmed directly rather than assumed:
+// Instagram calls it `reach` (verified against the live UI's own displayed
+// average, exact match: 6). Facebook has no field literally named reach —
+// `impressionsUnique` is the semantic equivalent (unique accounts served
+// an impression). LinkedIn's equivalent is `uniqueImpressions`. YouTube has
+// no unique-viewer field at all in this endpoint — only `views` (total
+// plays, counts repeat views from the same person) — so YouTube's reach
+// number is honestly a total-plays proxy, not true unique reach, same
+// category of gap as YouTube's missing engagement metric above.
 
 const PLATFORM_CONFIG = {
   facebook: {
@@ -31,7 +46,8 @@ const PLATFORM_CONFIG = {
     audienceParamValue: 'account',
     engagementMetric: 'engagement',
     engagementParamName: 'subject',
-    engagementParamValue: 'posts'
+    engagementParamValue: 'posts',
+    reachField: 'impressionsUnique'
   },
   instagram: {
     audienceMetric: 'followers',
@@ -39,7 +55,8 @@ const PLATFORM_CONFIG = {
     audienceParamValue: 'account',
     engagementMetric: 'engagement',
     engagementParamName: 'subject',
-    engagementParamValue: 'posts'
+    engagementParamValue: 'posts',
+    reachField: 'reach'
   },
   linkedin: {
     audienceMetric: 'Followers', // capitalized — confirmed from live account, not a typo
@@ -47,7 +64,8 @@ const PLATFORM_CONFIG = {
     audienceParamValue: 'account',
     engagementMetric: 'engagement',
     engagementParamName: 'metricType', // timelines uses metricType
-    engagementParamValue: 'posts'
+    engagementParamValue: 'posts',
+    reachField: 'uniqueImpressions'
   },
   youtube: {
     audienceMetric: 'totalSubscribers',
@@ -61,7 +79,13 @@ const PLATFORM_CONFIG = {
     // engagement formula from those raw counts is possible later, but that's
     // a real decision (which counts, what denominator) worth making
     // deliberately rather than silently inventing a number here.
-    engagementMetric: null
+    engagementMetric: null,
+    // 'views' here is total plays, not unique viewers — no unique-reach
+    // field exists for YouTube on this endpoint. Recorded anyway since a
+    // total-plays proxy is more honest signal than omitting YouTube from
+    // reach entirely, but this is NOT apples-to-apples with the other three
+    // platforms' true-unique numbers.
+    reachField: 'views'
   }
 }
 
@@ -177,6 +201,41 @@ export default async function handler(req, res) {
               JSON.stringify(engagementData).slice(0, 300)
             )
           }
+        }
+
+        // Reach snapshot — this endpoint shape is different on purpose:
+        // one call returns every post published in the window with its
+        // own stats attached, so reach is summed here rather than asked
+        // of Metricool as a single aggregate the way engagement is above.
+        // Recorded as a daily delta (like engagement), not a running
+        // total — the cumulative reach shown anywhere in the portal is
+        // computed by summing these daily rows, same pattern as reading
+        // cumulative hours from monthly time_recovered_hours elsewhere.
+        if (config.reachField) {
+          const reachParams = {
+            from: isoWithOffset(from),
+            to: isoWithOffset(to),
+            timezone: 'America/New_York',
+            userId,
+            blogId: client.metricool_blog_id
+          }
+          const postsData = await metricoolFetch(`/posts/${platform}`, reachParams)
+          const posts = Array.isArray(postsData) ? postsData : (postsData?.data || [])
+
+          if (posts.length > 0) {
+            const totalReach = posts.reduce((sum, post) => sum + (post[config.reachField] || 0), 0)
+            await supabase.from('metric_snapshots').upsert({
+              client_id: client.id,
+              platform,
+              metric_type: 'reach',
+              value: totalReach,
+              recorded_date: to.toISOString().slice(0, 10)
+            }, { onConflict: 'client_id,platform,metric_type,recorded_date' })
+          }
+          // Zero posts in the window is a normal, expected state (nothing
+          // published that day) — no row written, nothing to log as an
+          // error, matching how the engagement empty-response case below
+          // is handled.
         }
 
         results.push({ client: client.name, platform, status: 'ok' })
