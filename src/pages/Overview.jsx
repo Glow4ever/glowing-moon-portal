@@ -80,9 +80,98 @@ export default function Overview() {
   const [nextSteps, setNextSteps] = useState(null)
   const [perfHeadline, setPerfHeadline] = useState(null)
   const [perfLoading, setPerfLoading] = useState(true)
+  const [credData, setCredData] = useState(null)
+  const [credLoading, setCredLoading] = useState(true)
 
   useEffect(() => { loadDashboard() }, [client?.id])
   useEffect(() => { loadMetricoolPosts() }, [client?.id])
+  useEffect(() => {
+    if (client?.primary_frame === 'credibility') loadCredibilityData()
+  }, [client?.id, client?.primary_frame])
+
+  async function loadCredibilityData() {
+    if (!client) return
+    setCredLoading(true)
+
+    const startDate = client.retainer_start_date || client.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10)
+
+    const [{ data: reachRows }, { data: audienceRows }, { data: eventRows }] = await Promise.all([
+      supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'reach').gte('recorded_date', startDate),
+      supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'audience').order('recorded_date', { ascending: false }),
+      supabase.from('calendar_events').select('date').eq('client_id', client.id).order('date', { ascending: false })
+    ])
+
+    // Cumulative reach — the sum of every daily reach snapshot recorded
+    // since the partnership began. This grows every week by design, unlike
+    // a point-in-time audience count.
+    const totalReach = (reachRows || []).reduce((sum, r) => sum + Number(r.value || 0), 0)
+
+    // Per-platform: latest audience count + summed reach in the same pass,
+    // so the platform health list can show both side by side.
+    const byPlatform = {}
+    ;(audienceRows || []).forEach(r => {
+      if (!byPlatform[r.platform]) byPlatform[r.platform] = { audience: null, reach: 0 }
+      if (byPlatform[r.platform].audience === null) byPlatform[r.platform].audience = Number(r.value)
+    })
+    ;(reachRows || []).forEach(r => {
+      if (!byPlatform[r.platform]) byPlatform[r.platform] = { audience: null, reach: 0 }
+      byPlatform[r.platform].reach += Number(r.value || 0)
+    })
+
+    // Audience growth % per platform, comparing latest against the earliest
+    // snapshot on file — same comparison basis Metrics.jsx already uses.
+    const growthByPlatform = {}
+    for (const platform of Object.keys(byPlatform)) {
+      const platformRows = (audienceRows || []).filter(r => r.platform === platform).sort((a, b) => a.recorded_date.localeCompare(b.recorded_date))
+      if (platformRows.length > 1) {
+        const first = Number(platformRows[0].value)
+        const last = Number(platformRows[platformRows.length - 1].value)
+        growthByPlatform[platform] = first > 0 ? Math.round(((last - first) / first) * 100) : null
+      }
+    }
+
+    // Publishing streak — consecutive ISO weeks, counting back from the
+    // current week, with at least one scheduled piece of content. Breaks
+    // the moment a week has zero posts.
+    const weekKey = dateStr => {
+      const d = new Date(dateStr + 'T00:00:00')
+      const day = (d.getDay() + 6) % 7 // Monday-start week
+      d.setDate(d.getDate() - day)
+      return d.toISOString().slice(0, 10)
+    }
+    const postedWeeks = new Set((eventRows || []).map(r => weekKey(r.date)))
+    let streak = 0
+    let cursor = new Date()
+    cursor.setDate(cursor.getDate() - ((cursor.getDay() + 6) % 7)) // start of this week
+    while (true) {
+      const key = cursor.toISOString().slice(0, 10)
+      if (!postedWeeks.has(key)) {
+        // Don't break the streak just because the CURRENT week hasn't
+        // published yet — only count it as a miss once the week is over.
+        if (key === weekKey(new Date().toISOString().slice(0, 10))) {
+          cursor.setDate(cursor.getDate() - 7)
+          continue
+        }
+        break
+      }
+      streak++
+      cursor.setDate(cursor.getDate() - 7)
+    }
+
+    // Last published — most recent calendar_events date, expressed as days ago.
+    const lastEventDate = eventRows?.[0]?.date || null
+    const daysAgo = lastEventDate ? Math.floor((Date.now() - new Date(lastEventDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)) : null
+
+    setCredData({
+      totalReach,
+      byPlatform,
+      growthByPlatform,
+      streak,
+      daysAgo,
+      startDate
+    })
+    setCredLoading(false)
+  }
 
   async function loadMetricoolPosts() {
     try {
@@ -354,6 +443,45 @@ export default function Overview() {
         </div>
       </div>
 
+      {client?.primary_frame === 'credibility' && (
+        <div style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '12px', padding: '26px 32px 22px', margin: '24px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '20px' }}>
+            <div style={{ fontFamily: 'Cormorant Garamond, serif', fontSize: '22px', color: 'var(--text1)' }}>Presence built</div>
+            {credData?.startDate && (
+              <div style={{ fontSize: '12px', color: 'var(--text3)' }}>
+                Since {new Date(credData.startDate + 'T00:00:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+              </div>
+            )}
+          </div>
+          {credLoading ? (
+            <div className={styles.empty}>Loading...</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr 1fr', gap: '24px' }}>
+              <div>
+                <div style={{ fontSize: '34px', fontWeight: '500', color: 'var(--teal)', lineHeight: 1 }}>
+                  {credData?.totalReach?.toLocaleString() ?? '—'}
+                </div>
+                <div style={{ fontSize: '12.5px', color: 'var(--text2)', marginTop: '8px' }}>People who've seen {client.name}'s content</div>
+              </div>
+              <div style={{ borderLeft: '0.5px solid var(--border)', paddingLeft: '24px' }}>
+                <div style={{ fontSize: '34px', fontWeight: '500', color: 'var(--text1)', lineHeight: 1 }}>
+                  {client?.content_count ?? '—'}
+                </div>
+                <div style={{ fontSize: '12.5px', color: 'var(--text2)', marginTop: '8px' }}>Pieces in the content library</div>
+              </div>
+              <div style={{ borderLeft: '0.5px solid var(--border)', paddingLeft: '24px' }}>
+                <div style={{ fontSize: '34px', fontWeight: '500', color: 'var(--text1)', lineHeight: 1 }}>
+                  {credData?.streak ?? '—'}
+                </div>
+                <div style={{ fontSize: '12.5px', color: 'var(--text2)', marginTop: '8px' }}>
+                  {credData?.streak === 1 ? 'Consecutive week published' : 'Consecutive weeks published'}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '24px 0 10px' }}>
         <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--teal)', flexShrink: 0 }} />
         <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)' }}>Active review cycles</div>
@@ -424,6 +552,39 @@ export default function Overview() {
 
       <div className={styles.grid}>
 
+        {client?.primary_frame === 'credibility' ? (
+          <div className={styles.card} style={{ padding: '4px 22px' }}>
+            <div className={styles.cardTitle} style={{ padding: '14px 0 4px' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                <span className={styles.goldLine} />Platform health
+              </span>
+              <span style={{ fontSize: '11px', color: 'var(--text3)', fontWeight: 400 }}>vital signs, not the scorecard</span>
+            </div>
+            {credLoading ? (
+              <div className={styles.empty}>Loading...</div>
+            ) : Object.keys(credData?.byPlatform || {}).length === 0 ? (
+              <div className={styles.empty}>Platform data fills in as posts go out.</div>
+            ) : (
+              Object.entries(credData.byPlatform).map(([platform, d]) => {
+                const growth = credData.growthByPlatform[platform]
+                return (
+                  <div key={platform} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 0', borderBottom: '0.5px solid var(--border)' }}>
+                    <div style={{ fontSize: '14px', color: 'var(--text1)', textTransform: 'capitalize' }}>{platform}</div>
+                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                      {d.reach > 0 && <span style={{ fontSize: '12px', color: 'var(--text3)' }}>{d.reach.toLocaleString()} reached</span>}
+                      <span style={{ fontSize: '13px', color: 'var(--text2)' }}>{d.audience?.toLocaleString() ?? '—'} followers</span>
+                      {growth !== null && growth !== undefined && (
+                        <span style={{ fontSize: '11.5px', background: growth >= 0 ? 'rgba(127,191,127,0.12)' : 'rgba(240,153,123,0.12)', color: growth >= 0 ? 'var(--success, #7FBF7F)' : 'var(--coral, #F0997B)', padding: '3px 9px', borderRadius: '5px', minWidth: '48px', textAlign: 'center' }}>
+                          {growth >= 0 ? '+' : ''}{growth}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div
             className={`${styles.card} ${!perfLoading && perfHeadline ? styles.cardWin : ''}`}
@@ -486,6 +647,7 @@ export default function Overview() {
             })()}
           </div>
         </div>
+        )}
 
         <div className={styles.card}>
           <div
