@@ -95,10 +95,9 @@ export default function Overview() {
 
     const startDate = client.retainer_start_date || client.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10)
 
-    const [{ data: reachRows }, { data: audienceRows }, { data: eventRows }] = await Promise.all([
+    const [{ data: reachRows }, { data: audienceRows }] = await Promise.all([
       supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'reach').gte('recorded_date', startDate),
-      supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'audience').order('recorded_date', { ascending: false }),
-      supabase.from('calendar_events').select('date').eq('client_id', client.id).order('date', { ascending: false })
+      supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'audience').order('recorded_date', { ascending: false })
     ])
 
     // Cumulative reach — the sum of every daily reach snapshot recorded
@@ -131,15 +130,22 @@ export default function Overview() {
     }
 
     // Publishing streak — consecutive ISO weeks, counting back from the
-    // current week, with at least one scheduled piece of content. Breaks
-    // the moment a week has zero posts.
+    // current week, with at least one reach snapshot recorded (meaning
+    // something genuinely published that day, since the sync only writes
+    // a reach row when posts existed in that window). Deliberately NOT
+    // built on calendar_events — that table is a rolling scheduling
+    // window, not a stable history. Confirmed directly: 158 of EvoHealth's
+    // past events were sitting in calendar_prune_candidates, queued for
+    // deletion, the day this was diagnosed. metric_snapshots rows persist,
+    // so this is the honest source for "have we been consistently posting."
+    const publishedDates = (reachRows || []).map(r => r.recorded_date)
     const weekKey = dateStr => {
       const d = new Date(dateStr + 'T00:00:00')
       const day = (d.getDay() + 6) % 7 // Monday-start week
       d.setDate(d.getDate() - day)
       return d.toISOString().slice(0, 10)
     }
-    const postedWeeks = new Set((eventRows || []).map(r => weekKey(r.date)))
+    const postedWeeks = new Set(publishedDates.map(weekKey))
     let streak = 0
     let cursor = new Date()
     cursor.setDate(cursor.getDate() - ((cursor.getDay() + 6) % 7)) // start of this week
@@ -158,9 +164,9 @@ export default function Overview() {
       cursor.setDate(cursor.getDate() - 7)
     }
 
-    // Last published — most recent calendar_events date, expressed as days ago.
-    const lastEventDate = eventRows?.[0]?.date || null
-    const daysAgo = lastEventDate ? Math.floor((Date.now() - new Date(lastEventDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)) : null
+    // Last published — most recent reach-confirmed date, expressed as days ago.
+    const lastPublishedDate = publishedDates.sort().slice(-1)[0] || null
+    const daysAgo = lastPublishedDate ? Math.floor((Date.now() - new Date(lastPublishedDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)) : null
 
     setCredData({
       totalReach,
@@ -243,7 +249,7 @@ export default function Overview() {
       .gte('date', today)
       .lte('date', weekEnd)
       .order('date', { ascending: true })
-      .limit(6)
+      .limit(30)
       .then(({ data: weekData }) => {
         setWeekEvents(weekData || [])
         setScheduleLoading(false)
@@ -479,6 +485,11 @@ export default function Overview() {
               </div>
             </div>
           )}
+          {!credLoading && credData?.totalReach === 0 && (
+            <div style={{ fontSize: '11.5px', color: 'var(--text3)', marginTop: '18px', paddingTop: '14px', borderTop: '0.5px solid var(--border)' }}>
+              Reach and streak fill in as daily platform data syncs — this catches up within the first few days of tracking.
+            </div>
+          )}
         </div>
       )}
 
@@ -553,6 +564,7 @@ export default function Overview() {
       <div className={styles.grid}>
 
         {client?.primary_frame === 'credibility' ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div className={styles.card} style={{ padding: '4px 22px' }}>
             <div className={styles.cardTitle} style={{ padding: '14px 0 4px' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
@@ -584,6 +596,43 @@ export default function Overview() {
               })
             )}
           </div>
+          {(client?.roi_show_time_hours || client?.roi_show_cost_avoidance) && (
+            <div className={styles.card} style={{ cursor: 'pointer' }} onClick={() => navigate('/metrics')}>
+              <div className={styles.cardTitle}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
+                  <i className="ti ti-target-arrow" style={{ fontSize: '14px', color: 'var(--teal)' }} />ROI tracking
+                </span>
+              </div>
+              {(() => {
+                if (client?.time_recovered_hours && client?.roi_show_time_hours) {
+                  const monthsSinceStart = client?.retainer_start_date
+                    ? (Date.now() - new Date(client.retainer_start_date + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24 * 30.44)
+                    : null
+                  const cumulativeHours = monthsSinceStart ? Math.round(client.time_recovered_hours * monthsSinceStart) : null
+                  return (
+                    <>
+                      <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text1)', margin: '4px 0 4px' }}>
+                        {cumulativeHours !== null ? `~${cumulativeHours} hrs saved` : `~${client.time_recovered_hours} hrs/mo`}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text3)' }}>View full metrics &rarr;</div>
+                    </>
+                  )
+                }
+                if (client?.cost_avoidance_amount && client?.roi_show_cost_avoidance) {
+                  return (
+                    <>
+                      <div style={{ fontSize: '15px', fontWeight: '500', color: 'var(--text1)', margin: '4px 0 4px' }}>
+                        ${Number(client.cost_avoidance_amount).toLocaleString()}/mo avoided
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'var(--text3)' }}>View full metrics &rarr;</div>
+                    </>
+                  )
+                }
+                return null
+              })()}
+            </div>
+          )}
+        </div>
         ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           <div
