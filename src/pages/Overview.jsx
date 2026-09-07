@@ -96,26 +96,26 @@ export default function Overview() {
     const startDate = client.retainer_start_date || client.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10)
 
     const [{ data: reachRows }, { data: audienceRows }] = await Promise.all([
-      supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'reach').gte('recorded_date', startDate),
+      supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'reach').order('recorded_date', { ascending: false }),
       supabase.from('metric_snapshots').select('platform, value, recorded_date').eq('client_id', client.id).eq('metric_type', 'audience').order('recorded_date', { ascending: false })
     ])
 
-    // Cumulative reach — the sum of every daily reach snapshot recorded
-    // since the partnership began. This grows every week by design, unlike
-    // a point-in-time audience count.
-    const totalReach = (reachRows || []).reduce((sum, r) => sum + Number(r.value || 0), 0)
-
-    // Per-platform: latest audience count + summed reach in the same pass,
-    // so the platform health list can show both side by side.
+    // Reach is a current-value metric now, same read pattern as audience
+    // below — the sync writes each day's row as "true total as of today"
+    // (pulled from full post history, not a delta), so the right read is
+    // the LATEST row per platform, not a sum across days. Summing would
+    // double-count, since each day's total already includes everything
+    // before it.
     const byPlatform = {}
     ;(audienceRows || []).forEach(r => {
-      if (!byPlatform[r.platform]) byPlatform[r.platform] = { audience: null, reach: 0 }
+      if (!byPlatform[r.platform]) byPlatform[r.platform] = { audience: null, reach: null }
       if (byPlatform[r.platform].audience === null) byPlatform[r.platform].audience = Number(r.value)
     })
     ;(reachRows || []).forEach(r => {
-      if (!byPlatform[r.platform]) byPlatform[r.platform] = { audience: null, reach: 0 }
-      byPlatform[r.platform].reach += Number(r.value || 0)
+      if (!byPlatform[r.platform]) byPlatform[r.platform] = { audience: null, reach: null }
+      if (byPlatform[r.platform].reach === null) byPlatform[r.platform].reach = Number(r.value)
     })
+    const totalReach = Object.values(byPlatform).reduce((sum, d) => sum + (d.reach || 0), 0)
 
     // Audience growth % per platform, comparing latest against the earliest
     // snapshot on file — same comparison basis Metrics.jsx already uses.
@@ -129,51 +129,20 @@ export default function Overview() {
       }
     }
 
-    // Publishing streak — consecutive ISO weeks, counting back from the
-    // current week, with at least one reach snapshot recorded (meaning
-    // something genuinely published that day, since the sync only writes
-    // a reach row when posts existed in that window). Deliberately NOT
+    // Publishing streak now comes straight from the client record — the
+    // sync computes it server-side from real post history every run
+    // (see api/metricool-analytics.js), not derived here. Deliberately NOT
     // built on calendar_events — that table is a rolling scheduling
     // window, not a stable history. Confirmed directly: 158 of EvoHealth's
     // past events were sitting in calendar_prune_candidates, queued for
-    // deletion, the day this was diagnosed. metric_snapshots rows persist,
-    // so this is the honest source for "have we been consistently posting."
-    const publishedDates = (reachRows || []).map(r => r.recorded_date)
-    const weekKey = dateStr => {
-      const d = new Date(dateStr + 'T00:00:00')
-      const day = (d.getDay() + 6) % 7 // Monday-start week
-      d.setDate(d.getDate() - day)
-      return d.toISOString().slice(0, 10)
-    }
-    const postedWeeks = new Set(publishedDates.map(weekKey))
-    let streak = 0
-    let cursor = new Date()
-    cursor.setDate(cursor.getDate() - ((cursor.getDay() + 6) % 7)) // start of this week
-    while (true) {
-      const key = cursor.toISOString().slice(0, 10)
-      if (!postedWeeks.has(key)) {
-        // Don't break the streak just because the CURRENT week hasn't
-        // published yet — only count it as a miss once the week is over.
-        if (key === weekKey(new Date().toISOString().slice(0, 10))) {
-          cursor.setDate(cursor.getDate() - 7)
-          continue
-        }
-        break
-      }
-      streak++
-      cursor.setDate(cursor.getDate() - 7)
-    }
-
-    // Last published — most recent reach-confirmed date, expressed as days ago.
-    const lastPublishedDate = publishedDates.sort().slice(-1)[0] || null
-    const daysAgo = lastPublishedDate ? Math.floor((Date.now() - new Date(lastPublishedDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)) : null
+    // deletion, the day this was diagnosed.
+    const streak = client.publish_streak_weeks || 0
 
     setCredData({
       totalReach,
       byPlatform,
       growthByPlatform,
       streak,
-      daysAgo,
       startDate
     })
     setCredLoading(false)
