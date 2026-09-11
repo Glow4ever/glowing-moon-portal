@@ -22,7 +22,19 @@ const PLATFORMS = [
   { key: 'facebook',  label: 'Facebook',  icon: 'ti-brand-facebook' },
   { key: 'instagram', label: 'Instagram', icon: 'ti-brand-instagram' },
   { key: 'linkedin',  label: 'LinkedIn',  icon: 'ti-brand-linkedin' },
+  { key: 'tiktok',    label: 'TikTok',    icon: 'ti-brand-tiktok' },
   { key: 'youtube',   label: 'YouTube',   icon: 'ti-brand-youtube' },
+]
+
+// Kept short and specific to where GMM and its clients actually are,
+// rather than a full IANA list -- this is a quick picker, not a settings
+// page.
+const TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern (New York)' },
+  { value: 'America/Chicago', label: 'Central (Chicago)' },
+  { value: 'America/Denver', label: 'Mountain (Denver)' },
+  { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
+  { value: 'Europe/Madrid', label: 'Central European (Madrid)' },
 ]
 
 const SAVE_DEBOUNCE_MS = 900
@@ -60,23 +72,17 @@ function buildStackFromPath(root, path) {
   return stack
 }
 
-// Local datetime input <-> ISO helpers. <input type="datetime-local">
-// works in the browser's local time with no timezone info attached, so
-// this just needs to be internally consistent, not timezone-aware — the
-// actual scheduling step (not built yet) is what will need to reason
-// about the client's real timezone when this becomes a Metricool call.
-function toLocalInputValue(iso) {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = n => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-}
-function fromLocalInputValue(value) {
-  if (!value) return null
-  return new Date(value).toISOString()
-}
+// publish_date is stored exactly as typed into the datetime-local input --
+// a wall-clock string like "2026-09-30T23:38", no timezone math applied --
+// paired with an explicit timezone field. This deliberately mirrors what
+// Metricool's own API expects for publicationDate (verified live: a real
+// scheduled post's publicationDate was {dateTime: "2026-09-30T23:38:00",
+// timezone: "America/New_York"}, not a UTC instant). "11:38 PM Eastern"
+// stored as literally that, plus "America/New_York", never needs
+// converting -- it never has to mean anything else in between.
 
 export default function Schedule() {
+  const restoredForClient = useRef(null)
   // Client selection is global, not page-local — same client the rest of
   // the portal is looking at, switched via the Topbar's "Switch Client"
   // control. An earlier version of this page kept its own local
@@ -107,10 +113,24 @@ export default function Schedule() {
   // e.g. switching browser tabs away and back — and without this, that
   // silently drops you back at the top of the folder tree every time.
   // Same pattern Content.jsx already uses, same reason.
+  // Restore once per genuine client change, guarded by a ref rather than
+  // re-running on every render where clientName/selectedClientId happen to
+  // get recomputed with the same value. Without the guard, any incidental
+  // re-render (e.g. a context re-render on tab focus) could re-run this,
+  // and — worse — the old version of this effect also had a paired
+  // "persist on every bankFolder change" effect that would write bankFolder
+  // straight to sessionStorage on ANY change, including a transient one.
+  // If bankFolder ever flickered null for a render, that effect would
+  // immediately overwrite the real saved value with a removal. Persistence
+  // is now deliberate instead: written only where bankFolder is explicitly
+  // set (the "Set as content bank" click below), never as a side effect of
+  // a bare state change.
   useEffect(() => {
     if (!clientName || !selectedClientId) return
-    const root = `/Glowing Moon Portal/${clientName}/Content`
+    if (restoredForClient.current === selectedClientId) return
+    restoredForClient.current = selectedClientId
 
+    const root = `/Glowing Moon Portal/${clientName}/Content`
     const savedPath = sessionStorage.getItem(`schedulePath:${selectedClientId}`)
     const restoredStack = savedPath ? buildStackFromPath(root, savedPath) : null
     setStack(restoredStack || [{ name: 'Content', path: root }])
@@ -125,11 +145,30 @@ export default function Schedule() {
     }
   }, [selectedClientId, stack])
 
+  function setBank(folder) {
+    setBankFolder(folder)
+    if (selectedClientId) sessionStorage.setItem(`scheduleBank:${selectedClientId}`, JSON.stringify(folder))
+  }
+
+  // Safety net independent of the debounce timer: if the tab is hidden —
+  // switched away from, not just scrolled past — flush every pending save
+  // immediately rather than trusting the 900ms timer to still be alive by
+  // the time it fires. A setTimeout doesn't get cancelled by a backgrounded
+  // tab, but it can lose a race against the tab being reclaimed, and losing
+  // the one caption someone just finished typing is a bad trade for saving
+  // one network call.
   useEffect(() => {
-    if (!selectedClientId) return
-    if (bankFolder) sessionStorage.setItem(`scheduleBank:${selectedClientId}`, JSON.stringify(bankFolder))
-    else sessionStorage.removeItem(`scheduleBank:${selectedClientId}`)
-  }, [selectedClientId, bankFolder])
+    function flushOnHide() {
+      if (document.visibilityState !== 'hidden') return
+      Object.entries(saveTimers.current).forEach(([path, timerId]) => {
+        clearTimeout(timerId)
+        const [file] = fileEntries.filter(f => f.path_lower === path)
+        if (file) saveDraft(file, path)
+      })
+    }
+    document.addEventListener('visibilitychange', flushOnHide)
+    return () => document.removeEventListener('visibilitychange', flushOnHide)
+  }, [fileEntries, saveDraft])
 
   const currentPath = stack?.[stack.length - 1]?.path
 
@@ -206,6 +245,7 @@ export default function Schedule() {
       caption: '',
       platforms: [],
       publish_date: null,
+      timezone: 'America/New_York',
       status: 'draft'
     }
   }
@@ -242,6 +282,7 @@ export default function Schedule() {
           first_comment: row.first_comment || null,
           platforms: row.platforms,
           publish_date: row.publish_date,
+          timezone: row.timezone || 'America/New_York',
         }, { onConflict: 'client_id,dropbox_path' })
         .select()
         .single()
@@ -320,7 +361,7 @@ export default function Schedule() {
             {stack.length > 1 && (
               <button
                 className={styles.editBtn}
-                onClick={() => setBankFolder({ name: stack[stack.length - 1].name, path: currentPath })}
+                onClick={() => setBank({ name: stack[stack.length - 1].name, path: currentPath })}
                 disabled={viewingBank}
               >
                 <i className="ti ti-flag-3" aria-hidden="true" />
@@ -388,9 +429,17 @@ export default function Schedule() {
                           type="datetime-local"
                           className={styles.input}
                           style={{ width: 'auto', padding: '5px 8px', fontSize: '12px' }}
-                          value={toLocalInputValue(d.publish_date)}
-                          onChange={e => updateDraft(f, { publish_date: fromLocalInputValue(e.target.value) })}
+                          value={d.publish_date || ''}
+                          onChange={e => updateDraft(f, { publish_date: e.target.value || null })}
                         />
+                        <select
+                          className={styles.input}
+                          style={{ width: 'auto', padding: '5px 8px', fontSize: '12px' }}
+                          value={d.timezone || 'America/New_York'}
+                          onChange={e => updateDraft(f, { timezone: e.target.value })}
+                        >
+                          {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                        </select>
                       </div>
                     </div>
                   </div>
