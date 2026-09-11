@@ -320,5 +320,73 @@ export default async function handler(req, res) {
     }
   }
 
+  // Auto-retire: check every occurrence that's been sitting at
+  // 'scheduled' for a while and see whether Metricool has actually
+  // confirmed it live yet. Gated on scheduled_at (a real timestamptz, no
+  // ambiguity) rather than the occurrence's own publish_date (a wall-clock
+  // string with a separate timezone field, not something worth doing date
+  // math against here) -- an hour past being sent to Metricool is a
+  // reasonable point to start checking, not a claim about exactly when it
+  // published.
+  //
+  // Only 'PUBLISHED' is a confirmed real status string, verified against a
+  // live post earlier in this feature's build. No failure-status string
+  // has been confirmed the same way, so this treats anything that is
+  // neither 'PENDING' nor 'PUBLISHED' as worth surfacing as a failure
+  // rather than silently retrying forever -- worth revisiting once a real
+  // failure has actually been observed and its status string confirmed.
+  try {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+    const { data: scheduledOccurrences } = await supabase
+      .from('schedule_drafts')
+      .select('id, metricool_post_ids, client_id')
+      .eq('status', 'scheduled')
+      .lte('scheduled_at', oneHourAgo)
+
+    const clientBlogIds = {}
+    for (const client of clients) clientBlogIds[client.id] = client.metricool_blog_id
+
+    for (const occ of scheduledOccurrences || []) {
+      const blogId = clientBlogIds[occ.client_id]
+      if (!blogId) continue
+
+      const postIds = [...new Set(Object.values(occ.metricool_post_ids || {}))]
+      if (postIds.length === 0) continue
+
+      try {
+        const statuses = []
+        for (const postId of postIds) {
+          const params = new URLSearchParams({ userId, blogId: String(blogId) })
+          const res = await fetch(`https://app.metricool.com/api/v2/scheduler/posts/${postId}?${params}`, {
+            headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
+          })
+          if (!res.ok) continue
+          const post = await res.json()
+          for (const provider of post.providers || []) statuses.push(provider.status)
+        }
+
+        if (statuses.length === 0) continue
+
+        const allPublished = statuses.every(s => s === 'PUBLISHED')
+        const anyUnrecognized = statuses.some(s => s !== 'PENDING' && s !== 'PUBLISHED')
+
+        if (allPublished) {
+          await supabase.from('schedule_drafts').update({ status: 'published', active: false }).eq('id', occ.id)
+        } else if (anyUnrecognized) {
+          await supabase.from('schedule_drafts').update({
+            status: 'failed',
+            schedule_error: `Unrecognized provider status: ${statuses.join(', ')}`
+          }).eq('id', occ.id)
+        }
+        // Still PENDING across the board -- leave it as 'scheduled' and
+        // check again next cron cycle.
+      } catch (err) {
+        console.error(`Auto-retire check failed for occurrence ${occ.id}:`, err.message)
+      }
+    }
+  } catch (err) {
+    console.error('Auto-retire sweep failed:', err.message)
+  }
+
   return res.status(200).json({ ranAt: new Date().toISOString(), results })
 }
