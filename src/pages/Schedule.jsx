@@ -471,19 +471,121 @@ export default function Schedule() {
                         style={{ resize: 'vertical', fontFamily: 'inherit' }}
                       />
 
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '14px', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                          {PLATFORMS.map(p => {
-                            const active = (d.platforms || []).includes(p.key)
-                            return (
-                              <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: active ? 'var(--text)' : 'var(--text3)', cursor: 'pointer' }}>
+                      {/* Each platform is one self-contained vertical unit --
+                          checkbox on top, that platform's own settings
+                          directly beneath it in the same block. This is
+                          deliberate: an earlier version rendered the
+                          checkboxes in one row and the settings panels in
+                          a second row below, declared in a different order
+                          than the checkboxes -- so the two rows didn't
+                          line up and the settings visually crossed over
+                          to the wrong platform depending on which boxes
+                          were checked. Gluing each platform's settings to
+                          its own checkbox means there's no second row to
+                          fall out of sync with the first; it can't
+                          misalign because there's nothing separate to
+                          misalign. */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-start' }}>
+                        {PLATFORMS.map(p => {
+                          const active = (d.platforms || []).includes(p.key)
+                          return (
+                            <div key={p.key} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: active ? 'var(--text)' : 'var(--text3)', cursor: 'pointer' }}>
                                 <input type="checkbox" checked={active} onChange={() => togglePlatform(f, p.key)} />
                                 <i className={`ti ${p.icon}`} aria-hidden="true" />
                                 {p.label}
                               </label>
-                            )
-                          })}
-                        </div>
+
+                              {active && p.key === 'instagram' && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '20px' }}>
+                                  <select
+                                    className={styles.input}
+                                    style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                    value={d.ig_post_type}
+                                    onChange={e => updateDraft(f, { ig_post_type: e.target.value })}
+                                  >
+                                    {IG_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                  </select>
+                                  {d.ig_post_type === 'REEL' && (
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--text3)', cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={d.ig_show_reel_on_feed} onChange={e => updateDraft(f, { ig_show_reel_on_feed: e.target.checked })} />
+                                      Show on feed
+                                    </label>
+                                  )}
+                                </div>
+                              )}
+
+                              {active && p.key === 'facebook' && (
+                                <div style={{ paddingLeft: '20px' }}>
+                                  <select
+                                    className={styles.input}
+                                    style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                    value={d.fb_post_type}
+                                    onChange={e => updateDraft(f, { fb_post_type: e.target.value })}
+                                  >
+                                    {FB_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                  </select>
+                                </div>
+                              )}
+
+                              {active && p.key === 'tiktok' && (
+                                <div style={{ paddingLeft: '20px' }}>
+                                  <select
+                                    className={styles.input}
+                                    style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                    value={d.tiktok_privacy}
+                                    onChange={e => updateDraft(f, { tiktok_privacy: e.target.value })}
+                                  >
+                                    {TIKTOK_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                  </select>
+                                </div>
+                              )}
+
+                              {active && p.key === 'youtube' && (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '20px', maxWidth: '360px' }}>
+                                  <span style={{ fontSize: '10.5px', color: 'var(--text3)', background: 'var(--surface1)', padding: '2px 6px', borderRadius: '4px', width: 'fit-content' }}>Short</span>
+                                  <input
+                                    type="text"
+                                    className={styles.input}
+                                    placeholder="Title (required by YouTube)"
+                                    value={d.yt_title}
+                                    onChange={e => updateDraft(f, { yt_title: e.target.value })}
+                                    style={{ padding: '4px 8px', fontSize: '11.5px' }}
+                                  />
+                                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                    <select
+                                      className={styles.input}
+                                      style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                      value={d.yt_privacy}
+                                      onChange={e => updateDraft(f, { yt_privacy: e.target.value })}
+                                    >
+                                      {YT_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                    </select>
+                                    <select
+                                      className={styles.input}
+                                      style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                      value={d.yt_category}
+                                      onChange={e => updateDraft(f, { yt_category: e.target.value })}
+                                    >
+                                      <option value="">Category…</option>
+                                      {YT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                                    </select>
+                                  </div>
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--text3)', cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={d.yt_made_for_kids} onChange={e => updateDraft(f, { yt_made_for_kids: e.target.checked })} />
+                                    Made for kids
+                                  </label>
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* Date/timezone are not platform-specific, so they sit
+                          on their own row rather than inside any platform's
+                          column. */}
+                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingTop: '4px' }}>
                         <input
                           type="datetime-local"
                           className={styles.input}
@@ -501,97 +603,6 @@ export default function Schedule() {
                         </select>
                       </div>
 
-                      {/* Per-platform settings -- only shown for platforms
-                          actually checked above, since e.g. YouTube's
-                          madeForKids has no meaning until YouTube is
-                          selected for this file. */}
-                      {(d.platforms || []).length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 20px', padding: '10px 0 2px', borderTop: '1px solid var(--border)' }}>
-                          {d.platforms.includes('instagram') && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <i className="ti ti-brand-instagram" style={{ fontSize: '13px', color: 'var(--text3)' }} aria-hidden="true" />
-                              <select
-                                className={styles.input}
-                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                value={d.ig_post_type}
-                                onChange={e => updateDraft(f, { ig_post_type: e.target.value })}
-                              >
-                                {IG_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                              </select>
-                              {d.ig_post_type === 'REEL' && (
-                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--text3)', cursor: 'pointer' }}>
-                                  <input type="checkbox" checked={d.ig_show_reel_on_feed} onChange={e => updateDraft(f, { ig_show_reel_on_feed: e.target.checked })} />
-                                  Show on feed
-                                </label>
-                              )}
-                            </div>
-                          )}
-
-                          {d.platforms.includes('facebook') && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <i className="ti ti-brand-facebook" style={{ fontSize: '13px', color: 'var(--text3)' }} aria-hidden="true" />
-                              <select
-                                className={styles.input}
-                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                value={d.fb_post_type}
-                                onChange={e => updateDraft(f, { fb_post_type: e.target.value })}
-                              >
-                                {FB_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                              </select>
-                            </div>
-                          )}
-
-                          {d.platforms.includes('tiktok') && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <i className="ti ti-brand-tiktok" style={{ fontSize: '13px', color: 'var(--text3)' }} aria-hidden="true" />
-                              <select
-                                className={styles.input}
-                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                value={d.tiktok_privacy}
-                                onChange={e => updateDraft(f, { tiktok_privacy: e.target.value })}
-                              >
-                                {TIKTOK_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                              </select>
-                            </div>
-                          )}
-
-                          {d.platforms.includes('youtube') && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', width: '100%' }}>
-                              <i className="ti ti-brand-youtube" style={{ fontSize: '13px', color: 'var(--text3)' }} aria-hidden="true" />
-                              <span style={{ fontSize: '10.5px', color: 'var(--text3)', background: 'var(--surface1)', padding: '2px 6px', borderRadius: '4px' }}>Short</span>
-                              <input
-                                type="text"
-                                className={styles.input}
-                                placeholder="Title (required by YouTube)"
-                                value={d.yt_title}
-                                onChange={e => updateDraft(f, { yt_title: e.target.value })}
-                                style={{ width: '220px', padding: '4px 8px', fontSize: '11.5px' }}
-                              />
-                              <select
-                                className={styles.input}
-                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                value={d.yt_privacy}
-                                onChange={e => updateDraft(f, { yt_privacy: e.target.value })}
-                              >
-                                {YT_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                              </select>
-                              <select
-                                className={styles.input}
-                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                value={d.yt_category}
-                                onChange={e => updateDraft(f, { yt_category: e.target.value })}
-                              >
-                                <option value="">Category…</option>
-                                {YT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
-                              </select>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--text3)', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={d.yt_made_for_kids} onChange={e => updateDraft(f, { yt_made_for_kids: e.target.checked })} />
-                                Made for kids
-                              </label>
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
                 )
