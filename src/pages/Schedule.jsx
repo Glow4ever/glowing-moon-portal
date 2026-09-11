@@ -111,6 +111,34 @@ function buildStackFromPath(root, path) {
   return stack
 }
 
+// A lit toggle instead of a bare checkbox -- glows when active, matching
+// the "mix console" feel the composer's aiming for now that there are
+// enough switches on a row to actually feel like a panel of them.
+function ToggleSwitch({ checked, onChange, label, icon }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', fontSize: '12px', color: checked ? 'var(--text)' : 'var(--text3)' }}>
+      <span style={{
+        position: 'relative', width: '30px', height: '17px', borderRadius: '10px', flexShrink: 0,
+        background: checked ? 'var(--teal)' : 'var(--surface2)',
+        border: '1px solid ' + (checked ? 'var(--teal)' : 'var(--border)'),
+        boxShadow: checked ? '0 0 9px var(--teal), 0 0 2px var(--teal)' : 'none',
+        transition: 'background 0.15s ease, box-shadow 0.15s ease'
+      }}>
+        <span style={{
+          position: 'absolute', top: '1px', left: checked ? '14px' : '1px',
+          width: '13px', height: '13px', borderRadius: '50%',
+          background: checked ? '#fff' : 'var(--text3)',
+          boxShadow: checked ? '0 0 4px rgba(255,255,255,0.9)' : 'none',
+          transition: 'left 0.15s ease'
+        }} />
+      </span>
+      <input type="checkbox" checked={checked} onChange={onChange} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
+      {icon && <i className={`ti ${icon}`} aria-hidden="true" />}
+      {label}
+    </label>
+  )
+}
+
 // publish_date is stored exactly as typed into the datetime-local input --
 // a wall-clock string like "2026-09-30T23:38", no timezone math applied --
 // paired with an explicit timezone field. This deliberately mirrors what
@@ -161,6 +189,7 @@ export default function Schedule() {
       .then(({ data }) => setTrackedLinks(data || []))
   }, [selectedClientId])
   const saveTimers = useRef({})
+  const tempKeyCounter = useRef(0)
 
   // Restore the last-viewed folder (and bank selection) for this client
   // instead of always resetting to Content root. This page can remount —
@@ -261,16 +290,31 @@ export default function Schedule() {
         .select('*')
         .eq('client_id', selectedClientId)
         .eq('bank_folder_path', bankFolder.path)
+        .order('created_at', { ascending: true })
       if (cancelled) return
+      // A file can have any number of postings over its life -- R001 on
+      // FB/IG Monday, then LinkedIn Tuesday, then retired -- so drafts is
+      // keyed by path to an ARRAY of occurrences, not a single row. _key
+      // is a client-side identity (the real db id once saved, a temp-N
+      // key before that) used for React keys and for targeting updates;
+      // it's never itself persisted.
       const map = {}
-      ;(data || []).forEach(row => { map[row.dropbox_path] = row })
+      ;(data || []).forEach(row => {
+        if (!map[row.dropbox_path]) map[row.dropbox_path] = []
+        map[row.dropbox_path].push({ ...row, _key: row.id })
+      })
       setDrafts(map)
     })()
     return () => { cancelled = true }
   }, [viewingBank, selectedClientId, bankFolder?.path])
 
-  function draftFor(file) {
-    return drafts[file.path_lower] || {
+  function occurrencesFor(file) {
+    return drafts[file.path_lower] || []
+  }
+
+  function blankOccurrence(file, key) {
+    return {
+      _key: key,
       id: null,
       client_id: selectedClientId,
       bank_folder_path: bankFolder?.path,
@@ -282,6 +326,7 @@ export default function Schedule() {
       publish_date: null,
       timezone: 'America/New_York',
       status: 'draft',
+      active: true,
       ig_post_type: 'POST',
       ig_show_reel_on_feed: true,
       fb_post_type: 'POST',
@@ -295,64 +340,95 @@ export default function Schedule() {
     }
   }
 
-  // Local state updates immediately (so typing feels instant); the actual
-  // write is debounced per-file so a fast typist doesn't fire a network
-  // request on every keystroke. Upserts on (client_id, dropbox_path), so
-  // revisiting a file that already has a draft just updates that same row.
-  function updateDraft(file, patch) {
-    const path = file.path_lower
+  function addOccurrence(file) {
+    const key = `temp-${tempKeyCounter.current++}`
     setDrafts(prev => ({
       ...prev,
-      [path]: { ...draftFor(file), ...prev[path], ...patch }
+      [file.path_lower]: [...(prev[file.path_lower] || []), blankOccurrence(file, key)]
     }))
-    setSavingPaths(prev => ({ ...prev, [path]: 'pending' }))
-
-    clearTimeout(saveTimers.current[path])
-    saveTimers.current[path] = setTimeout(() => saveDraft(file, path), SAVE_DEBOUNCE_MS)
+    setActiveCaptionTab(prev => ({ ...prev, [key]: 'template' }))
   }
 
-  const saveDraft = useCallback(async (file, path) => {
-    setSavingPaths(prev => ({ ...prev, [path]: 'saving' }))
+  // Local state updates immediately (so typing feels instant); the actual
+  // write is debounced per-occurrence so a fast typist doesn't fire a
+  // network request on every keystroke.
+  function updateOccurrence(file, occKey, patch) {
+    setDrafts(prev => ({
+      ...prev,
+      [file.path_lower]: (prev[file.path_lower] || []).map(occ =>
+        occ._key === occKey ? { ...occ, ...patch } : occ
+      )
+    }))
+    setSavingPaths(prev => ({ ...prev, [occKey]: 'pending' }))
+
+    clearTimeout(saveTimers.current[occKey])
+    saveTimers.current[occKey] = setTimeout(() => saveOccurrence(file, occKey), SAVE_DEBOUNCE_MS)
+  }
+
+  const saveOccurrence = useCallback(async (file, occKey) => {
+    setSavingPaths(prev => ({ ...prev, [occKey]: 'saving' }))
     setDrafts(current => {
-      const row = current[path]
-      supabase
-        .from('schedule_drafts')
-        .upsert({
-          id: row.id || undefined,
-          client_id: row.client_id,
-          bank_folder_path: row.bank_folder_path,
-          dropbox_path: row.dropbox_path,
-          filename: row.filename,
-          caption: row.caption,
-          platform_captions: row.platform_captions || {},
-          platforms: row.platforms,
-          publish_date: row.publish_date,
-          timezone: row.timezone || 'America/New_York',
-          ig_post_type: row.ig_post_type || 'POST',
-          ig_show_reel_on_feed: row.ig_show_reel_on_feed ?? true,
-          fb_post_type: row.fb_post_type || 'POST',
-          yt_title: row.yt_title || null,
-          yt_privacy: row.yt_privacy || 'public',
-          yt_made_for_kids: row.yt_made_for_kids ?? false,
-          yt_category: row.yt_category || null,
-          tiktok_privacy: row.tiktok_privacy || 'PUBLIC_TO_EVERYONE',
-          video_cover_ms: row.video_cover_ms ?? null,
-          media_alt_text: row.media_alt_text || null,
-        }, { onConflict: 'client_id,dropbox_path' })
-        .select()
-        .single()
-        .then(({ data, error }) => {
-          if (error) {
-            console.error('saveDraft error:', error)
-            setSavingPaths(prev => ({ ...prev, [path]: 'error' }))
-            return
-          }
-          if (data) setDrafts(prev => ({ ...prev, [path]: { ...prev[path], id: data.id } }))
-          setSavingPaths(prev => ({ ...prev, [path]: 'saved' }))
-        })
+      const list = current[file.path_lower] || []
+      const row = list.find(o => o._key === occKey)
+      if (!row) return current
+
+      const payload = {
+        client_id: row.client_id,
+        bank_folder_path: row.bank_folder_path,
+        dropbox_path: row.dropbox_path,
+        filename: row.filename,
+        caption: row.caption,
+        platform_captions: row.platform_captions || {},
+        platforms: row.platforms,
+        publish_date: row.publish_date,
+        timezone: row.timezone || 'America/New_York',
+        active: row.active ?? true,
+        ig_post_type: row.ig_post_type || 'POST',
+        ig_show_reel_on_feed: row.ig_show_reel_on_feed ?? true,
+        fb_post_type: row.fb_post_type || 'POST',
+        yt_title: row.yt_title || null,
+        yt_privacy: row.yt_privacy || 'public',
+        yt_made_for_kids: row.yt_made_for_kids ?? false,
+        yt_category: row.yt_category || null,
+        tiktok_privacy: row.tiktok_privacy || 'PUBLIC_TO_EVERYONE',
+        video_cover_ms: row.video_cover_ms ?? null,
+        media_alt_text: row.media_alt_text || null,
+      }
+      // A real id -> update that exact row. No id yet (a fresh occurrence
+      // from "+ Add a posting") -> plain insert, since dropbox_path is no
+      // longer unique and can't be used as an upsert target anymore.
+      const query = row.id
+        ? supabase.from('schedule_drafts').update(payload).eq('id', row.id)
+        : supabase.from('schedule_drafts').insert(payload)
+
+      query.select().single().then(({ data, error }) => {
+        if (error) {
+          console.error('saveOccurrence error:', error)
+          setSavingPaths(prev => ({ ...prev, [occKey]: 'error' }))
+          return
+        }
+        if (data) {
+          setDrafts(prev => ({
+            ...prev,
+            [file.path_lower]: (prev[file.path_lower] || []).map(o =>
+              o._key === occKey ? { ...o, id: data.id } : o
+            )
+          }))
+        }
+        setSavingPaths(prev => ({ ...prev, [occKey]: 'saved' }))
+      })
       return current
     })
   }, [])
+
+  // Deactivating is immediate, not debounced -- it's a deliberate discrete
+  // action ("this one's done"), not something that benefits from waiting
+  // to see if the user keeps typing.
+  function toggleActive(file, occKey, active) {
+    updateOccurrence(file, occKey, { active })
+    clearTimeout(saveTimers.current[occKey])
+    saveOccurrence(file, occKey)
+  }
 
   // Safety net independent of the debounce timer: if the tab is hidden —
   // switched away from, not just scrolled past — flush every pending save
@@ -364,26 +440,31 @@ export default function Schedule() {
   useEffect(() => {
     function flushOnHide() {
       if (document.visibilityState !== 'hidden') return
-      Object.entries(saveTimers.current).forEach(([path, timerId]) => {
+      Object.entries(saveTimers.current).forEach(([occKey, timerId]) => {
         clearTimeout(timerId)
-        const [file] = fileEntries.filter(f => f.path_lower === path)
-        if (file) saveDraft(file, path)
+        const file = fileEntries.find(f =>
+          (drafts[f.path_lower] || []).some(o => o._key === occKey)
+        )
+        if (file) saveOccurrence(file, occKey)
       })
     }
     document.addEventListener('visibilitychange', flushOnHide)
     return () => document.removeEventListener('visibilitychange', flushOnHide)
-  }, [fileEntries, saveDraft])
+  }, [fileEntries, drafts, saveOccurrence])
 
-  function togglePlatform(file, key) {
-    const current = draftFor(file).platforms || []
+  function togglePlatform(file, occKey, current, key) {
     const next = current.includes(key) ? current.filter(p => p !== key) : [...current, key]
-    updateDraft(file, { platforms: next })
+    updateOccurrence(file, occKey, { platforms: next })
   }
 
-  const readyCount = fileEntries.filter(f => {
-    const d = draftFor(f)
-    return d.caption?.trim() && d.platforms?.length > 0 && d.publish_date
-  }).length
+  // Counted across active OCCURRENCES now, not files -- a file with two
+  // postings contributes two to the total. Deactivated postings (their
+  // lifespan is over) don't count toward either number.
+  const allOccurrences = fileEntries.flatMap(f => occurrencesFor(f).map(occ => ({ file: f, occ })))
+  const activeOccurrences = allOccurrences.filter(({ occ }) => occ.active !== false)
+  const readyCount = activeOccurrences.filter(({ occ }) =>
+    occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date
+  ).length
 
   return (
     <div className={styles.page}>
@@ -430,7 +511,7 @@ export default function Schedule() {
           }}>
             <div style={{ fontSize: '13px', color: viewingBank ? 'var(--teal)' : 'var(--text2)' }}>
               {bankFolder
-                ? <>Content bank: <strong>{bankFolder.name}</strong>{viewingBank && fileEntries.length > 0 && <> — {readyCount} of {fileEntries.length} ready to schedule</>}</>
+                ? <>Content bank: <strong>{bankFolder.name}</strong>{viewingBank && activeOccurrences.length > 0 && <> — {readyCount} of {activeOccurrences.length} ready to schedule</>}</>
                 : 'Browse into the folder holding this quarter\'s content, then set it as the bank.'}
             </div>
             {stack.length > 1 && (
@@ -453,12 +534,11 @@ export default function Schedule() {
             <div className={styles.empty}>Empty folder.</div>
           ) : viewingBank ? (
             /* Composer — one row per file: caption, platforms, date */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {fileEntries.map(f => {
-                const d = draftFor(f)
                 const thumb = thumbs[f.path_lower]
                 const { icon, bg, color } = fileIcon(f.name)
-                const saveState = savingPaths[f.path_lower]
+                const occurrences = occurrencesFor(f)
                 return (
                   <div key={f.path_lower} style={{ display: 'flex', gap: '14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px' }}>
                     <div style={{ width: '84px', height: '84px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -467,16 +547,33 @@ export default function Schedule() {
                       {(!thumb || (f.type !== 'photo' && f.type !== 'video')) && <i className={`ti ${icon}`} style={{ fontSize: '24px', color }} aria-hidden="true" />}
                     </div>
 
-                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '8px' }}>
-                        <div style={{ fontSize: '12px', color: 'var(--text2)', wordBreak: 'break-word' }}>{f.name}</div>
-                        <div style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
-                          {saveState === 'saving' && 'Saving…'}
-                          {saveState === 'saved' && <span style={{ color: 'var(--teal)' }}><i className="ti ti-check" aria-hidden="true" /> Saved</span>}
-                          {saveState === 'error' && <span style={{ color: 'var(--coral)' }}>Couldn't save</span>}
-                          {saveState === 'pending' && '…'}
-                        </div>
-                      </div>
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text2)', wordBreak: 'break-word' }}>{f.name}</div>
+
+                      {/* The same file can have any number of independent
+                          postings over its life -- FB/IG Monday, LinkedIn
+                          Tuesday, then retired -- so this is a list of
+                          occurrences, not a single form. Each occurrence
+                          saves, schedules, and deactivates on its own. */}
+                      {occurrences.map(occ => {
+                        const d = occ
+                        const saveState = savingPaths[occ._key]
+                        const isActive = occ.active !== false
+                        return (
+                          <div key={occ._key} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--surface1)', border: '1px solid ' + (isActive ? 'var(--border)' : 'transparent'), borderRadius: '8px', padding: '10px 12px', opacity: isActive ? 1 : 0.55 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                              <ToggleSwitch
+                                checked={isActive}
+                                onChange={e => toggleActive(f, occ._key, e.target.checked)}
+                                label={isActive ? 'Active' : 'Retired'}
+                              />
+                              <div style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
+                                {saveState === 'saving' && 'Saving…'}
+                                {saveState === 'saved' && <span style={{ color: 'var(--teal)' }}><i className="ti ti-check" aria-hidden="true" /> Saved</span>}
+                                {saveState === 'error' && <span style={{ color: 'var(--coral)' }}>Couldn't save</span>}
+                                {saveState === 'pending' && '…'}
+                              </div>
+                            </div>
 
                       {/* Template + per-network overrides, matching
                           Metricool's own "Edit by network" pattern rather
@@ -489,12 +586,12 @@ export default function Schedule() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '4px' }}>
                           {[{ key: 'template', label: 'Template', icon: 'ti-template' }, ...PLATFORMS.filter(p => (d.platforms || []).includes(p.key))].map(tab => {
                             const isTemplate = tab.key === 'template'
-                            const tabActive = (activeCaptionTab[f.path_lower] || 'template') === tab.key
+                            const tabActive = (activeCaptionTab[occ._key] || 'template') === tab.key
                             const hasOverride = !isTemplate && d.platform_captions?.[tab.key] !== undefined
                             return (
                               <button
                                 key={tab.key}
-                                onClick={() => setActiveCaptionTab(prev => ({ ...prev, [f.path_lower]: tab.key }))}
+                                onClick={() => setActiveCaptionTab(prev => ({ ...prev, [occ._key]: tab.key }))}
                                 style={{
                                   display: 'flex', alignItems: 'center', gap: '4px',
                                   background: tabActive ? 'var(--surface1)' : 'transparent',
@@ -513,7 +610,7 @@ export default function Schedule() {
                         </div>
 
                         {(() => {
-                          const tab = activeCaptionTab[f.path_lower] || 'template'
+                          const tab = activeCaptionTab[occ._key] || 'template'
                           const isTemplate = tab === 'template'
                           const value = isTemplate ? d.caption : (d.platform_captions?.[tab] ?? d.caption)
                           const hasOverride = !isTemplate && d.platform_captions?.[tab] !== undefined
@@ -525,9 +622,9 @@ export default function Schedule() {
                                 value={value}
                                 onChange={e => {
                                   if (isTemplate) {
-                                    updateDraft(f, { caption: e.target.value })
+                                    updateOccurrence(f, occ._key, { caption: e.target.value })
                                   } else {
-                                    updateDraft(f, { platform_captions: { ...(d.platform_captions || {}), [tab]: e.target.value } })
+                                    updateOccurrence(f, occ._key, { platform_captions: { ...(d.platform_captions || {}), [tab]: e.target.value } })
                                   }
                                 }}
                                 rows={2}
@@ -540,7 +637,7 @@ export default function Schedule() {
                                       onClick={() => {
                                         const next = { ...(d.platform_captions || {}) }
                                         delete next[tab]
-                                        updateDraft(f, { platform_captions: next })
+                                        updateOccurrence(f, occ._key, { platform_captions: next })
                                       }}
                                       style={{ background: 'transparent', border: 'none', color: 'var(--text3)', fontSize: '11px', cursor: 'pointer', padding: 0 }}
                                     >
@@ -550,13 +647,13 @@ export default function Schedule() {
                                 </div>
                                 <div style={{ position: 'relative' }}>
                                   <button
-                                    onClick={() => setLinkBankOpenFor(prev => prev === f.path_lower ? null : f.path_lower)}
+                                    onClick={() => setLinkBankOpenFor(prev => prev === occ._key ? null : occ._key)}
                                     style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: '11px', cursor: 'pointer', padding: '3px 8px', borderRadius: '5px' }}
                                   >
                                     <i className="ti ti-link" aria-hidden="true" />
                                     Link bank
                                   </button>
-                                  {linkBankOpenFor === f.path_lower && (
+                                  {linkBankOpenFor === occ._key && (
                                     <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: '4px', background: 'var(--surface1)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px', zIndex: 10, minWidth: '220px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
                                     {trackedLinks.length === 0 ? (
                                       <div style={{ fontSize: '11px', color: 'var(--text3)', padding: '6px 8px' }}>No tracked links for this client yet.</div>
@@ -613,11 +710,12 @@ export default function Schedule() {
                           const active = (d.platforms || []).includes(p.key)
                           return (
                             <div key={p.key} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: active ? 'var(--text)' : 'var(--text3)', cursor: 'pointer' }}>
-                                <input type="checkbox" checked={active} onChange={() => togglePlatform(f, p.key)} />
-                                <i className={`ti ${p.icon}`} aria-hidden="true" />
-                                {p.label}
-                              </label>
+                              <ToggleSwitch
+                                checked={active}
+                                onChange={() => togglePlatform(f, occ._key, d.platforms || [], p.key)}
+                                icon={p.icon}
+                                label={p.label}
+                              />
 
                               {active && p.key === 'instagram' && (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '20px' }}>
@@ -625,15 +723,16 @@ export default function Schedule() {
                                     className={styles.input}
                                     style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
                                     value={d.ig_post_type}
-                                    onChange={e => updateDraft(f, { ig_post_type: e.target.value })}
+                                    onChange={e => updateOccurrence(f, occ._key, { ig_post_type: e.target.value })}
                                   >
                                     {IG_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                                   </select>
                                   {d.ig_post_type === 'REEL' && (
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--text3)', cursor: 'pointer' }}>
-                                      <input type="checkbox" checked={d.ig_show_reel_on_feed} onChange={e => updateDraft(f, { ig_show_reel_on_feed: e.target.checked })} />
-                                      Show on feed
-                                    </label>
+                                    <ToggleSwitch
+                                      checked={d.ig_show_reel_on_feed}
+                                      onChange={e => updateOccurrence(f, occ._key, { ig_show_reel_on_feed: e.target.checked })}
+                                      label="Show on feed"
+                                    />
                                   )}
                                 </div>
                               )}
@@ -644,7 +743,7 @@ export default function Schedule() {
                                     className={styles.input}
                                     style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
                                     value={d.fb_post_type}
-                                    onChange={e => updateDraft(f, { fb_post_type: e.target.value })}
+                                    onChange={e => updateOccurrence(f, occ._key, { fb_post_type: e.target.value })}
                                   >
                                     {FB_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                                   </select>
@@ -657,7 +756,7 @@ export default function Schedule() {
                                     className={styles.input}
                                     style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
                                     value={d.tiktok_privacy}
-                                    onChange={e => updateDraft(f, { tiktok_privacy: e.target.value })}
+                                    onChange={e => updateOccurrence(f, occ._key, { tiktok_privacy: e.target.value })}
                                   >
                                     {TIKTOK_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                                   </select>
@@ -672,7 +771,7 @@ export default function Schedule() {
                                     className={styles.input}
                                     placeholder="Title (required by YouTube)"
                                     value={d.yt_title}
-                                    onChange={e => updateDraft(f, { yt_title: e.target.value })}
+                                    onChange={e => updateOccurrence(f, occ._key, { yt_title: e.target.value })}
                                     style={{ padding: '4px 8px', fontSize: '11.5px' }}
                                   />
                                   <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -680,7 +779,7 @@ export default function Schedule() {
                                       className={styles.input}
                                       style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
                                       value={d.yt_privacy}
-                                      onChange={e => updateDraft(f, { yt_privacy: e.target.value })}
+                                      onChange={e => updateOccurrence(f, occ._key, { yt_privacy: e.target.value })}
                                     >
                                       {YT_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                                     </select>
@@ -688,16 +787,17 @@ export default function Schedule() {
                                       className={styles.input}
                                       style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
                                       value={d.yt_category}
-                                      onChange={e => updateDraft(f, { yt_category: e.target.value })}
+                                      onChange={e => updateOccurrence(f, occ._key, { yt_category: e.target.value })}
                                     >
                                       <option value="">Category…</option>
                                       {YT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
                                     </select>
                                   </div>
-                                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--text3)', cursor: 'pointer' }}>
-                                    <input type="checkbox" checked={d.yt_made_for_kids} onChange={e => updateDraft(f, { yt_made_for_kids: e.target.checked })} />
-                                    Made for kids
-                                  </label>
+                                  <ToggleSwitch
+                                    checked={d.yt_made_for_kids}
+                                    onChange={e => updateOccurrence(f, occ._key, { yt_made_for_kids: e.target.checked })}
+                                    label="Made for kids"
+                                  />
                                 </div>
                               )}
                             </div>
@@ -714,18 +814,28 @@ export default function Schedule() {
                           className={styles.input}
                           style={{ width: 'auto', padding: '5px 8px', fontSize: '12px' }}
                           value={d.publish_date || ''}
-                          onChange={e => updateDraft(f, { publish_date: e.target.value || null })}
+                          onChange={e => updateOccurrence(f, occ._key, { publish_date: e.target.value || null })}
                         />
                         <select
                           className={styles.input}
                           style={{ width: 'auto', padding: '5px 8px', fontSize: '12px' }}
                           value={d.timezone || 'America/New_York'}
-                          onChange={e => updateDraft(f, { timezone: e.target.value })}
+                          onChange={e => updateOccurrence(f, occ._key, { timezone: e.target.value })}
                         >
                           {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
                         </select>
                       </div>
+                          </div>
+                        )
+                      })}
 
+                      <button
+                        onClick={() => addOccurrence(f)}
+                        style={{ display: 'flex', alignItems: 'center', gap: '5px', alignSelf: 'flex-start', background: 'transparent', border: '1px dashed var(--border)', color: 'var(--text3)', fontSize: '11.5px', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px' }}
+                      >
+                        <i className="ti ti-plus" aria-hidden="true" />
+                        {occurrences.length === 0 ? 'Add a posting' : 'Add another posting'}
+                      </button>
                     </div>
                   </div>
                 )
@@ -766,10 +876,10 @@ export default function Schedule() {
         </>
       )}
 
-      {viewingBank && fileEntries.length > 0 && (
+      {viewingBank && activeOccurrences.length > 0 && (
         <div className={styles.empty} style={{ marginTop: '24px', padding: '22px 24px' }}>
           <i className="ti ti-send" style={{ fontSize: '22px', color: 'var(--text3)', marginBottom: '8px', display: 'block' }} aria-hidden="true" />
-          Captions save automatically as you go — {readyCount} of {fileEntries.length} have a caption, at least one platform, and a date. The Schedule button that sends the whole batch to Metricool is the next piece to build.
+          Captions save automatically as you go — {readyCount} of {activeOccurrences.length} active postings have a caption, at least one platform, and a date. The Schedule button that sends the whole batch to Metricool is the next piece to build.
         </div>
       )}
     </div>
