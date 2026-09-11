@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useClient } from '../lib/ClientContext'
+import { apiFetch } from '../lib/apiFetch'
+import { getDownloadLink, getFileType, formatBytes } from '../lib/dropbox'
 import styles from './Admin.module.css'
 
 // Admin-only by design — gated at the route level in Portal.jsx via
@@ -15,9 +17,39 @@ import styles from './Admin.module.css'
 // something closer to MetricsRoute (role-list based) rather than the
 // admin-only check, and this page's own logic shouldn't need to change.
 
+async function listDropboxFolder(path) {
+  const res = await apiFetch('/api/dropbox', {
+    method: 'POST',
+    body: JSON.stringify({
+      endpoint: 'files/list_folder',
+      body: { path, include_deleted: false }
+    })
+  })
+  if (!res.ok) throw new Error('Dropbox request failed')
+  const data = await res.json()
+  return data.entries || []
+}
+
+function fileIcon(name) {
+  const ext = name.split('.').pop().toLowerCase()
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return { icon: 'ti-photo', bg: 'var(--teal-bg)', color: 'var(--teal)' }
+  if (['mp4', 'mov', 'avi'].includes(ext)) return { icon: 'ti-video', bg: 'var(--gold-bg)', color: 'var(--gold-light)' }
+  return { icon: 'ti-file', bg: 'rgba(255,255,255,0.05)', color: 'var(--text2)' }
+}
+
 export default function Schedule() {
-  const { client, allClients, role, switchClient } = useClient()
+  const { client, allClients } = useClient()
   const [selectedClientId, setSelectedClientId] = useState(client?.id || null)
+
+  const selectedClient = allClients.find(c => c.id === selectedClientId)
+  const clientName = selectedClient?.name
+
+  const [stack, setStack] = useState(null)
+  const [entries, setEntries] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [thumbs, setThumbs] = useState({})
+  const [bankFolder, setBankFolder] = useState(null) // the folder chosen as "this quarter's bank"
 
   useEffect(() => {
     if (!selectedClientId && allClients.length > 0) {
@@ -25,13 +57,67 @@ export default function Schedule() {
     }
   }, [allClients])
 
-  const selectedClient = allClients.find(c => c.id === selectedClientId)
+  // Reset to the client's Content root whenever the selected client
+  // changes — a picked bank folder from a different client shouldn't
+  // silently carry over.
+  useEffect(() => {
+    if (!clientName) return
+    setStack([{ name: 'Content', path: `/Glowing Moon Portal/${clientName}/Content` }])
+    setBankFolder(null)
+  }, [clientName])
+
+  const currentPath = stack?.[stack.length - 1]?.path
+
+  useEffect(() => {
+    if (currentPath) loadFolder(currentPath)
+  }, [currentPath])
+
+  async function loadFolder(path) {
+    setLoading(true)
+    setEntries([])
+    setLoadError(false)
+    try {
+      const raw = await listDropboxFolder(path)
+      const folders = raw.filter(e => e['.tag'] === 'folder')
+      const files = raw.filter(e => e['.tag'] === 'file')
+      const sorted = [
+        ...folders.map(f => ({ ...f, type: 'folder' })),
+        ...files.map(f => ({ ...f, type: getFileType(f.name) }))
+      ]
+      setEntries(sorted)
+
+      // Thumbnails for image/video files only, fetched after the list
+      // renders so navigating feels instant rather than waiting on N
+      // temporary-link calls before showing anything.
+      const media = files.filter(f => ['photo', 'video'].includes(getFileType(f.name))).slice(0, 40)
+      media.forEach(async f => {
+        const link = await getDownloadLink(f.path_lower)
+        if (link) setThumbs(prev => ({ ...prev, [f.path_lower]: link }))
+      })
+    } catch (err) {
+      console.error('loadFolder error:', err)
+      setLoadError(true)
+    }
+    setLoading(false)
+  }
+
+  function openFolder(folder) {
+    setStack(prev => [...prev, { name: folder.name, path: folder.path_lower }])
+  }
+
+  function goToCrumb(index) {
+    setStack(prev => prev.slice(0, index + 1))
+  }
+
+  const fileEntries = entries.filter(e => e.type !== 'folder')
+  const folderEntries = entries.filter(e => e.type === 'folder')
+  const viewingBank = bankFolder && currentPath === bankFolder.path
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <div className={styles.title}>Schedule</div>
-        <div className={styles.sub}>Batch-schedule a folder of content across platforms, with the right tracked link in each caption.</div>
+        <div className={styles.sub}>Pick the quarter's content folder, then write captions and schedule the batch to Metricool.</div>
       </div>
 
       <div className={styles.formCard}>
@@ -49,12 +135,98 @@ export default function Schedule() {
         </div>
       </div>
 
-      <div className={styles.empty} style={{ padding: '48px 32px' }}>
-        <i className="ti ti-calendar-plus" style={{ fontSize: '28px', color: 'var(--text3)', marginBottom: '12px', display: 'block' }} aria-hidden="true" />
-        Batch scheduling for {selectedClient?.name || 'this client'} isn't built yet.
-        <br />
-        Next: pick a Dropbox folder, write captions once, choose platforms and dates, and schedule the whole batch to Metricool in one pass — with each platform's tracked link inserted automatically.
-      </div>
+      {stack && (
+        <>
+          {/* Breadcrumb */}
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px', marginBottom: '14px', fontSize: '13px', color: 'var(--text2)' }}>
+            {stack.map((crumb, i) => (
+              <span key={crumb.path} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {i > 0 && <i className="ti ti-chevron-right" style={{ fontSize: '12px', color: 'var(--text3)' }} aria-hidden="true" />}
+                <button
+                  onClick={() => goToCrumb(i)}
+                  style={{
+                    background: 'transparent', border: 'none', cursor: i === stack.length - 1 ? 'default' : 'pointer',
+                    color: i === stack.length - 1 ? 'var(--text)' : 'var(--text2)',
+                    fontWeight: i === stack.length - 1 ? 500 : 400, fontSize: '13px', padding: '2px 4px'
+                  }}
+                >
+                  {crumb.name}
+                </button>
+              </span>
+            ))}
+          </div>
+
+          {/* Bank folder selection */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px',
+            background: viewingBank ? 'var(--teal-bg)' : 'var(--surface2)',
+            border: `1px solid ${viewingBank ? 'var(--teal)' : 'var(--border)'}`,
+            borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: '18px'
+          }}>
+            <div style={{ fontSize: '13px', color: viewingBank ? 'var(--teal)' : 'var(--text2)' }}>
+              {bankFolder
+                ? <>Content bank: <strong>{bankFolder.name}</strong> ({fileEntries.length > 0 && viewingBank ? fileEntries.length : '…'} files)</>
+                : 'Browse into the folder holding this quarter\'s content, then set it as the bank.'}
+            </div>
+            {stack.length > 1 && (
+              <button
+                className={styles.editBtn}
+                onClick={() => setBankFolder({ name: stack[stack.length - 1].name, path: currentPath })}
+                disabled={viewingBank}
+              >
+                <i className="ti ti-flag-3" aria-hidden="true" />
+                {viewingBank ? 'This is the bank' : 'Set as content bank'}
+              </button>
+            )}
+          </div>
+
+          {/* Folder / file grid */}
+          {loading ? (
+            <div className={styles.empty}>Loading...</div>
+          ) : loadError ? (
+            <div className={styles.empty}>Couldn't load this folder. Try again.</div>
+          ) : entries.length === 0 ? (
+            <div className={styles.empty}>Empty folder.</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px' }}>
+              {folderEntries.map(f => (
+                <div
+                  key={f.path_lower}
+                  onClick={() => openFolder(f)}
+                  style={{ cursor: 'pointer', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px 12px', textAlign: 'center' }}
+                >
+                  <i className="ti ti-folder" style={{ fontSize: '28px', color: 'var(--gold-light)' }} aria-hidden="true" />
+                  <div style={{ fontSize: '12px', color: 'var(--text)', marginTop: '8px', wordBreak: 'break-word' }}>{f.name}</div>
+                </div>
+              ))}
+              {fileEntries.map(f => {
+                const thumb = thumbs[f.path_lower]
+                const { icon, bg, color } = fileIcon(f.name)
+                return (
+                  <div key={f.path_lower} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
+                    <div style={{ aspectRatio: '1', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                      {thumb && f.type === 'photo'
+                        ? <img src={thumb} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <i className={`ti ${icon}`} style={{ fontSize: '28px', color }} aria-hidden="true" />}
+                    </div>
+                    <div style={{ padding: '8px 10px' }}>
+                      <div style={{ fontSize: '11.5px', color: 'var(--text)', wordBreak: 'break-word', lineHeight: 1.3 }}>{f.name}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '3px' }}>{formatBytes(f.size)}</div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {bankFolder && viewingBank && fileEntries.length > 0 && (
+        <div className={styles.empty} style={{ marginTop: '24px', padding: '28px 24px' }}>
+          <i className="ti ti-writing" style={{ fontSize: '24px', color: 'var(--text3)', marginBottom: '10px', display: 'block' }} aria-hidden="true" />
+          Next: a caption, platforms, and a date for each of these {fileEntries.length} files — then one Schedule button to send the whole batch to Metricool with the right tracked link in each caption.
+        </div>
+      )}
     </div>
   )
 }
