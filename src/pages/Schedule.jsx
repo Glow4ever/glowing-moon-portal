@@ -145,6 +145,21 @@ export default function Schedule() {
   // both the row's db id (once it exists) and its current field values.
   const [drafts, setDrafts] = useState({})
   const [savingPaths, setSavingPaths] = useState({}) // path -> 'saving' | 'saved'
+  const [trackedLinks, setTrackedLinks] = useState([])
+  const [activeCaptionTab, setActiveCaptionTab] = useState({}) // path -> 'template' | platform key
+  const [linkBankOpenFor, setLinkBankOpenFor] = useState(null) // path or null
+  const [copiedLinkId, setCopiedLinkId] = useState(null)
+
+  // The client's tracked links -- one small fetch per client, reused
+  // across every row's link bank rather than queried per file.
+  useEffect(() => {
+    if (!selectedClientId) return
+    supabase
+      .from('tracked_links')
+      .select('id, platform, slug, label')
+      .eq('client_id', selectedClientId)
+      .then(({ data }) => setTrackedLinks(data || []))
+  }, [selectedClientId])
   const saveTimers = useRef({})
 
   // Restore the last-viewed folder (and bank selection) for this client
@@ -262,6 +277,7 @@ export default function Schedule() {
       dropbox_path: file.path_lower,
       filename: file.name,
       caption: '',
+      platform_captions: {},
       platforms: [],
       publish_date: null,
       timezone: 'America/New_York',
@@ -308,7 +324,7 @@ export default function Schedule() {
           dropbox_path: row.dropbox_path,
           filename: row.filename,
           caption: row.caption,
-          first_comment: row.first_comment || null,
+          platform_captions: row.platform_captions || {},
           platforms: row.platforms,
           publish_date: row.publish_date,
           timezone: row.timezone || 'America/New_York',
@@ -462,14 +478,121 @@ export default function Schedule() {
                         </div>
                       </div>
 
-                      <textarea
-                        className={styles.input}
-                        placeholder="Write the caption once — it goes out with the right tracked link per platform."
-                        value={d.caption}
-                        onChange={e => updateDraft(f, { caption: e.target.value })}
-                        rows={2}
-                        style={{ resize: 'vertical', fontFamily: 'inherit' }}
-                      />
+                      {/* Template + per-network overrides, matching
+                          Metricool's own "Edit by network" pattern rather
+                          than inventing a different one. Template is what
+                          every checked platform uses by default; switching
+                          to a platform's own tab and typing creates a real
+                          override for just that platform, without touching
+                          the template or any other platform's copy. */}
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '4px' }}>
+                          {[{ key: 'template', label: 'Template', icon: 'ti-template' }, ...PLATFORMS.filter(p => (d.platforms || []).includes(p.key))].map(tab => {
+                            const isTemplate = tab.key === 'template'
+                            const tabActive = (activeCaptionTab[f.path_lower] || 'template') === tab.key
+                            const hasOverride = !isTemplate && d.platform_captions?.[tab.key] !== undefined
+                            return (
+                              <button
+                                key={tab.key}
+                                onClick={() => setActiveCaptionTab(prev => ({ ...prev, [f.path_lower]: tab.key }))}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: '4px',
+                                  background: tabActive ? 'var(--surface1)' : 'transparent',
+                                  border: '1px solid ' + (tabActive ? 'var(--border)' : 'transparent'),
+                                  borderBottom: tabActive ? '1px solid var(--surface1)' : '1px solid transparent',
+                                  color: tabActive ? 'var(--text)' : 'var(--text3)',
+                                  borderRadius: '6px 6px 0 0', padding: '4px 10px', fontSize: '11px', cursor: 'pointer'
+                                }}
+                              >
+                                {!isTemplate && <i className={`ti ${tab.icon}`} aria-hidden="true" />}
+                                {isTemplate ? 'Template' : tab.label}
+                                {hasOverride && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--teal)', display: 'inline-block' }} />}
+                              </button>
+                            )
+                          })}
+                        </div>
+
+                        {(() => {
+                          const tab = activeCaptionTab[f.path_lower] || 'template'
+                          const isTemplate = tab === 'template'
+                          const value = isTemplate ? d.caption : (d.platform_captions?.[tab] ?? d.caption)
+                          const hasOverride = !isTemplate && d.platform_captions?.[tab] !== undefined
+                          return (
+                            <div style={{ position: 'relative' }}>
+                              <textarea
+                                className={styles.input}
+                                placeholder={isTemplate ? 'Write the caption once — each platform uses this unless you customize it.' : `Customize the caption for this platform…`}
+                                value={value}
+                                onChange={e => {
+                                  if (isTemplate) {
+                                    updateDraft(f, { caption: e.target.value })
+                                  } else {
+                                    updateDraft(f, { platform_captions: { ...(d.platform_captions || {}), [tab]: e.target.value } })
+                                  }
+                                }}
+                                rows={2}
+                                style={{ resize: 'vertical', fontFamily: 'inherit', width: '100%' }}
+                              />
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                <div>
+                                  {hasOverride && (
+                                    <button
+                                      onClick={() => {
+                                        const next = { ...(d.platform_captions || {}) }
+                                        delete next[tab]
+                                        updateDraft(f, { platform_captions: next })
+                                      }}
+                                      style={{ background: 'transparent', border: 'none', color: 'var(--text3)', fontSize: '11px', cursor: 'pointer', padding: 0 }}
+                                    >
+                                      Reset to template
+                                    </button>
+                                  )}
+                                </div>
+                                <div style={{ position: 'relative' }}>
+                                  <button
+                                    onClick={() => setLinkBankOpenFor(prev => prev === f.path_lower ? null : f.path_lower)}
+                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: '11px', cursor: 'pointer', padding: '3px 8px', borderRadius: '5px' }}
+                                  >
+                                    <i className="ti ti-link" aria-hidden="true" />
+                                    Link bank
+                                  </button>
+                                  {linkBankOpenFor === f.path_lower && (
+                                    <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: '4px', background: 'var(--surface1)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px', zIndex: 10, minWidth: '220px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
+                                    {trackedLinks.length === 0 ? (
+                                      <div style={{ fontSize: '11px', color: 'var(--text3)', padding: '6px 8px' }}>No tracked links for this client yet.</div>
+                                    ) : trackedLinks.map(link => {
+                                      const url = `https://linkquick.org/go/${link.slug}`
+                                      const justCopied = copiedLinkId === link.id
+                                      return (
+                                        <button
+                                          key={link.id}
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(url)
+                                            setCopiedLinkId(link.id)
+                                            setTimeout(() => setCopiedLinkId(null), 1500)
+                                          }}
+                                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '11.5px', cursor: 'pointer', padding: '6px 8px', borderRadius: '5px' }}
+                                          onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
+                                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                        >
+                                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'capitalize' }}>
+                                            <i className={`ti ti-brand-${link.platform}`} style={{ fontSize: '12px', color: 'var(--text3)' }} aria-hidden="true" />
+                                            {link.label || link.platform}
+                                          </span>
+                                          <span style={{ fontSize: '10.5px', color: justCopied ? 'var(--teal)' : 'var(--text3)' }}>
+                                            {justCopied ? 'Copied' : 'Copy'}
+                                          </span>
+                                        </button>
+                                      )
+                                    })}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })()}
+                      </div>
 
                       {/* Each platform is one self-contained vertical unit --
                           checkbox on top, that platform's own settings
