@@ -45,7 +45,21 @@ async function getDropboxTemporaryLink(path) {
   const token = await getDropboxAccessToken()
   const res = await fetch('https://api.dropboxapi.com/2/files/get_temporary_link', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      // Missing this on the first real attempt produced a confusing
+      // path/not_found for a path that was completely valid -- client
+      // files live in a specific Dropbox team namespace, not whatever
+      // namespace this token resolves to by default, and Dropbox has no
+      // way to know that without being told explicitly. Matches the
+      // namespace id api/dropbox.js already uses for every other Dropbox
+      // call in this app.
+      'Dropbox-API-Path-Root': JSON.stringify({
+        '.tag': 'namespace_id',
+        namespace_id: '13502300579'
+      })
+    },
     body: JSON.stringify({ path })
   })
   const data = await res.json()
