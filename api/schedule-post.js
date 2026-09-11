@@ -69,23 +69,32 @@ async function getDropboxTemporaryLink(path) {
 
 // Response shape for normalize is taken from Metricool's documented
 // description ("returns the URL of the copy") rather than a live-captured
-// response -- the live verification this session focused on media
-// REQUIRING normalization and the caption-grouping behavior, both of
-// which directly change how this feature had to be built. This endpoint's
-// exact response shape is the one remaining piece worth confirming against
-// a real call before fully trusting it; handled defensively below in the
-// meantime so a differently-shaped response doesn't silently produce
-// `undefined` in the media field.
+// response. Confirmed against a real failure: this does NOT return JSON --
+// it returns the bare URL as plain text, no quotes, no wrapper object.
+// Reading it as text first and only trying JSON as a fallback (in case
+// Metricool ever wraps it differently for a different media type) instead
+// of assuming a shape that turned out to be wrong the first time this ran
+// for real.
 async function normalizeMedia(sourceUrl) {
   const params = new URLSearchParams({ url: sourceUrl })
   const res = await fetch(`https://app.metricool.com/api/actions/normalize/image/url?${params}`, {
     headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(`Media normalize failed: ${JSON.stringify(data)}`)
-  const url = data.url || data.link || (typeof data === 'string' ? data : null)
-  if (!url) throw new Error(`Normalize returned an unrecognized shape: ${JSON.stringify(data)}`)
-  return url
+  const raw = await res.text()
+
+  if (!res.ok) throw new Error(`Media normalize failed: ${raw}`)
+
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('http')) return trimmed
+
+  try {
+    const data = JSON.parse(trimmed)
+    const url = data.url || data.link || (typeof data === 'string' ? data : null)
+    if (url) return url
+    throw new Error(`Normalize returned an unrecognized JSON shape: ${trimmed}`)
+  } catch (err) {
+    throw new Error(`Normalize returned an unrecognized response: ${trimmed}`)
+  }
 }
 
 // Groups an occurrence's checked platforms by their FINAL caption text --
