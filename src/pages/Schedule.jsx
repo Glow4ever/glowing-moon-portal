@@ -559,8 +559,14 @@ export default function Schedule() {
   // occurrence that produced it, which matters more for a first version of
   // a button that's about to actually schedule real public content.
   async function scheduleBatch() {
+    // 'draft' obviously, but also 'failed' -- a failure earlier (like a
+    // real Dropbox config gap the first time this button was actually
+    // used) shouldn't leave that posting permanently stuck. Fixing the
+    // underlying problem and clicking Schedule again is the expected way
+    // to recover, so failed postings are eligible for another attempt
+    // the same way drafts are, not walled off into a separate retry flow.
     const readyDrafts = activeOccurrences.filter(({ occ }) =>
-      occ.status === 'draft' &&
+      (occ.status === 'draft' || occ.status === 'failed') &&
       occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date && occ.id
     )
     if (readyDrafts.length === 0) return
@@ -666,24 +672,34 @@ export default function Schedule() {
             )}
           </div>
 
-          {viewingBank && readyCount > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+          {viewingBank && activeOccurrences.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
               <button
                 onClick={scheduleBatch}
-                disabled={scheduling}
+                disabled={scheduling || readyCount === 0}
+                title={readyCount === 0 ? 'Every active posting needs a caption, at least one platform, and a date before this turns on.' : ''}
                 style={{
                   display: 'flex', alignItems: 'center', gap: '7px',
-                  background: 'var(--teal)', border: 'none', color: '#04211d', fontWeight: 600,
-                  fontSize: '13px', cursor: scheduling ? 'default' : 'pointer', padding: '9px 16px', borderRadius: '8px',
+                  background: readyCount === 0 ? 'var(--surface2)' : 'var(--teal)',
+                  border: readyCount === 0 ? '1px solid var(--border)' : 'none',
+                  color: readyCount === 0 ? 'var(--text3)' : '#04211d', fontWeight: 600,
+                  fontSize: '13px', cursor: (scheduling || readyCount === 0) ? 'default' : 'pointer', padding: '9px 16px', borderRadius: '8px',
                   opacity: scheduling ? 0.7 : 1,
-                  boxShadow: scheduling ? 'none' : '0 0 10px var(--teal)'
+                  boxShadow: (scheduling || readyCount === 0) ? 'none' : '0 0 10px var(--teal)'
                 }}
               >
                 <i className={`ti ${scheduling ? 'ti-loader-2' : 'ti-send'}`} aria-hidden="true" />
                 {scheduling
                   ? `Scheduling ${scheduleProgress?.done ?? 0} of ${scheduleProgress?.total ?? 0}…`
-                  : `Schedule ${readyCount} ready post${readyCount === 1 ? '' : 's'}`}
+                  : readyCount === 0
+                    ? 'Nothing ready to schedule yet'
+                    : `Schedule ${readyCount} ready post${readyCount === 1 ? '' : 's'}`}
               </button>
+              {readyCount === 0 && !scheduling && (
+                <span style={{ fontSize: '12px', color: 'var(--text3)' }}>
+                  Needs a caption, at least one platform, and a date on at least one active posting.
+                </span>
+              )}
               {scheduleResults && !scheduling && (
                 <div style={{ fontSize: '12px', color: scheduleResults.failed.length > 0 ? 'var(--coral)' : 'var(--teal)' }}>
                   {scheduleResults.succeeded} scheduled
