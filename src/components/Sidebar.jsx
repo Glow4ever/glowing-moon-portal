@@ -56,6 +56,19 @@ export default function Sidebar() {
             <i className="ti ti-settings" aria-hidden="true" />
             Admin Panel
           </NavLink>
+          <NavLink
+            to="/schedule"
+            className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
+            style={({ isActive }) => isActive ? {
+              background: primaryColor + '18',
+              color: primaryColor,
+              borderColor: primaryColor + '40'
+            } : {}}
+            onClick={() => setMobileOpen(false)}
+          >
+            <i className="ti ti-calendar-plus" aria-hidden="true" />
+            Schedule
+          </NavLink>
         </>
       )}
       <div style={{ flex: 1 }} />
@@ -103,4 +116,3 @@ export default function Sidebar() {
     </>
   )
 }
-
