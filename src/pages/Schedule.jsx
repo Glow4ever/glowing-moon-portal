@@ -37,6 +37,23 @@ function fileIcon(name) {
   return { icon: 'ti-file', bg: 'rgba(255,255,255,0.05)', color: 'var(--text2)' }
 }
 
+function buildStackFromPath(root, path) {
+  // Turns a saved/jump path back into a breadcrumb stack, rooted at
+  // Content. Mirrors Content.jsx's version of this so restored folders
+  // behave identically to a normal click-through.
+  if (!path || !path.toLowerCase().startsWith(root.toLowerCase())) return null
+  const rootLower = root.toLowerCase()
+  const rest = path.slice(root.length).replace(/^\/+/, '')
+  const parts = rest ? rest.split('/') : []
+  const stack = [{ name: 'Content', path: root }]
+  let acc = root
+  for (const part of parts) {
+    acc = `${acc}/${part}`
+    stack.push({ name: part, path: acc })
+  }
+  return stack
+}
+
 export default function Schedule() {
   const { client, allClients } = useClient()
   const [selectedClientId, setSelectedClientId] = useState(client?.id || null)
@@ -57,14 +74,35 @@ export default function Schedule() {
     }
   }, [allClients])
 
-  // Reset to the client's Content root whenever the selected client
-  // changes — a picked bank folder from a different client shouldn't
-  // silently carry over.
+  // Restore the last-viewed folder (and bank selection) for this client
+  // instead of always resetting to Content root. This page can remount —
+  // e.g. switching browser tabs away and back — and without this, that
+  // silently drops you back at the top of the folder tree every time.
+  // Same pattern Content.jsx already uses, same reason.
   useEffect(() => {
-    if (!clientName) return
-    setStack([{ name: 'Content', path: `/Glowing Moon Portal/${clientName}/Content` }])
-    setBankFolder(null)
-  }, [clientName])
+    if (!clientName || !selectedClientId) return
+    const root = `/Glowing Moon Portal/${clientName}/Content`
+
+    const savedPath = sessionStorage.getItem(`schedulePath:${selectedClientId}`)
+    const restoredStack = savedPath ? buildStackFromPath(root, savedPath) : null
+    setStack(restoredStack || [{ name: 'Content', path: root }])
+
+    const savedBankRaw = sessionStorage.getItem(`scheduleBank:${selectedClientId}`)
+    setBankFolder(savedBankRaw ? JSON.parse(savedBankRaw) : null)
+  }, [clientName, selectedClientId])
+
+  // Persist on every change, same as Content.jsx.
+  useEffect(() => {
+    if (selectedClientId && stack?.length) {
+      sessionStorage.setItem(`schedulePath:${selectedClientId}`, stack[stack.length - 1].path)
+    }
+  }, [selectedClientId, stack])
+
+  useEffect(() => {
+    if (!selectedClientId) return
+    if (bankFolder) sessionStorage.setItem(`scheduleBank:${selectedClientId}`, JSON.stringify(bankFolder))
+    else sessionStorage.removeItem(`scheduleBank:${selectedClientId}`)
+  }, [selectedClientId, bankFolder])
 
   const currentPath = stack?.[stack.length - 1]?.path
 
@@ -86,9 +124,11 @@ export default function Schedule() {
       ]
       setEntries(sorted)
 
-      // Thumbnails for image/video files only, fetched after the list
-      // renders so navigating feels instant rather than waiting on N
-      // temporary-link calls before showing anything.
+      // Preview links for image AND video files — both render a real
+      // thumbnail (video via <video>, since browsers show its first frame
+      // without needing a separate Dropbox thumbnail-generation call).
+      // Capped at 40 so a huge folder doesn't fire 200 temporary-link
+      // requests at once.
       const media = files.filter(f => ['photo', 'video'].includes(getFileType(f.name))).slice(0, 40)
       media.forEach(async f => {
         const link = await getDownloadLink(f.path_lower)
@@ -205,9 +245,15 @@ export default function Schedule() {
                 return (
                   <div key={f.path_lower} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
                     <div style={{ aspectRatio: '1', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                      {thumb && f.type === 'photo'
-                        ? <img src={thumb} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        : <i className={`ti ${icon}`} style={{ fontSize: '28px', color }} aria-hidden="true" />}
+                      {thumb && f.type === 'photo' && (
+                        <img src={thumb} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )}
+                      {thumb && f.type === 'video' && (
+                        <video src={thumb} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )}
+                      {(!thumb || (f.type !== 'photo' && f.type !== 'video')) && (
+                        <i className={`ti ${icon}`} style={{ fontSize: '28px', color }} aria-hidden="true" />
+                      )}
                     </div>
                     <div style={{ padding: '8px 10px' }}>
                       <div style={{ fontSize: '11.5px', color: 'var(--text)', wordBreak: 'break-word', lineHeight: 1.3 }}>{f.name}</div>
