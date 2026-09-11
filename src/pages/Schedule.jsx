@@ -26,6 +26,45 @@ const PLATFORMS = [
   { key: 'youtube',   label: 'YouTube',   icon: 'ti-brand-youtube' },
 ]
 
+// Confirmed live against this account's real post history (see
+// api/metricool-analytics.js and the Schedule build notes for how these
+// were verified). Only YouTube's "short" type, IG's POST/REEL, FB's POST,
+// and TikTok's PUBLIC_TO_EVERYONE were seen on an actual published post --
+// the rest of each list is Metricool's/the platform's standard set, not
+// independently confirmed. Scoped to Shorts only for YouTube: long-form
+// video always goes up natively outside this tool, regardless of whether
+// everything else here routes through Metricool, so there's no long-form
+// option to build.
+const IG_POST_TYPES = [
+  { value: 'POST', label: 'Post' },
+  { value: 'REEL', label: 'Reel' },
+  { value: 'STORY', label: 'Story' },
+  { value: 'TRIAL_REEL', label: 'Trial Reel' },
+]
+// Facebook has no hard restriction the way Instagram does -- a short video
+// posts fine as either, so this is a real creative choice, not a
+// requirement.
+const FB_POST_TYPES = [
+  { value: 'POST', label: 'Post' },
+  { value: 'REEL', label: 'Reel' },
+]
+const YT_PRIVACY = [
+  { value: 'public', label: 'Public' },
+  { value: 'unlisted', label: 'Unlisted' },
+  { value: 'private', label: 'Private' },
+]
+const YT_CATEGORIES = [
+  'FILM_ANIMATION', 'AUTOS_VEHICLES', 'MUSIC', 'PETS_ANIMALS', 'SPORTS',
+  'GAMING', 'PEOPLE_BLOGS', 'COMEDY', 'ENTERTAINMENT', 'NEWS_POLITICS',
+  'HOWTO_STYLE', 'EDUCATION', 'SCIENCE_TECHNOLOGY', 'NONPROFITS_ACTIVISM',
+]
+const TIKTOK_PRIVACY = [
+  { value: 'PUBLIC_TO_EVERYONE', label: 'Public' },
+  { value: 'MUTUAL_FOLLOW_FRIENDS', label: 'Friends' },
+  { value: 'FOLLOWER_OF_CREATOR', label: 'Followers' },
+  { value: 'SELF_ONLY', label: 'Private' },
+]
+
 // Kept short and specific to where GMM and its clients actually are,
 // rather than a full IANA list -- this is a quick picker, not a settings
 // page.
@@ -246,7 +285,17 @@ export default function Schedule() {
       platforms: [],
       publish_date: null,
       timezone: 'America/New_York',
-      status: 'draft'
+      status: 'draft',
+      ig_post_type: 'POST',
+      ig_show_reel_on_feed: true,
+      fb_post_type: 'POST',
+      yt_title: '',
+      yt_privacy: 'public',
+      yt_made_for_kids: false,
+      yt_category: '',
+      tiktok_privacy: 'PUBLIC_TO_EVERYONE',
+      video_cover_ms: null,
+      media_alt_text: '',
     }
   }
 
@@ -283,6 +332,16 @@ export default function Schedule() {
           platforms: row.platforms,
           publish_date: row.publish_date,
           timezone: row.timezone || 'America/New_York',
+          ig_post_type: row.ig_post_type || 'POST',
+          ig_show_reel_on_feed: row.ig_show_reel_on_feed ?? true,
+          fb_post_type: row.fb_post_type || 'POST',
+          yt_title: row.yt_title || null,
+          yt_privacy: row.yt_privacy || 'public',
+          yt_made_for_kids: row.yt_made_for_kids ?? false,
+          yt_category: row.yt_category || null,
+          tiktok_privacy: row.tiktok_privacy || 'PUBLIC_TO_EVERYONE',
+          video_cover_ms: row.video_cover_ms ?? null,
+          media_alt_text: row.media_alt_text || null,
         }, { onConflict: 'client_id,dropbox_path' })
         .select()
         .single()
@@ -441,6 +500,98 @@ export default function Schedule() {
                           {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
                         </select>
                       </div>
+
+                      {/* Per-platform settings -- only shown for platforms
+                          actually checked above, since e.g. YouTube's
+                          madeForKids has no meaning until YouTube is
+                          selected for this file. */}
+                      {(d.platforms || []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 20px', padding: '10px 0 2px', borderTop: '1px solid var(--border)' }}>
+                          {d.platforms.includes('instagram') && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <i className="ti ti-brand-instagram" style={{ fontSize: '13px', color: 'var(--text3)' }} aria-hidden="true" />
+                              <select
+                                className={styles.input}
+                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                value={d.ig_post_type}
+                                onChange={e => updateDraft(f, { ig_post_type: e.target.value })}
+                              >
+                                {IG_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                              </select>
+                              {d.ig_post_type === 'REEL' && (
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--text3)', cursor: 'pointer' }}>
+                                  <input type="checkbox" checked={d.ig_show_reel_on_feed} onChange={e => updateDraft(f, { ig_show_reel_on_feed: e.target.checked })} />
+                                  Show on feed
+                                </label>
+                              )}
+                            </div>
+                          )}
+
+                          {d.platforms.includes('facebook') && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <i className="ti ti-brand-facebook" style={{ fontSize: '13px', color: 'var(--text3)' }} aria-hidden="true" />
+                              <select
+                                className={styles.input}
+                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                value={d.fb_post_type}
+                                onChange={e => updateDraft(f, { fb_post_type: e.target.value })}
+                              >
+                                {FB_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                              </select>
+                            </div>
+                          )}
+
+                          {d.platforms.includes('tiktok') && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <i className="ti ti-brand-tiktok" style={{ fontSize: '13px', color: 'var(--text3)' }} aria-hidden="true" />
+                              <select
+                                className={styles.input}
+                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                value={d.tiktok_privacy}
+                                onChange={e => updateDraft(f, { tiktok_privacy: e.target.value })}
+                              >
+                                {TIKTOK_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                              </select>
+                            </div>
+                          )}
+
+                          {d.platforms.includes('youtube') && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', width: '100%' }}>
+                              <i className="ti ti-brand-youtube" style={{ fontSize: '13px', color: 'var(--text3)' }} aria-hidden="true" />
+                              <span style={{ fontSize: '10.5px', color: 'var(--text3)', background: 'var(--surface1)', padding: '2px 6px', borderRadius: '4px' }}>Short</span>
+                              <input
+                                type="text"
+                                className={styles.input}
+                                placeholder="Title (required by YouTube)"
+                                value={d.yt_title}
+                                onChange={e => updateDraft(f, { yt_title: e.target.value })}
+                                style={{ width: '220px', padding: '4px 8px', fontSize: '11.5px' }}
+                              />
+                              <select
+                                className={styles.input}
+                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                value={d.yt_privacy}
+                                onChange={e => updateDraft(f, { yt_privacy: e.target.value })}
+                              >
+                                {YT_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                              </select>
+                              <select
+                                className={styles.input}
+                                style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
+                                value={d.yt_category}
+                                onChange={e => updateDraft(f, { yt_category: e.target.value })}
+                              >
+                                <option value="">Category…</option>
+                                {YT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
+                              </select>
+                              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11.5px', color: 'var(--text3)', cursor: 'pointer' }}>
+                                <input type="checkbox" checked={d.yt_made_for_kids} onChange={e => updateDraft(f, { yt_made_for_kids: e.target.checked })} />
+                                Made for kids
+                              </label>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
