@@ -75,6 +75,21 @@ async function getDropboxTemporaryLink(path) {
 // Metricool ever wraps it differently for a different media type) instead
 // of assuming a shape that turned out to be wrong the first time this ran
 // for real.
+// Confirmed against a real Metricool rejection: publicationDate.dateTime
+// must include seconds ('yyyy-MM-dd'T'HH:mm:ss'), but the browser's
+// datetime-local input hands back "2026-09-11T08:31" with no seconds --
+// which is exactly what got saved to publish_date, since the occurrence
+// stores that value as-typed on purpose (see Schedule.jsx: it deliberately
+// avoids any timezone conversion by keeping the raw wall-clock string).
+// Normalizing here, at the point this actually gets sent, rather than
+// changing what's stored -- the display value and the save format are
+// still correct for their own purposes, they just need :00 appended
+// before Metricool will accept them.
+function toMetricoolDateTime(value) {
+  if (!value) return value
+  return value.length === 16 ? `${value}:00` : value
+}
+
 async function normalizeMedia(sourceUrl) {
   const params = new URLSearchParams({ url: sourceUrl })
   const res = await fetch(`https://app.metricool.com/api/actions/normalize/image/url?${params}`, {
@@ -201,7 +216,7 @@ module.exports = async function handler(req, res) {
     for (const group of groups) {
       const payload = {
         publicationDate: {
-          dateTime: occurrence.publish_date,
+          dateTime: toMetricoolDateTime(occurrence.publish_date),
           timezone: occurrence.timezone || 'America/New_York'
         },
         text: group.text,
