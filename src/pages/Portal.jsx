@@ -8,6 +8,7 @@ import Content from './Content'
 import Calendar from './Calendar'
 import Metrics from './Metrics'
 import Admin from './Admin'
+import Schedule from './Schedule'
 import Settings from './Settings.jsx'
 import Messages from './Messages.jsx'
 import styles from './Portal.module.css'
@@ -50,6 +51,7 @@ export default function Portal() {
             <Route path="/metrics"  element={<MetricsRoute><Metrics /></MetricsRoute>} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/admin"    element={<AdminRoute><Admin /></AdminRoute>} />
+            <Route path="/schedule" element={<AdminRoute><Schedule /></AdminRoute>} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
