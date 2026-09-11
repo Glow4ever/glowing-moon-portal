@@ -139,6 +139,88 @@ function ToggleSwitch({ checked, onChange, label, icon }) {
   )
 }
 
+// Thumbnail selection, kept deliberately light: no frame extraction, no
+// filmstrip of pre-generated options -- just the real <video> element
+// scrubbed via currentTime, which the browser already renders as a live
+// frame while dragging. Reuses the same temporary Dropbox link already
+// fetched for the file's preview thumbnail, so there's no new backend
+// work here at all. This gets most of the value of a proper scrubber
+// (see and pick the exact moment) without the heavier build a filmstrip
+// picker would need (seeking to N points, drawing each to a canvas,
+// handling seek failures) -- worth revisiting only if picking blind ever
+// turns out to be a real friction point.
+function formatMs(ms) {
+  const s = Math.floor((ms || 0) / 1000)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+function VideoCoverPicker({ videoUrl, valueMs, onChange }) {
+  const [open, setOpen] = useState(false)
+  const [duration, setDuration] = useState(0)
+  const [scrubMs, setScrubMs] = useState(valueMs || 0)
+  const videoRef = useRef(null)
+
+  useEffect(() => { setScrubMs(valueMs || 0) }, [valueMs])
+
+  function handleLoadedMetadata() {
+    const durMs = (videoRef.current?.duration || 0) * 1000
+    setDuration(durMs)
+    if (videoRef.current) videoRef.current.currentTime = (valueMs || 0) / 1000
+  }
+
+  function handleScrub(e) {
+    const ms = Number(e.target.value)
+    setScrubMs(ms)
+    if (videoRef.current) videoRef.current.currentTime = ms / 1000
+  }
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: '11px', cursor: 'pointer', padding: '4px 9px', borderRadius: '5px', width: 'fit-content' }}
+      >
+        <i className="ti ti-crop" aria-hidden="true" />
+        {valueMs != null ? `Cover at ${formatMs(valueMs)}` : 'Set cover'}
+      </button>
+    )
+  }
+
+  return (
+    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '260px' }}>
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        muted
+        playsInline
+        onLoadedMetadata={handleLoadedMetadata}
+        style={{ width: '100%', borderRadius: '6px', display: 'block', background: '#000' }}
+      />
+      <input
+        type="range"
+        min={0}
+        max={duration || 0}
+        step={100}
+        value={scrubMs}
+        onChange={handleScrub}
+        style={{ width: '100%' }}
+      />
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '10.5px', color: 'var(--text3)' }}>{formatMs(scrubMs)} / {formatMs(duration)}</span>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button onClick={() => setOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text3)', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
+          <button
+            onClick={() => { onChange(Math.round(scrubMs)); setOpen(false) }}
+            style={{ background: 'var(--teal)', border: 'none', color: '#04211d', fontSize: '11px', fontWeight: 600, cursor: 'pointer', padding: '4px 10px', borderRadius: '5px' }}
+          >
+            Use this frame
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // publish_date is stored exactly as typed into the datetime-local input --
 // a wall-clock string like "2026-09-30T23:38", no timezone math applied --
 // paired with an explicit timezone field. This deliberately mirrors what
@@ -539,12 +621,24 @@ export default function Schedule() {
                 const thumb = thumbs[f.path_lower]
                 const { icon, bg, color } = fileIcon(f.name)
                 const occurrences = occurrencesFor(f)
+                // Fully retired: has at least one posting and every one of
+                // them is inactive. Lets you scan the bank for what's
+                // already been used without opening each file -- the
+                // point being to bounce around a folder out of order and
+                // still know at a glance what's spoken for.
+                const fullyRetired = occurrences.length > 0 && occurrences.every(o => o.active === false)
+                const anyPublished = occurrences.some(o => o.status === 'published')
                 return (
                   <div key={f.path_lower} style={{ display: 'flex', gap: '14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px' }}>
-                    <div style={{ width: '84px', height: '84px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {thumb && f.type === 'photo' && <img src={thumb} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                      {thumb && f.type === 'video' && <video src={thumb} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                      {(!thumb || (f.type !== 'photo' && f.type !== 'video')) && <i className={`ti ${icon}`} style={{ fontSize: '24px', color }} aria-hidden="true" />}
+                    <div style={{ position: 'relative', width: '84px', height: '84px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {thumb && f.type === 'photo' && <img src={thumb} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: fullyRetired ? 'grayscale(85%) brightness(0.55)' : 'none' }} />}
+                      {thumb && f.type === 'video' && <video src={thumb} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: fullyRetired ? 'grayscale(85%) brightness(0.55)' : 'none' }} />}
+                      {(!thumb || (f.type !== 'photo' && f.type !== 'video')) && <i className={`ti ${icon}`} style={{ fontSize: '24px', color, opacity: fullyRetired ? 0.4 : 1 }} aria-hidden="true" />}
+                      {fullyRetired && (
+                        <div style={{ position: 'absolute', top: '4px', right: '4px', width: '18px', height: '18px', borderRadius: '50%', background: anyPublished ? 'var(--teal)' : 'var(--surface1)', border: '1px solid ' + (anyPublished ? 'var(--teal)' : 'var(--border)'), display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: anyPublished ? '0 0 6px var(--teal)' : 'none' }}>
+                          <i className="ti ti-check" style={{ fontSize: '11px', color: anyPublished ? '#fff' : 'var(--text3)' }} aria-hidden="true" />
+                        </div>
+                      )}
                     </div>
 
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -805,6 +899,14 @@ export default function Schedule() {
                         })}
                       </div>
 
+                      {f.type === 'video' && thumbs[f.path_lower] && (
+                        <VideoCoverPicker
+                          videoUrl={thumbs[f.path_lower]}
+                          valueMs={d.video_cover_ms}
+                          onChange={ms => updateOccurrence(f, occ._key, { video_cover_ms: ms })}
+                        />
+                      )}
+
                       {/* Date/timezone are not platform-specific, so they sit
                           on their own row rather than inside any platform's
                           column. */}
@@ -884,4 +986,3 @@ export default function Schedule() {
       )}
     </div>
   )
-}
