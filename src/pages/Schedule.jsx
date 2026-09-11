@@ -189,26 +189,6 @@ export default function Schedule() {
     if (selectedClientId) sessionStorage.setItem(`scheduleBank:${selectedClientId}`, JSON.stringify(folder))
   }
 
-  // Safety net independent of the debounce timer: if the tab is hidden —
-  // switched away from, not just scrolled past — flush every pending save
-  // immediately rather than trusting the 900ms timer to still be alive by
-  // the time it fires. A setTimeout doesn't get cancelled by a backgrounded
-  // tab, but it can lose a race against the tab being reclaimed, and losing
-  // the one caption someone just finished typing is a bad trade for saving
-  // one network call.
-  useEffect(() => {
-    function flushOnHide() {
-      if (document.visibilityState !== 'hidden') return
-      Object.entries(saveTimers.current).forEach(([path, timerId]) => {
-        clearTimeout(timerId)
-        const [file] = fileEntries.filter(f => f.path_lower === path)
-        if (file) saveDraft(file, path)
-      })
-    }
-    document.addEventListener('visibilitychange', flushOnHide)
-    return () => document.removeEventListener('visibilitychange', flushOnHide)
-  }, [fileEntries, saveDraft])
-
   const currentPath = stack?.[stack.length - 1]?.path
 
   useEffect(() => {
@@ -357,6 +337,26 @@ export default function Schedule() {
       return current
     })
   }, [])
+
+  // Safety net independent of the debounce timer: if the tab is hidden —
+  // switched away from, not just scrolled past — flush every pending save
+  // immediately rather than trusting the 900ms timer to still be alive by
+  // the time it fires. A setTimeout doesn't get cancelled by a backgrounded
+  // tab, but it can lose a race against the tab being reclaimed, and losing
+  // the one caption someone just finished typing is a bad trade for saving
+  // one network call.
+  useEffect(() => {
+    function flushOnHide() {
+      if (document.visibilityState !== 'hidden') return
+      Object.entries(saveTimers.current).forEach(([path, timerId]) => {
+        clearTimeout(timerId)
+        const [file] = fileEntries.filter(f => f.path_lower === path)
+        if (file) saveDraft(file, path)
+      })
+    }
+    document.addEventListener('visibilitychange', flushOnHide)
+    return () => document.removeEventListener('visibilitychange', flushOnHide)
+  }, [fileEntries, saveDraft])
 
   function togglePlatform(file, key) {
     const current = draftFor(file).platforms || []
