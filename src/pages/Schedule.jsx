@@ -259,6 +259,9 @@ export default function Schedule() {
   const [activeCaptionTab, setActiveCaptionTab] = useState({}) // path -> 'template' | platform key
   const [linkBankOpenFor, setLinkBankOpenFor] = useState(null) // path or null
   const [copiedLinkId, setCopiedLinkId] = useState(null)
+  const [scheduling, setScheduling] = useState(false)
+  const [scheduleProgress, setScheduleProgress] = useState(null) // { done, total }
+  const [scheduleResults, setScheduleResults] = useState(null) // { succeeded, failed: [{filename, error}] }
 
   // The client's tracked links -- one small fetch per client, reused
   // across every row's link bank rather than queried per file.
@@ -548,6 +551,61 @@ export default function Schedule() {
     occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date
   ).length
 
+  // Sequential on purpose, not Promise.all -- each call to Metricool
+  // involves its own Dropbox fetch + normalize + post-creation round trip,
+  // and firing a whole batch at once risks hitting Metricool's own rate
+  // limits with no good way to tell which of N simultaneous failures was
+  // the real cause. Slower, but every result is attributable to the exact
+  // occurrence that produced it, which matters more for a first version of
+  // a button that's about to actually schedule real public content.
+  async function scheduleBatch() {
+    const readyDrafts = activeOccurrences.filter(({ occ }) =>
+      occ.status === 'draft' &&
+      occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date && occ.id
+    )
+    if (readyDrafts.length === 0) return
+
+    setScheduling(true)
+    setScheduleResults(null)
+    setScheduleProgress({ done: 0, total: readyDrafts.length })
+
+    const failed = []
+    let succeeded = 0
+
+    for (const { file, occ } of readyDrafts) {
+      try {
+        const res = await apiFetch('/api/schedule-post', {
+          method: 'POST',
+          body: JSON.stringify({ occurrenceId: occ.id })
+        })
+        const data = await res.json()
+        if (res.ok && data.success) {
+          succeeded++
+          setDrafts(prev => ({
+            ...prev,
+            [file.path_lower]: (prev[file.path_lower] || []).map(o =>
+              o._key === occ._key ? { ...o, status: 'scheduled', metricool_post_ids: data.networkToPostId } : o
+            )
+          }))
+        } else {
+          failed.push({ filename: occ.filename, error: data.errors?.join('; ') || data.error || 'Unknown error' })
+          setDrafts(prev => ({
+            ...prev,
+            [file.path_lower]: (prev[file.path_lower] || []).map(o =>
+              o._key === occ._key ? { ...o, status: 'failed' } : o
+            )
+          }))
+        }
+      } catch (err) {
+        failed.push({ filename: occ.filename, error: err.message })
+      }
+      setScheduleProgress(prev => ({ ...prev, done: prev.done + 1 }))
+    }
+
+    setScheduling(false)
+    setScheduleResults({ succeeded, failed })
+  }
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -608,6 +666,41 @@ export default function Schedule() {
             )}
           </div>
 
+          {viewingBank && readyCount > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+              <button
+                onClick={scheduleBatch}
+                disabled={scheduling}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '7px',
+                  background: 'var(--teal)', border: 'none', color: '#04211d', fontWeight: 600,
+                  fontSize: '13px', cursor: scheduling ? 'default' : 'pointer', padding: '9px 16px', borderRadius: '8px',
+                  opacity: scheduling ? 0.7 : 1,
+                  boxShadow: scheduling ? 'none' : '0 0 10px var(--teal)'
+                }}
+              >
+                <i className={`ti ${scheduling ? 'ti-loader-2' : 'ti-send'}`} aria-hidden="true" />
+                {scheduling
+                  ? `Scheduling ${scheduleProgress?.done ?? 0} of ${scheduleProgress?.total ?? 0}…`
+                  : `Schedule ${readyCount} ready post${readyCount === 1 ? '' : 's'}`}
+              </button>
+              {scheduleResults && !scheduling && (
+                <div style={{ fontSize: '12px', color: scheduleResults.failed.length > 0 ? 'var(--coral)' : 'var(--teal)' }}>
+                  {scheduleResults.succeeded} scheduled
+                  {scheduleResults.failed.length > 0 && `, ${scheduleResults.failed.length} failed`}
+                </div>
+              )}
+            </div>
+          )}
+
+          {scheduleResults?.failed.length > 0 && !scheduling && (
+            <div style={{ background: 'rgba(240,153,123,0.1)', border: '1px solid var(--coral)', borderRadius: '8px', padding: '10px 14px', marginBottom: '18px', fontSize: '12px', color: 'var(--coral)' }}>
+              {scheduleResults.failed.map((f, i) => (
+                <div key={i} style={{ padding: '3px 0' }}><strong>{f.filename}:</strong> {f.error}</div>
+              ))}
+            </div>
+          )}
+
           {loading ? (
             <div className={styles.empty}>Loading...</div>
           ) : loadError ? (
@@ -656,11 +749,23 @@ export default function Schedule() {
                         return (
                           <div key={occ._key} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--surface1)', border: '1px solid ' + (isActive ? 'var(--border)' : 'transparent'), borderRadius: '8px', padding: '10px 12px', opacity: isActive ? 1 : 0.55 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                              <ToggleSwitch
-                                checked={isActive}
-                                onChange={e => toggleActive(f, occ._key, e.target.checked)}
-                                label={isActive ? 'Active' : 'Retired'}
-                              />
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <ToggleSwitch
+                                  checked={isActive}
+                                  onChange={e => toggleActive(f, occ._key, e.target.checked)}
+                                  label={isActive ? 'Active' : 'Retired'}
+                                />
+                                {occ.status === 'scheduled' && (
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--teal)', background: 'rgba(29,158,117,0.12)', padding: '2px 8px', borderRadius: '10px' }}>
+                                    <i className="ti ti-circle-check" aria-hidden="true" /> Scheduled
+                                  </span>
+                                )}
+                                {occ.status === 'failed' && (
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.12)', padding: '2px 8px', borderRadius: '10px' }} title={occ.schedule_error || ''}>
+                                    <i className="ti ti-alert-circle" aria-hidden="true" /> Failed
+                                  </span>
+                                )}
+                              </div>
                               <div style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
                                 {saveState === 'saving' && 'Saving…'}
                                 {saveState === 'saved' && <span style={{ color: 'var(--teal)' }}><i className="ti ti-check" aria-hidden="true" /> Saved</span>}
