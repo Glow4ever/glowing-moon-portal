@@ -55,11 +55,17 @@ function buildStackFromPath(root, path) {
 }
 
 export default function Schedule() {
-  const { client, allClients } = useClient()
-  const [selectedClientId, setSelectedClientId] = useState(client?.id || null)
-
-  const selectedClient = allClients.find(c => c.id === selectedClientId)
-  const clientName = selectedClient?.name
+  // Client selection is global, not page-local — same client the rest of
+  // the portal is looking at, switched via the Topbar's "Switch Client"
+  // control. An earlier version of this page kept its own local
+  // selectedClientId state, which looked fine but was never actually
+  // wired to the real active client: picking a client here only updated
+  // this page's own state, so on any remount (e.g. switching browser tabs
+  // and back) it reset to whatever the real global client still was —
+  // GMM, since that's the default and nothing had ever really changed it.
+  const { client, role } = useClient()
+  const clientName = client?.name
+  const selectedClientId = client?.id
 
   const [stack, setStack] = useState(null)
   const [entries, setEntries] = useState([])
@@ -67,12 +73,6 @@ export default function Schedule() {
   const [loadError, setLoadError] = useState(false)
   const [thumbs, setThumbs] = useState({})
   const [bankFolder, setBankFolder] = useState(null) // the folder chosen as "this quarter's bank"
-
-  useEffect(() => {
-    if (!selectedClientId && allClients.length > 0) {
-      setSelectedClientId(allClients[0].id)
-    }
-  }, [allClients])
 
   // Restore the last-viewed folder (and bank selection) for this client
   // instead of always resetting to Content root. This page can remount —
@@ -160,19 +160,12 @@ export default function Schedule() {
         <div className={styles.sub}>Pick the quarter's content folder, then write captions and schedule the batch to Metricool.</div>
       </div>
 
-      <div className={styles.formCard}>
-        <div className={styles.field} style={{ maxWidth: '320px', marginBottom: '4px' }}>
-          <label className={styles.label}>Client</label>
-          <select
-            className={styles.input}
-            value={selectedClientId || ''}
-            onChange={e => setSelectedClientId(e.target.value)}
-          >
-            {allClients.map(c => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+      <div className={styles.formCard} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <i className="ti ti-building-store" style={{ fontSize: '16px', color: 'var(--gold-light)' }} aria-hidden="true" />
+        <div style={{ fontSize: '13px', color: 'var(--text)' }}>
+          Scheduling for <strong>{clientName || '…'}</strong>
         </div>
+        <div style={{ fontSize: '12px', color: 'var(--text3)' }}>— use "Switch Client" in the top bar to change this</div>
       </div>
 
       {stack && (
