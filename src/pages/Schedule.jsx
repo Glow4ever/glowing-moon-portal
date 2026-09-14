@@ -259,6 +259,12 @@ export default function Schedule() {
   const [activeCaptionTab, setActiveCaptionTab] = useState({}) // path -> 'template' | platform key
   const [linkBankOpenFor, setLinkBankOpenFor] = useState(null) // path or null
   const [copiedLinkId, setCopiedLinkId] = useState(null)
+  // Display-only, never persisted -- which occurrence panels are expanded
+  // is a viewing preference for this session, not data about the posting
+  // itself. Everything defaults open; the chevron on each card's header
+  // toggles it collapsed to a one-line summary (platforms, date, a
+  // caption snippet) instead.
+  const [collapsedOccurrences, setCollapsedOccurrences] = useState({})
   const [scheduling, setScheduling] = useState(false)
   const [scheduleProgress, setScheduleProgress] = useState(null) // { done, total }
   const [scheduleResults, setScheduleResults] = useState(null) // { succeeded, failed: [{filename, error}] }
@@ -298,13 +304,31 @@ export default function Schedule() {
     if (restoredForClient.current === selectedClientId) return
     restoredForClient.current = selectedClientId
 
+    // Which folder to browse to on load is a low-stakes convenience --
+    // fine to keep in sessionStorage, worst case you land at Content root
+    // and click back in.
     const root = `/Glowing Moon Portal/${clientName}/Content`
     const savedPath = sessionStorage.getItem(`schedulePath:${selectedClientId}`)
     const restoredStack = savedPath ? buildStackFromPath(root, savedPath) : null
     setStack(restoredStack || [{ name: 'Content', path: root }])
 
-    const savedBankRaw = sessionStorage.getItem(`scheduleBank:${selectedClientId}`)
-    setBankFolder(savedBankRaw ? JSON.parse(savedBankRaw) : null)
+    // Which folder IS the bank is not low-stakes -- it's the thing that
+    // decides what schedule_drafts rows get loaded, and losing it just
+    // because the tab closed or it's a different day would look like data
+    // going missing even though nothing was actually lost. Stored on the
+    // client's own row instead, so it survives exactly as long as
+    // everything else about that client does.
+    setBankFolder(null)
+    supabase
+      .from('clients')
+      .select('schedule_bank_folder_path, schedule_bank_folder_name')
+      .eq('id', selectedClientId)
+      .single()
+      .then(({ data }) => {
+        if (data?.schedule_bank_folder_path) {
+          setBankFolder({ name: data.schedule_bank_folder_name, path: data.schedule_bank_folder_path })
+        }
+      })
   }, [clientName, selectedClientId])
 
   useEffect(() => {
@@ -315,7 +339,12 @@ export default function Schedule() {
 
   function setBank(folder) {
     setBankFolder(folder)
-    if (selectedClientId) sessionStorage.setItem(`scheduleBank:${selectedClientId}`, JSON.stringify(folder))
+    if (!selectedClientId) return
+    supabase
+      .from('clients')
+      .update({ schedule_bank_folder_path: folder.path, schedule_bank_folder_name: folder.name })
+      .eq('id', selectedClientId)
+      .then(({ error }) => { if (error) console.error('Failed to save content bank:', error) })
   }
 
   const currentPath = stack?.[stack.length - 1]?.path
@@ -796,6 +825,7 @@ export default function Schedule() {
                         const saveState = savingPaths[occ._key]
                         const isActive = occ.active !== false
                         const occReady = occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date && occ.id
+                        const collapsed = collapsedOccurrences[occ._key] ?? false
                         return (
                           <div key={occ._key} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--surface1)', border: '1px solid ' + (isActive ? 'var(--border)' : 'transparent'), borderRadius: '8px', padding: '10px 12px', opacity: isActive ? 1 : 0.55 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -848,14 +878,30 @@ export default function Schedule() {
                                   <i className={`ti ${occ._scheduling ? 'ti-loader-2' : 'ti-send'}`} aria-hidden="true" />
                                   {occ._scheduling ? 'Sending…' : scheduleButtonLabel(occ.status)}
                                 </button>
+                                <button
+                                  onClick={() => setCollapsedOccurrences(prev => ({ ...prev, [occ._key]: !collapsed }))}
+                                  title={collapsed ? 'Expand' : 'Collapse'}
+                                  style={{ display: 'flex', alignItems: 'center', background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '4px', fontSize: '15px' }}
+                                >
+                                  <i className={`ti ${collapsed ? 'ti-chevron-down' : 'ti-chevron-up'}`} aria-hidden="true" />
+                                </button>
                               </div>
                             </div>
+                            {collapsed && (
+                              <div style={{ fontSize: '11px', color: 'var(--text3)', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                {occ.platforms?.length > 0 ? occ.platforms.join(', ') : 'No platforms yet'}
+                                {occ.publish_date && <span>&middot; {occ.publish_date.replace('T', ' ')}</span>}
+                                {occ.caption?.trim() && <span>&middot; "{occ.caption.slice(0, 40)}{occ.caption.length > 40 ? '…' : ''}"</span>}
+                              </div>
+                            )}
                             {occ.status === 'failed' && occ.schedule_error && (
                               <div style={{ fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.08)', border: '1px solid rgba(240,153,123,0.25)', borderRadius: '6px', padding: '6px 10px', wordBreak: 'break-word' }}>
                                 {occ.schedule_error}
                               </div>
                             )}
 
+                      {!collapsed && (
+<>
                       {/* Template + per-network overrides, matching
                           Metricool's own "Edit by network" pattern rather
                           than inventing a different one. Template is what
@@ -1114,6 +1160,8 @@ export default function Schedule() {
                           {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
                         </select>
                       </div>
+</>
+                      )}
                           </div>
                         )
                       })}
