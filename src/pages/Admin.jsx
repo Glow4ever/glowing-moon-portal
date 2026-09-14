@@ -208,6 +208,30 @@ export default function Admin() {
     setAttentionQueue(items)
   }
 
+  // Genuinely resolves the comments this count is built from -- not a
+  // dismiss that hides the card while leaving real unanswered client
+  // feedback sitting there. This exists because "I already replied, why
+  // won't this clear" turned out to have two different real causes
+  // already (a missing resolved filter, then a stale query) -- this
+  // button is the direct, honest fix once you've actually attended to
+  // everything: it marks every currently-unresolved, non-admin comment
+  // for this client as resolved, the same effect as resolving each one by
+  // hand in Content Library, just in one action instead of hunting down
+  // every thread individually.
+  async function clearWaitingOnAdmin(clientId, clientName) {
+    if (!window.confirm(`Mark every unanswered revision note for ${clientName} as resolved? Only do this once you've actually replied to them.`)) return
+    const { data: openComments } = await supabase
+      .from('file_comments')
+      .select('id')
+      .eq('client_id', clientId)
+      .eq('resolved', false)
+      .neq('sender_role', 'admin')
+    const ids = (openComments || []).map(c => c.id)
+    if (ids.length === 0) { loadAttentionQueue(); return }
+    await supabase.from('file_comments').update({ resolved: true }).in('id', ids)
+    loadAttentionQueue()
+  }
+
   async function loadActivityFeed() {
     setActivityLoading(true)
 
@@ -827,19 +851,28 @@ export default function Admin() {
                         <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
                           {item.count} revision note{item.count !== 1 ? 's' : ''} unanswered for {item.clientName}
                         </div>
-                        <button
-                          onClick={() => {
-                            if (item.folderPath) {
-                              switchClient(item.clientId)
-                              navigate('/content', { state: { jumpToFolderPath: item.folderPath } })
-                            } else {
-                              setTrackerOpen(item.clientId)
-                            }
-                          }}
-                          style={{ marginTop: '10px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
-                        >
-                          {item.folderPath ? 'Open folder' : 'Open tracker'}
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                          <button
+                            onClick={() => {
+                              if (item.folderPath) {
+                                switchClient(item.clientId)
+                                navigate('/content', { state: { jumpToFolderPath: item.folderPath } })
+                              } else {
+                                setTrackerOpen(item.clientId)
+                              }
+                            }}
+                            style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
+                          >
+                            {item.folderPath ? 'Open folder' : 'Open tracker'}
+                          </button>
+                          <button
+                            onClick={() => clearWaitingOnAdmin(item.clientId, item.clientName)}
+                            title="Marks these as resolved -- only use once you've actually replied."
+                            style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text3)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
+                          >
+                            Clear
+                          </button>
+                        </div>
                       </div>
                     )
                   }
