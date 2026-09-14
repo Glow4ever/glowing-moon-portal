@@ -1,1224 +1,299 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useClient } from '../lib/ClientContext'
-import { supabase } from '../lib/supabase'
-import { apiFetch } from '../lib/apiFetch'
-import { getDownloadLink, getFileType, formatBytes } from '../lib/dropbox'
-import styles from './Admin.module.css'
+const { requireAuth } = require('./_auth')
+const { createClient } = require('@supabase/supabase-js')
+const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
-// Admin-only by design — gated at the route level in Portal.jsx via
-// AdminRoute, the same guard already used for /admin. This page is
-// intentionally its own tab rather than a section inside Admin.jsx: batch
-// scheduling has enough surface area (a content bank, per-row captions,
-// platform selection, per-client tracked links) that folding it into the
-// Admin page would clutter a page that already covers clients, team,
-// revisions, reports, and links.
+// Everything below the media/caption handling is built against Metricool's
+// real API, verified live rather than assumed -- see the Schedule feature's
+// build history for how each piece was confirmed. Two things worth
+// restating here since they're easy to get subtly wrong:
 //
-// Editor access is a likely next step once this is tested, per the original
-// ask — when that happens, swap the AdminRoute wrapper in Portal.jsx for
-// something closer to MetricsRoute (role-list based) rather than the
-// admin-only check, and this page's own logic shouldn't need to change.
+// 1. Media can't be handed to the post-creation call as a raw Dropbox
+//    link, even a valid one -- Metricool's own docs confirm private or
+//    temporary URLs get silently skipped. The real flow is two calls:
+//    normalize the source URL first (Metricool fetches it immediately and
+//    hosts its own permanent copy), then use THAT url in the post payload.
+//
+// 2. There is no per-network caption-override field on the payload. When
+//    captions diverge, Metricool's own composer sends one SEPARATE API
+//    call per distinct caption, each with its own `providers` array
+//    holding only the platforms that share that exact text. Confirmed by
+//    scheduling a real test post with divergent Facebook/LinkedIn text and
+//    reading back exactly what got created: two independent posts, same
+//    publish time, different `providers` and different `text` each. Two
+//    more plausible-looking field names (`linkedinData.text`,
+//    `providers[].text`) were tried first and silently ignored by the
+//    API -- no error, just dropped -- which is why this was verified
+//    against a live response rather than left as a guess.
 
-const PLATFORMS = [
-  { key: 'facebook',  label: 'Facebook',  icon: 'ti-brand-facebook' },
-  { key: 'instagram', label: 'Instagram', icon: 'ti-brand-instagram' },
-  { key: 'linkedin',  label: 'LinkedIn',  icon: 'ti-brand-linkedin' },
-  { key: 'tiktok',    label: 'TikTok',    icon: 'ti-brand-tiktok' },
-  { key: 'youtube',   label: 'YouTube',   icon: 'ti-brand-youtube' },
-]
-
-// Confirmed live against this account's real post history (see
-// api/metricool-analytics.js and the Schedule build notes for how these
-// were verified). Only YouTube's "short" type, IG's POST/REEL, FB's POST,
-// and TikTok's PUBLIC_TO_EVERYONE were seen on an actual published post --
-// the rest of each list is Metricool's/the platform's standard set, not
-// independently confirmed. Scoped to Shorts only for YouTube: long-form
-// video always goes up natively outside this tool, regardless of whether
-// everything else here routes through Metricool, so there's no long-form
-// option to build.
-const IG_POST_TYPES = [
-  { value: 'POST', label: 'Post' },
-  { value: 'REEL', label: 'Reel' },
-  { value: 'STORY', label: 'Story' },
-  { value: 'TRIAL_REEL', label: 'Trial Reel' },
-]
-// Facebook has no hard restriction the way Instagram does -- a short video
-// posts fine as either, so this is a real creative choice, not a
-// requirement.
-const FB_POST_TYPES = [
-  { value: 'POST', label: 'Post' },
-  { value: 'REEL', label: 'Reel' },
-]
-const YT_PRIVACY = [
-  { value: 'public', label: 'Public' },
-  { value: 'unlisted', label: 'Unlisted' },
-  { value: 'private', label: 'Private' },
-]
-const YT_CATEGORIES = [
-  'FILM_ANIMATION', 'AUTOS_VEHICLES', 'MUSIC', 'PETS_ANIMALS', 'SPORTS',
-  'GAMING', 'PEOPLE_BLOGS', 'COMEDY', 'ENTERTAINMENT', 'NEWS_POLITICS',
-  'HOWTO_STYLE', 'EDUCATION', 'SCIENCE_TECHNOLOGY', 'NONPROFITS_ACTIVISM',
-]
-const TIKTOK_PRIVACY = [
-  { value: 'PUBLIC_TO_EVERYONE', label: 'Public' },
-  { value: 'MUTUAL_FOLLOW_FRIENDS', label: 'Friends' },
-  { value: 'FOLLOWER_OF_CREATOR', label: 'Followers' },
-  { value: 'SELF_ONLY', label: 'Private' },
-]
-
-// Kept short and specific to where GMM and its clients actually are,
-// rather than a full IANA list -- this is a quick picker, not a settings
-// page.
-const TIMEZONES = [
-  { value: 'America/New_York', label: 'Eastern (New York)' },
-  { value: 'America/Chicago', label: 'Central (Chicago)' },
-  { value: 'America/Denver', label: 'Mountain (Denver)' },
-  { value: 'America/Los_Angeles', label: 'Pacific (Los Angeles)' },
-  { value: 'Europe/Madrid', label: 'Central European (Madrid)' },
-]
-
-const SAVE_DEBOUNCE_MS = 900
-
-async function listDropboxFolder(path) {
-  const res = await apiFetch('/api/dropbox', {
+async function getDropboxAccessToken() {
+  const response = await fetch('https://api.dropboxapi.com/oauth2/token', {
     method: 'POST',
-    body: JSON.stringify({
-      endpoint: 'files/list_folder',
-      body: { path, include_deleted: false }
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: process.env.DROPBOX_REFRESH_TOKEN,
+      client_id: process.env.DROPBOX_APP_KEY,
+      client_secret: process.env.DROPBOX_APP_SECRET
     })
   })
-  if (!res.ok) throw new Error('Dropbox request failed')
+  const data = await response.json()
+  if (!response.ok) throw new Error(`Dropbox token refresh failed: ${JSON.stringify(data)}`)
+  return data.access_token
+}
+
+async function getDropboxTemporaryLink(path) {
+  const token = await getDropboxAccessToken()
+  const res = await fetch('https://api.dropboxapi.com/2/files/get_temporary_link', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      // Missing this on the first real attempt produced a confusing
+      // path/not_found for a path that was completely valid -- client
+      // files live in a specific Dropbox team namespace, not whatever
+      // namespace this token resolves to by default, and Dropbox has no
+      // way to know that without being told explicitly. Matches the
+      // namespace id api/dropbox.js already uses for every other Dropbox
+      // call in this app.
+      'Dropbox-API-Path-Root': JSON.stringify({
+        '.tag': 'namespace_id',
+        namespace_id: '13502300579'
+      })
+    },
+    body: JSON.stringify({ path })
+  })
   const data = await res.json()
-  return data.entries || []
+  if (!res.ok) throw new Error(`Dropbox temporary link failed: ${JSON.stringify(data)}`)
+  return data.link
 }
 
-function fileIcon(name) {
-  const ext = name.split('.').pop().toLowerCase()
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return { icon: 'ti-photo', bg: 'var(--teal-bg)', color: 'var(--teal)' }
-  if (['mp4', 'mov', 'avi'].includes(ext)) return { icon: 'ti-video', bg: 'var(--gold-bg)', color: 'var(--gold-light)' }
-  return { icon: 'ti-file', bg: 'rgba(255,255,255,0.05)', color: 'var(--text2)' }
+// Response shape for normalize is taken from Metricool's documented
+// description ("returns the URL of the copy") rather than a live-captured
+// response. Confirmed against a real failure: this does NOT return JSON --
+// it returns the bare URL as plain text, no quotes, no wrapper object.
+// Reading it as text first and only trying JSON as a fallback (in case
+// Metricool ever wraps it differently for a different media type) instead
+// of assuming a shape that turned out to be wrong the first time this ran
+// for real.
+// Confirmed against a real Metricool rejection: publicationDate.dateTime
+// must include seconds ('yyyy-MM-dd'T'HH:mm:ss'), but the browser's
+// datetime-local input hands back "2026-09-11T08:31" with no seconds --
+// which is exactly what got saved to publish_date, since the occurrence
+// stores that value as-typed on purpose (see Schedule.jsx: it deliberately
+// avoids any timezone conversion by keeping the raw wall-clock string).
+// Normalizing here, at the point this actually gets sent, rather than
+// changing what's stored -- the display value and the save format are
+// still correct for their own purposes, they just need :00 appended
+// before Metricool will accept them.
+function toMetricoolDateTime(value) {
+  if (!value) return value
+  return value.length === 16 ? `${value}:00` : value
 }
 
-function buildStackFromPath(root, path) {
-  if (!path || !path.toLowerCase().startsWith(root.toLowerCase())) return null
-  const rest = path.slice(root.length).replace(/^\/+/, '')
-  const parts = rest ? rest.split('/') : []
-  const stack = [{ name: 'Content', path: root }]
-  let acc = root
-  for (const part of parts) {
-    acc = `${acc}/${part}`
-    stack.push({ name: part, path: acc })
+async function normalizeMedia(sourceUrl) {
+  const params = new URLSearchParams({ url: sourceUrl })
+  const res = await fetch(`https://app.metricool.com/api/actions/normalize/image/url?${params}`, {
+    headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
+  })
+  const raw = await res.text()
+
+  if (!res.ok) throw new Error(`Media normalize failed: ${raw}`)
+
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('http')) return trimmed
+
+  try {
+    const data = JSON.parse(trimmed)
+    const url = data.url || data.link || (typeof data === 'string' ? data : null)
+    if (url) return url
+    throw new Error(`Normalize returned an unrecognized JSON shape: ${trimmed}`)
+  } catch (err) {
+    throw new Error(`Normalize returned an unrecognized response: ${trimmed}`)
   }
-  return stack
 }
 
-// A lit toggle instead of a bare checkbox -- glows when active, matching
-// the "mix console" feel the composer's aiming for now that there are
-// enough switches on a row to actually feel like a panel of them.
-function ToggleSwitch({ checked, onChange, label, icon }) {
-  return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: '7px', cursor: 'pointer', fontSize: '12px', color: checked ? 'var(--text)' : 'var(--text3)' }}>
-      <span style={{
-        position: 'relative', width: '30px', height: '17px', borderRadius: '10px', flexShrink: 0,
-        background: checked ? 'var(--teal)' : 'var(--surface2)',
-        border: '1px solid ' + (checked ? 'var(--teal)' : 'var(--border)'),
-        boxShadow: checked ? '0 0 9px var(--teal), 0 0 2px var(--teal)' : 'none',
-        transition: 'background 0.15s ease, box-shadow 0.15s ease'
-      }}>
-        <span style={{
-          position: 'absolute', top: '1px', left: checked ? '14px' : '1px',
-          width: '13px', height: '13px', borderRadius: '50%',
-          background: checked ? '#fff' : 'var(--text3)',
-          boxShadow: checked ? '0 0 4px rgba(255,255,255,0.9)' : 'none',
-          transition: 'left 0.15s ease'
-        }} />
-      </span>
-      <input type="checkbox" checked={checked} onChange={onChange} style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }} />
-      {icon && <i className={`ti ${icon}`} aria-hidden="true" />}
-      {label}
-    </label>
-  )
-}
-
-// Thumbnail selection, kept deliberately light: no frame extraction, no
-// filmstrip of pre-generated options -- just the real <video> element
-// scrubbed via currentTime, which the browser already renders as a live
-// frame while dragging. Reuses the same temporary Dropbox link already
-// fetched for the file's preview thumbnail, so there's no new backend
-// work here at all. This gets most of the value of a proper scrubber
-// (see and pick the exact moment) without the heavier build a filmstrip
-// picker would need (seeking to N points, drawing each to a canvas,
-// handling seek failures) -- worth revisiting only if picking blind ever
-// turns out to be a real friction point.
-function formatMs(ms) {
-  const s = Math.floor((ms || 0) / 1000)
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
-
-function VideoCoverPicker({ videoUrl, valueMs, onChange }) {
-  const [open, setOpen] = useState(false)
-  const [duration, setDuration] = useState(0)
-  const [scrubMs, setScrubMs] = useState(valueMs || 0)
-  const videoRef = useRef(null)
-
-  useEffect(() => { setScrubMs(valueMs || 0) }, [valueMs])
-
-  function handleLoadedMetadata() {
-    const durMs = (videoRef.current?.duration || 0) * 1000
-    setDuration(durMs)
-    if (videoRef.current) videoRef.current.currentTime = (valueMs || 0) / 1000
+// Groups an occurrence's checked platforms by their FINAL caption text --
+// template unless a platform has its own override. Platforms landing in
+// the same group become one Metricool API call with multiple providers;
+// platforms in a different group become their own separate call. This is
+// the direct implementation of the confirmed behavior above.
+function buildCaptionGroups(occurrence) {
+  const groups = new Map()
+  for (const platform of occurrence.platforms || []) {
+    const text = occurrence.platform_captions?.[platform] ?? occurrence.caption
+    if (!groups.has(text)) groups.set(text, [])
+    groups.get(text).push(platform)
   }
-
-  function handleScrub(e) {
-    const ms = Number(e.target.value)
-    setScrubMs(ms)
-    if (videoRef.current) videoRef.current.currentTime = ms / 1000
-  }
-
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: '11px', cursor: 'pointer', padding: '4px 9px', borderRadius: '5px', width: 'fit-content' }}
-      >
-        <i className="ti ti-crop" aria-hidden="true" />
-        {valueMs != null ? `Cover at ${formatMs(valueMs)}` : 'Set cover'}
-      </button>
-    )
-  }
-
-  return (
-    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '10px', display: 'flex', flexDirection: 'column', gap: '8px', maxWidth: '260px' }}>
-      <video
-        ref={videoRef}
-        src={videoUrl}
-        muted
-        playsInline
-        onLoadedMetadata={handleLoadedMetadata}
-        style={{ width: '100%', borderRadius: '6px', display: 'block', background: '#000' }}
-      />
-      <input
-        type="range"
-        min={0}
-        max={duration || 0}
-        step={100}
-        value={scrubMs}
-        onChange={handleScrub}
-        style={{ width: '100%' }}
-      />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '10.5px', color: 'var(--text3)' }}>{formatMs(scrubMs)} / {formatMs(duration)}</span>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button onClick={() => setOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text3)', fontSize: '11px', cursor: 'pointer' }}>Cancel</button>
-          <button
-            onClick={() => { onChange(Math.round(scrubMs)); setOpen(false) }}
-            style={{ background: 'var(--teal)', border: 'none', color: '#04211d', fontSize: '11px', fontWeight: 600, cursor: 'pointer', padding: '4px 10px', borderRadius: '5px' }}
-          >
-            Use this frame
-          </button>
-        </div>
-      </div>
-    </div>
-  )
+  return Array.from(groups.entries()).map(([text, platforms]) => ({ text, platforms }))
 }
 
-// publish_date is stored exactly as typed into the datetime-local input --
-// a wall-clock string like "2026-09-30T23:38", no timezone math applied --
-// paired with an explicit timezone field. This deliberately mirrors what
-// Metricool's own API expects for publicationDate (verified live: a real
-// scheduled post's publicationDate was {dateTime: "2026-09-30T23:38:00",
-// timezone: "America/New_York"}, not a UTC instant). "11:38 PM Eastern"
-// stored as literally that, plus "America/New_York", never needs
-// converting -- it never has to mean anything else in between.
-
-export default function Schedule() {
-  const restoredForClient = useRef(null)
-  // Client selection is global, not page-local — same client the rest of
-  // the portal is looking at, switched via the Topbar's "Switch Client"
-  // control. An earlier version of this page kept its own local
-  // selectedClientId state, which looked fine but was never actually
-  // wired to the real active client: picking a client here only updated
-  // this page's own state, so on any remount (e.g. switching browser tabs
-  // and back) it reset to whatever the real global client still was —
-  // GMM, since that's the default and nothing had ever really changed it.
-  const { client } = useClient()
-  const clientName = client?.name
-  const selectedClientId = client?.id
-
-  const [stack, setStack] = useState(null)
-  const [entries, setEntries] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [loadError, setLoadError] = useState(false)
-  const [thumbs, setThumbs] = useState({})
-  const [bankFolder, setBankFolder] = useState(null) // the folder chosen as "this quarter's bank"
-
-  // drafts keyed by dropbox_path (path_lower) — one entry per file, holding
-  // both the row's db id (once it exists) and its current field values.
-  const [drafts, setDrafts] = useState({})
-  const [savingPaths, setSavingPaths] = useState({}) // path -> 'saving' | 'saved'
-  const [trackedLinks, setTrackedLinks] = useState([])
-  const [activeCaptionTab, setActiveCaptionTab] = useState({}) // path -> 'template' | platform key
-  const [linkBankOpenFor, setLinkBankOpenFor] = useState(null) // path or null
-  const [copiedLinkId, setCopiedLinkId] = useState(null)
-  // Display-only, never persisted -- which occurrence panels are expanded
-  // is a viewing preference for this session, not data about the posting
-  // itself. Everything defaults open; the chevron on each card's header
-  // toggles it collapsed to a one-line summary (platforms, date, a
-  // caption snippet) instead.
-  const [collapsedOccurrences, setCollapsedOccurrences] = useState({})
-  const [scheduling, setScheduling] = useState(false)
-  const [scheduleProgress, setScheduleProgress] = useState(null) // { done, total }
-  const [scheduleResults, setScheduleResults] = useState(null) // { succeeded, failed: [{filename, error}] }
-
-  // The client's tracked links -- one small fetch per client, reused
-  // across every row's link bank rather than queried per file.
-  useEffect(() => {
-    if (!selectedClientId) return
-    supabase
-      .from('tracked_links')
-      .select('id, platform, slug, label')
-      .eq('client_id', selectedClientId)
-      .then(({ data }) => setTrackedLinks(data || []))
-  }, [selectedClientId])
-  const saveTimers = useRef({})
-  const tempKeyCounter = useRef(0)
-
-  // Restore the last-viewed folder (and bank selection) for this client
-  // instead of always resetting to Content root. This page can remount —
-  // e.g. switching browser tabs away and back — and without this, that
-  // silently drops you back at the top of the folder tree every time.
-  // Same pattern Content.jsx already uses, same reason.
-  // Restore once per genuine client change, guarded by a ref rather than
-  // re-running on every render where clientName/selectedClientId happen to
-  // get recomputed with the same value. Without the guard, any incidental
-  // re-render (e.g. a context re-render on tab focus) could re-run this,
-  // and — worse — the old version of this effect also had a paired
-  // "persist on every bankFolder change" effect that would write bankFolder
-  // straight to sessionStorage on ANY change, including a transient one.
-  // If bankFolder ever flickered null for a render, that effect would
-  // immediately overwrite the real saved value with a removal. Persistence
-  // is now deliberate instead: written only where bankFolder is explicitly
-  // set (the "Set as content bank" click below), never as a side effect of
-  // a bare state change.
-  useEffect(() => {
-    if (!clientName || !selectedClientId) return
-    if (restoredForClient.current === selectedClientId) return
-    restoredForClient.current = selectedClientId
-
-    // Which folder to browse to on load is a low-stakes convenience --
-    // fine to keep in sessionStorage, worst case you land at Content root
-    // and click back in.
-    const root = `/Glowing Moon Portal/${clientName}/Content`
-    const savedPath = sessionStorage.getItem(`schedulePath:${selectedClientId}`)
-    const restoredStack = savedPath ? buildStackFromPath(root, savedPath) : null
-    setStack(restoredStack || [{ name: 'Content', path: root }])
-
-    // Which folder IS the bank is not low-stakes -- it's the thing that
-    // decides what schedule_drafts rows get loaded, and losing it just
-    // because the tab closed or it's a different day would look like data
-    // going missing even though nothing was actually lost. Stored on the
-    // client's own row instead, so it survives exactly as long as
-    // everything else about that client does.
-    setBankFolder(null)
-    supabase
-      .from('clients')
-      .select('schedule_bank_folder_path, schedule_bank_folder_name')
-      .eq('id', selectedClientId)
-      .single()
-      .then(({ data }) => {
-        if (data?.schedule_bank_folder_path) {
-          setBankFolder({ name: data.schedule_bank_folder_name, path: data.schedule_bank_folder_path })
+// Per-network settings blocks, sourced from the occurrence's own saved
+// fields -- these are the exact field names confirmed live against real
+// posts earlier in this feature's build (ig_post_type -> instagramData.type,
+// etc). YouTube is deliberately scoped to Shorts only: long-form video is
+// always published natively outside this tool, so there's no long-form
+// path to build here, and `type` is hardcoded rather than taken from the
+// occurrence.
+function buildNetworkData(platform, occurrence) {
+  switch (platform) {
+    case 'instagram':
+      return {
+        instagramData: {
+          type: occurrence.ig_post_type || 'POST',
+          ...(occurrence.ig_post_type === 'REEL' ? { showReelOnFeed: occurrence.ig_show_reel_on_feed ?? true } : {})
         }
-      })
-  }, [clientName, selectedClientId])
-
-  useEffect(() => {
-    if (selectedClientId && stack?.length) {
-      sessionStorage.setItem(`schedulePath:${selectedClientId}`, stack[stack.length - 1].path)
-    }
-  }, [selectedClientId, stack])
-
-  function setBank(folder) {
-    setBankFolder(folder)
-    if (!selectedClientId) return
-    supabase
-      .from('clients')
-      .update({ schedule_bank_folder_path: folder.path, schedule_bank_folder_name: folder.name })
-      .eq('id', selectedClientId)
-      .then(({ error }) => { if (error) console.error('Failed to save content bank:', error) })
-  }
-
-  const currentPath = stack?.[stack.length - 1]?.path
-
-  useEffect(() => {
-    if (currentPath) loadFolder(currentPath)
-  }, [currentPath])
-
-  async function loadFolder(path) {
-    setLoading(true)
-    setEntries([])
-    setLoadError(false)
-    try {
-      const raw = await listDropboxFolder(path)
-      const folders = raw.filter(e => e['.tag'] === 'folder')
-      const files = raw.filter(e => e['.tag'] === 'file')
-      const sorted = [
-        ...folders.map(f => ({ ...f, type: 'folder' })),
-        ...files.map(f => ({ ...f, type: getFileType(f.name) }))
-      ]
-      setEntries(sorted)
-
-      const media = files.filter(f => ['photo', 'video'].includes(getFileType(f.name))).slice(0, 40)
-      media.forEach(async f => {
-        const link = await getDownloadLink(f.path_lower)
-        if (link) setThumbs(prev => ({ ...prev, [f.path_lower]: link }))
-      })
-    } catch (err) {
-      console.error('loadFolder error:', err)
-      setLoadError(true)
-    }
-    setLoading(false)
-  }
-
-  function openFolder(folder) {
-    setStack(prev => [...prev, { name: folder.name, path: folder.path_lower }])
-  }
-
-  function goToCrumb(index) {
-    setStack(prev => prev.slice(0, index + 1))
-  }
-
-  const fileEntries = entries.filter(e => e.type !== 'folder')
-  const folderEntries = entries.filter(e => e.type === 'folder')
-  const viewingBank = bankFolder && currentPath === bankFolder.path
-
-  // Load existing draft rows for the bank folder whenever it's the one
-  // being viewed — this is what makes revisiting a folder show whatever
-  // captions/platforms/dates were already saved, rather than starting
-  // blank every time.
-  useEffect(() => {
-    if (!viewingBank || !selectedClientId || !bankFolder) return
-    let cancelled = false
-    ;(async () => {
-      const { data } = await supabase
-        .from('schedule_drafts')
-        .select('*')
-        .eq('client_id', selectedClientId)
-        .eq('bank_folder_path', bankFolder.path)
-        .order('created_at', { ascending: true })
-      if (cancelled) return
-      // A file can have any number of postings over its life -- R001 on
-      // FB/IG Monday, then LinkedIn Tuesday, then retired -- so drafts is
-      // keyed by path to an ARRAY of occurrences, not a single row. _key
-      // is a client-side identity (the real db id once saved, a temp-N
-      // key before that) used for React keys and for targeting updates;
-      // it's never itself persisted.
-      const map = {}
-      ;(data || []).forEach(row => {
-        if (!map[row.dropbox_path]) map[row.dropbox_path] = []
-        map[row.dropbox_path].push({ ...row, _key: row.id })
-      })
-      setDrafts(map)
-    })()
-    return () => { cancelled = true }
-  }, [viewingBank, selectedClientId, bankFolder?.path])
-
-  function occurrencesFor(file) {
-    return drafts[file.path_lower] || []
-  }
-
-  function blankOccurrence(file, key) {
-    return {
-      _key: key,
-      id: null,
-      client_id: selectedClientId,
-      bank_folder_path: bankFolder?.path,
-      dropbox_path: file.path_lower,
-      filename: file.name,
-      caption: '',
-      platform_captions: {},
-      platforms: [],
-      publish_date: null,
-      timezone: 'America/New_York',
-      status: 'draft',
-      active: true,
-      ig_post_type: 'POST',
-      ig_show_reel_on_feed: true,
-      fb_post_type: 'POST',
-      yt_title: '',
-      yt_privacy: 'public',
-      yt_made_for_kids: false,
-      yt_category: '',
-      tiktok_privacy: 'PUBLIC_TO_EVERYONE',
-      video_cover_ms: null,
-      media_alt_text: '',
-    }
-  }
-
-  function addOccurrence(file) {
-    const key = `temp-${tempKeyCounter.current++}`
-    setDrafts(prev => ({
-      ...prev,
-      [file.path_lower]: [...(prev[file.path_lower] || []), blankOccurrence(file, key)]
-    }))
-    setActiveCaptionTab(prev => ({ ...prev, [key]: 'template' }))
-  }
-
-  // Local state updates immediately (so typing feels instant); the actual
-  // write is debounced per-occurrence so a fast typist doesn't fire a
-  // network request on every keystroke.
-  function updateOccurrence(file, occKey, patch) {
-    setDrafts(prev => ({
-      ...prev,
-      [file.path_lower]: (prev[file.path_lower] || []).map(occ =>
-        occ._key === occKey ? { ...occ, ...patch } : occ
-      )
-    }))
-    setSavingPaths(prev => ({ ...prev, [occKey]: 'pending' }))
-
-    clearTimeout(saveTimers.current[occKey])
-    saveTimers.current[occKey] = setTimeout(() => saveOccurrence(file, occKey), SAVE_DEBOUNCE_MS)
-  }
-
-  const saveOccurrence = useCallback(async (file, occKey) => {
-    setSavingPaths(prev => ({ ...prev, [occKey]: 'saving' }))
-    setDrafts(current => {
-      const list = current[file.path_lower] || []
-      const row = list.find(o => o._key === occKey)
-      if (!row) return current
-
-      const payload = {
-        client_id: row.client_id,
-        bank_folder_path: row.bank_folder_path,
-        dropbox_path: row.dropbox_path,
-        filename: row.filename,
-        caption: row.caption,
-        platform_captions: row.platform_captions || {},
-        platforms: row.platforms,
-        publish_date: row.publish_date,
-        timezone: row.timezone || 'America/New_York',
-        active: row.active ?? true,
-        ig_post_type: row.ig_post_type || 'POST',
-        ig_show_reel_on_feed: row.ig_show_reel_on_feed ?? true,
-        fb_post_type: row.fb_post_type || 'POST',
-        yt_title: row.yt_title || null,
-        yt_privacy: row.yt_privacy || 'public',
-        yt_made_for_kids: row.yt_made_for_kids ?? false,
-        yt_category: row.yt_category || null,
-        tiktok_privacy: row.tiktok_privacy || 'PUBLIC_TO_EVERYONE',
-        video_cover_ms: row.video_cover_ms ?? null,
-        media_alt_text: row.media_alt_text || null,
       }
-      // A real id -> update that exact row. No id yet (a fresh occurrence
-      // from "+ Add a posting") -> plain insert, since dropbox_path is no
-      // longer unique and can't be used as an upsert target anymore.
-      const query = row.id
-        ? supabase.from('schedule_drafts').update(payload).eq('id', row.id)
-        : supabase.from('schedule_drafts').insert(payload)
-
-      query.select().single().then(({ data, error }) => {
-        if (error) {
-          console.error('saveOccurrence error:', error)
-          setSavingPaths(prev => ({ ...prev, [occKey]: 'error' }))
-          return
+    case 'facebook':
+      return { facebookData: { type: occurrence.fb_post_type || 'POST' } }
+    case 'tiktok':
+      return { tiktokData: { privacyOption: occurrence.tiktok_privacy || 'PUBLIC_TO_EVERYONE' } }
+    case 'youtube':
+      return {
+        youtubeData: {
+          title: occurrence.yt_title || occurrence.filename,
+          type: 'short',
+          privacy: occurrence.yt_privacy || 'public',
+          madeForKids: occurrence.yt_made_for_kids ?? false,
+          ...(occurrence.yt_category ? { category: occurrence.yt_category } : {})
         }
-        if (data) {
-          setDrafts(prev => ({
-            ...prev,
-            [file.path_lower]: (prev[file.path_lower] || []).map(o =>
-              o._key === occKey ? { ...o, id: data.id } : o
-            )
-          }))
-        }
-        setSavingPaths(prev => ({ ...prev, [occKey]: 'saved' }))
-      })
-      return current
-    })
-  }, [])
+      }
+    case 'linkedin':
+      return { linkedinData: { type: 'POST' } }
+    default:
+      return {}
+  }
+}
 
-  // Deactivating is immediate, not debounced -- it's a deliberate discrete
-  // action ("this one's done"), not something that benefits from waiting
-  // to see if the user keeps typing.
-  function toggleActive(file, occKey, active) {
-    updateOccurrence(file, occKey, { active })
-    clearTimeout(saveTimers.current[occKey])
-    saveOccurrence(file, occKey)
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', 'https://portal.glowingmoonmedia.com')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  if (req.method === 'OPTIONS') return res.status(200).end()
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  const user = await requireAuth(req, res)
+  if (!user) return
+
+  // Scheduling real, public-facing content is a higher-stakes action than
+  // most of what admin/editor already covers elsewhere in this app, so
+  // this checks role explicitly rather than relying only on RLS on the
+  // schedule_drafts table (which governs reading/writing the draft, not
+  // this endpoint's own right to act on it).
+  const { data: roleRow } = await supabaseAdmin
+    .from('user_roles')
+    .select('role')
+    .eq('user_id', user.id)
+    .single()
+  if (!roleRow || !['admin', 'editor'].includes(roleRow.role)) {
+    return res.status(403).json({ error: 'Forbidden' })
   }
 
-  // Safety net independent of the debounce timer: if the tab is hidden —
-  // switched away from, not just scrolled past — flush every pending save
-  // immediately rather than trusting the 900ms timer to still be alive by
-  // the time it fires. A setTimeout doesn't get cancelled by a backgrounded
-  // tab, but it can lose a race against the tab being reclaimed, and losing
-  // the one caption someone just finished typing is a bad trade for saving
-  // one network call.
-  useEffect(() => {
-    function flushOnHide() {
-      if (document.visibilityState !== 'hidden') return
-      Object.entries(saveTimers.current).forEach(([occKey, timerId]) => {
-        clearTimeout(timerId)
-        const file = fileEntries.find(f =>
-          (drafts[f.path_lower] || []).some(o => o._key === occKey)
-        )
-        if (file) saveOccurrence(file, occKey)
-      })
-    }
-    document.addEventListener('visibilitychange', flushOnHide)
-    return () => document.removeEventListener('visibilitychange', flushOnHide)
-  }, [fileEntries, drafts, saveOccurrence])
+  const { occurrenceId } = req.body || {}
+  if (!occurrenceId) return res.status(400).json({ error: 'occurrenceId required' })
 
-  function togglePlatform(file, occKey, current, key) {
-    const next = current.includes(key) ? current.filter(p => p !== key) : [...current, key]
-    updateOccurrence(file, occKey, { platforms: next })
+  const { data: occurrence, error: fetchError } = await supabaseAdmin
+    .from('schedule_drafts')
+    .select('*, clients(metricool_blog_id, name)')
+    .eq('id', occurrenceId)
+    .single()
+
+  if (fetchError || !occurrence) return res.status(404).json({ error: 'Draft not found' })
+  if (!occurrence.clients?.metricool_blog_id) {
+    return res.status(400).json({ error: 'This client has no Metricool blog connected' })
   }
 
-  // Counted across active OCCURRENCES now, not files -- a file with two
-  // postings contributes two to the total. Deactivated postings (their
-  // lifespan is over) don't count toward either number.
-  const allOccurrences = fileEntries.flatMap(f => occurrencesFor(f).map(occ => ({ file: f, occ })))
-  const activeOccurrences = allOccurrences.filter(({ occ }) => occ.active !== false)
-  const readyCount = activeOccurrences.filter(({ occ }) =>
-    occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date
-  ).length
+  try {
+    // Media is the same file regardless of how many separate posts this
+    // occurrence turns into, so it's normalized once and reused across
+    // every caption group below.
+    const tempLink = await getDropboxTemporaryLink(occurrence.dropbox_path)
+    const normalizedMediaUrl = await normalizeMedia(tempLink)
 
-  // Sequential on purpose, not Promise.all -- each call to Metricool
-  // involves its own Dropbox fetch + normalize + post-creation round trip,
-  // and firing a whole batch at once risks hitting Metricool's own rate
-  // limits with no good way to tell which of N simultaneous failures was
-  // the real cause. Slower, but every result is attributable to the exact
-  // occurrence that produced it, which matters more for a first version of
-  // a button that's about to actually schedule real public content.
-  //
-  // One action, not two. This used to be a separate "batch" path and a
-  // separate "reschedule anyway" path -- solving a real safety question
-  // (auto-retrying something already believed successful risks a genuine
-  // double-post) by inventing a second button instead of just scoping the
-  // one button correctly. Now every occurrence has exactly one schedule
-  // action, labeled for what it'll actually do (Schedule / Retry /
-  // Reschedule), and the page-level button is nothing but a loop that
-  // calls this same function for everything currently ready -- a
-  // convenience, not a second mechanism.
-  //
-  // Always re-fetches the occurrence from Supabase after attempting a
-  // send, rather than trusting the API response to describe local state.
-  // The first version trusted the client-side response, and a failure
-  // whose response never made it back (a network hiccup, a tab losing
-  // focus mid-request) left the UI showing "failed" while the database
-  // still held whatever was there before -- so the next real load quietly
-  // reverted it, and the failure looked like it had "disappeared." What's
-  // shown now is always what's actually saved, because it's re-read from
-  // the same place a fresh page load would read it from.
-  async function scheduleOne(file, occ) {
-    setDrafts(prev => ({
-      ...prev,
-      [file.path_lower]: (prev[file.path_lower] || []).map(o =>
-        o._key === occ._key ? { ...o, _scheduling: true } : o
-      )
-    }))
+    const groups = buildCaptionGroups(occurrence)
+    const networkToPostId = {}
+    const errors = []
 
-    try {
-      await apiFetch('/api/schedule-post', {
+    for (const group of groups) {
+      const payload = {
+        publicationDate: {
+          dateTime: toMetricoolDateTime(occurrence.publish_date),
+          timezone: occurrence.timezone || 'America/New_York'
+        },
+        text: group.text,
+        providers: group.platforms.map(network => ({ network })),
+        media: [normalizedMediaUrl],
+        mediaAltText: occurrence.media_alt_text || undefined,
+        videoCoverMilliseconds: occurrence.video_cover_ms ?? undefined,
+        // Safety default rather than a convenience one: this schedules the
+        // post on Metricool without instructing it to auto-publish, so a
+        // freshly-scheduled batch doesn't go live unattended the first
+        // time this button is used for real. Worth revisiting once this
+        // has been trusted in practice for a while.
+        autoPublish: false,
+        draft: false,
+      }
+      for (const platform of group.platforms) {
+        Object.assign(payload, buildNetworkData(platform, occurrence))
+      }
+
+      const params = new URLSearchParams({
+        blogId: String(occurrence.clients.metricool_blog_id),
+        userId: process.env.METRICOOL_USER_ID
+      })
+      const postRes = await fetch(`https://app.metricool.com/api/v2/scheduler/posts?${params}`, {
         method: 'POST',
-        body: JSON.stringify({ occurrenceId: occ.id })
+        headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       })
-    } catch (err) {
-      // Swallowed on purpose -- whatever happened, the re-fetch below is
-      // what decides what actually gets shown, not this response.
+
+      // Read as text first, same reason as normalizeMedia above: a real
+      // LinkedIn attempt once came back with a body starting "<JsonError",
+      // not JSON at all -- calling .json() directly on that produced an
+      // opaque "Unexpected token '<'" instead of showing what Metricool
+      // actually said. A same-shaped retry immediately after succeeded
+      // cleanly, so this looks like a transient gateway hiccup on their
+      // end rather than anything wrong with the payload -- but the next
+      // time something like it happens, the raw response should be
+      // visible in schedule_error instead of a parse-error message that
+      // hides it.
+      const postRaw = await postRes.text()
+      let postData
+      try {
+        postData = JSON.parse(postRaw)
+      } catch (err) {
+        errors.push(`${group.platforms.join('+')}: non-JSON response (${postRes.status}): ${postRaw.slice(0, 300)}`)
+        continue
+      }
+
+      if (!postRes.ok) {
+        errors.push(`${group.platforms.join('+')}: ${JSON.stringify(postData)}`)
+        continue
+      }
+      for (const platform of group.platforms) networkToPostId[platform] = postData.id
     }
 
-    const { data: fresh } = await supabase
+    const fullyFailed = errors.length > 0 && errors.length === groups.length
+    await supabaseAdmin
       .from('schedule_drafts')
-      .select('*')
-      .eq('id', occ.id)
-      .single()
+      .update({
+        status: fullyFailed ? 'failed' : 'scheduled',
+        metricool_post_ids: networkToPostId,
+        schedule_error: errors.length > 0 ? errors.join(' | ') : null,
+        scheduled_at: new Date().toISOString(),
+      })
+      .eq('id', occurrenceId)
 
-    setDrafts(prev => ({
-      ...prev,
-      [file.path_lower]: (prev[file.path_lower] || []).map(o =>
-        o._key === occ._key
-          ? (fresh ? { ...fresh, _key: occ._key } : { ...o, _scheduling: false, status: 'failed', schedule_error: 'Could not confirm what happened -- check this occurrence directly before assuming it failed.' })
-          : o
-      )
-    }))
-
-    return fresh
+    return res.status(fullyFailed ? 500 : 200).json({
+      success: !fullyFailed,
+      networkToPostId,
+      errors
+    })
+  } catch (err) {
+    console.error('schedule-post error:', err)
+    await supabaseAdmin
+      .from('schedule_drafts')
+      .update({ status: 'failed', schedule_error: err.message })
+      .eq('id', occurrenceId)
+    return res.status(500).json({ error: err.message })
   }
-
-  function scheduleButtonLabel(status) {
-    if (status === 'failed') return 'Retry'
-    if (status === 'scheduled' || status === 'published') return 'Reschedule'
-    return 'Schedule'
-  }
-
-  async function scheduleBatch() {
-    const readyDrafts = activeOccurrences.filter(({ occ }) =>
-      (occ.status === 'draft' || occ.status === 'failed') &&
-      occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date && occ.id
-    )
-    if (readyDrafts.length === 0) return
-
-    setScheduling(true)
-    setScheduleResults(null)
-    setScheduleProgress({ done: 0, total: readyDrafts.length })
-
-    const failed = []
-    let succeeded = 0
-
-    for (const { file, occ } of readyDrafts) {
-      const fresh = await scheduleOne(file, occ)
-      if (fresh?.status === 'scheduled') succeeded++
-      else failed.push({ filename: occ.filename, error: fresh?.schedule_error || 'Unknown error' })
-      setScheduleProgress(prev => ({ ...prev, done: prev.done + 1 }))
-    }
-
-    setScheduling(false)
-    setScheduleResults({ succeeded, failed })
-  }
-
-  return (
-    <div className={styles.page}>
-      <div className={styles.header}>
-        <div className={styles.title}>Schedule</div>
-        <div className={styles.sub}>Pick the quarter's content folder, then write captions and schedule the batch to Metricool.</div>
-      </div>
-
-      <div className={styles.formCard} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-        <i className="ti ti-building-store" style={{ fontSize: '16px', color: 'var(--gold-light)' }} aria-hidden="true" />
-        <div style={{ fontSize: '13px', color: 'var(--text)' }}>
-          Scheduling for <strong>{clientName || '…'}</strong>
-        </div>
-        <div style={{ fontSize: '12px', color: 'var(--text3)' }}>— use "Switch Client" in the top bar to change this</div>
-      </div>
-
-      {stack && (
-        <>
-          {/* Breadcrumb */}
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px', marginBottom: '14px', fontSize: '13px', color: 'var(--text2)' }}>
-            {stack.map((crumb, i) => (
-              <span key={crumb.path} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                {i > 0 && <i className="ti ti-chevron-right" style={{ fontSize: '12px', color: 'var(--text3)' }} aria-hidden="true" />}
-                <button
-                  onClick={() => goToCrumb(i)}
-                  style={{
-                    background: 'transparent', border: 'none', cursor: i === stack.length - 1 ? 'default' : 'pointer',
-                    color: i === stack.length - 1 ? 'var(--text)' : 'var(--text2)',
-                    fontWeight: i === stack.length - 1 ? 500 : 400, fontSize: '13px', padding: '2px 4px'
-                  }}
-                >
-                  {crumb.name}
-                </button>
-              </span>
-            ))}
-          </div>
-
-          {/* Bank folder selection */}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px',
-            background: viewingBank ? 'var(--teal-bg)' : 'var(--surface2)',
-            border: `1px solid ${viewingBank ? 'var(--teal)' : 'var(--border)'}`,
-            borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: '18px'
-          }}>
-            <div style={{ fontSize: '13px', color: viewingBank ? 'var(--teal)' : 'var(--text2)' }}>
-              {bankFolder
-                ? <>Content bank: <strong>{bankFolder.name}</strong>{viewingBank && activeOccurrences.length > 0 && <> — {readyCount} of {activeOccurrences.length} ready to schedule</>}</>
-                : 'Browse into the folder holding this quarter\'s content, then set it as the bank.'}
-            </div>
-            {stack.length > 1 && (
-              <button
-                className={styles.editBtn}
-                onClick={() => setBank({ name: stack[stack.length - 1].name, path: currentPath })}
-                disabled={viewingBank}
-              >
-                <i className="ti ti-flag-3" aria-hidden="true" />
-                {viewingBank ? 'This is the bank' : 'Set as content bank'}
-              </button>
-            )}
-          </div>
-
-          {viewingBank && activeOccurrences.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
-              <button
-                onClick={scheduleBatch}
-                disabled={scheduling || readyCount === 0}
-                title={readyCount === 0 ? 'Every active posting needs a caption, at least one platform, and a date before this turns on.' : ''}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '7px',
-                  background: readyCount === 0 ? 'var(--surface2)' : 'var(--teal)',
-                  border: readyCount === 0 ? '1px solid var(--border)' : 'none',
-                  color: readyCount === 0 ? 'var(--text3)' : '#04211d', fontWeight: 600,
-                  fontSize: '13px', cursor: (scheduling || readyCount === 0) ? 'default' : 'pointer', padding: '9px 16px', borderRadius: '8px',
-                  opacity: scheduling ? 0.7 : 1,
-                  boxShadow: (scheduling || readyCount === 0) ? 'none' : '0 0 10px var(--teal)'
-                }}
-              >
-                <i className={`ti ${scheduling ? 'ti-loader-2' : 'ti-send'}`} aria-hidden="true" />
-                {scheduling
-                  ? `Scheduling ${scheduleProgress?.done ?? 0} of ${scheduleProgress?.total ?? 0}…`
-                  : readyCount === 0
-                    ? 'Nothing ready to schedule yet'
-                    : `Schedule all ${readyCount} ready post${readyCount === 1 ? '' : 's'}`}
-              </button>
-              {readyCount === 0 && !scheduling && (
-                <span style={{ fontSize: '12px', color: 'var(--text3)' }}>
-                  Needs a caption, at least one platform, and a date on at least one active posting.
-                </span>
-              )}
-              {scheduleResults && !scheduling && (
-                <div style={{ fontSize: '12px', color: scheduleResults.failed.length > 0 ? 'var(--coral)' : 'var(--teal)' }}>
-                  {scheduleResults.succeeded} scheduled
-                  {scheduleResults.failed.length > 0 && `, ${scheduleResults.failed.length} failed`}
-                </div>
-              )}
-            </div>
-          )}
-
-          {scheduleResults?.failed.length > 0 && !scheduling && (
-            <div style={{ background: 'rgba(240,153,123,0.1)', border: '1px solid var(--coral)', borderRadius: '8px', padding: '10px 14px', marginBottom: '18px', fontSize: '12px', color: 'var(--coral)' }}>
-              {scheduleResults.failed.map((f, i) => (
-                <div key={i} style={{ padding: '3px 0' }}><strong>{f.filename}:</strong> {f.error}</div>
-              ))}
-            </div>
-          )}
-
-          {loading ? (
-            <div className={styles.empty}>Loading...</div>
-          ) : loadError ? (
-            <div className={styles.empty}>Couldn't load this folder. Try again.</div>
-          ) : entries.length === 0 ? (
-            <div className={styles.empty}>Empty folder.</div>
-          ) : viewingBank ? (
-            /* Composer — one row per file: caption, platforms, date */
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {fileEntries.map(f => {
-                const thumb = thumbs[f.path_lower]
-                const { icon, bg, color } = fileIcon(f.name)
-                const occurrences = occurrencesFor(f)
-                // Fully retired: has at least one posting and every one of
-                // them is inactive. Lets you scan the bank for what's
-                // already been used without opening each file -- the
-                // point being to bounce around a folder out of order and
-                // still know at a glance what's spoken for.
-                const fullyRetired = occurrences.length > 0 && occurrences.every(o => o.active === false)
-                const anyPublished = occurrences.some(o => o.status === 'published')
-                return (
-                  <div key={f.path_lower} style={{ display: 'flex', gap: '14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px' }}>
-                    <div style={{ position: 'relative', width: '84px', height: '84px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {thumb && f.type === 'photo' && <img src={thumb} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover', filter: fullyRetired ? 'grayscale(85%) brightness(0.55)' : 'none' }} />}
-                      {thumb && f.type === 'video' && <video src={thumb} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover', filter: fullyRetired ? 'grayscale(85%) brightness(0.55)' : 'none' }} />}
-                      {(!thumb || (f.type !== 'photo' && f.type !== 'video')) && <i className={`ti ${icon}`} style={{ fontSize: '24px', color, opacity: fullyRetired ? 0.4 : 1 }} aria-hidden="true" />}
-                      {fullyRetired && (
-                        <div style={{ position: 'absolute', top: '4px', right: '4px', width: '18px', height: '18px', borderRadius: '50%', background: anyPublished ? 'var(--teal)' : 'var(--surface1)', border: '1px solid ' + (anyPublished ? 'var(--teal)' : 'var(--border)'), display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: anyPublished ? '0 0 6px var(--teal)' : 'none' }}>
-                          <i className="ti ti-check" style={{ fontSize: '11px', color: anyPublished ? '#fff' : 'var(--text3)' }} aria-hidden="true" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      <div style={{ fontSize: '12px', color: 'var(--text2)', wordBreak: 'break-word' }}>{f.name}</div>
-
-                      {/* The same file can have any number of independent
-                          postings over its life -- FB/IG Monday, LinkedIn
-                          Tuesday, then retired -- so this is a list of
-                          occurrences, not a single form. Each occurrence
-                          saves, schedules, and deactivates on its own. */}
-                      {occurrences.map(occ => {
-                        const d = occ
-                        const saveState = savingPaths[occ._key]
-                        const isActive = occ.active !== false
-                        const occReady = occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date && occ.id
-                        const collapsed = collapsedOccurrences[occ._key] ?? false
-                        return (
-                          <div key={occ._key} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--surface1)', border: '1px solid ' + (isActive ? 'var(--border)' : 'transparent'), borderRadius: '8px', padding: '10px 12px', opacity: isActive ? 1 : 0.55 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <ToggleSwitch
-                                  checked={isActive}
-                                  onChange={e => toggleActive(f, occ._key, e.target.checked)}
-                                  label={isActive ? 'Active' : 'Retired'}
-                                />
-                                {occ.status === 'scheduled' && (
-                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--teal)', background: 'rgba(29,158,117,0.12)', padding: '2px 8px', borderRadius: '10px' }}>
-                                    <i className="ti ti-circle-check" aria-hidden="true" /> Scheduled
-                                  </span>
-                                )}
-                                {occ.status === 'published' && (
-                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--teal)', background: 'rgba(29,158,117,0.12)', padding: '2px 8px', borderRadius: '10px' }}>
-                                    <i className="ti ti-circle-check-filled" aria-hidden="true" /> Published
-                                  </span>
-                                )}
-                                {occ.status === 'failed' && (
-                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.12)', padding: '2px 8px', borderRadius: '10px' }}>
-                                    <i className="ti ti-alert-circle" aria-hidden="true" /> Failed
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
-                                  {saveState === 'saving' && 'Saving…'}
-                                  {saveState === 'saved' && <span style={{ color: 'var(--teal)' }}><i className="ti ti-check" aria-hidden="true" /> Saved</span>}
-                                  {saveState === 'error' && <span style={{ color: 'var(--coral)' }}>Couldn't save</span>}
-                                  {saveState === 'pending' && '…'}
-                                </div>
-                                {/* One schedule action per occurrence, always here, labeled
-                                    for what it'll actually do -- not a separate button for
-                                    "first time" versus "again." */}
-                                <button
-                                  onClick={() => scheduleOne(f, occ)}
-                                  disabled={occ._scheduling || !occReady}
-                                  title={!occReady ? 'Needs a caption, at least one platform, and a date first.' : ''}
-                                  style={{
-                                    display: 'flex', alignItems: 'center', gap: '5px',
-                                    background: (occ._scheduling || !occReady) ? 'var(--surface2)' : 'var(--teal)',
-                                    border: (occ._scheduling || !occReady) ? '1px solid var(--border)' : 'none',
-                                    color: (occ._scheduling || !occReady) ? 'var(--text3)' : '#04211d',
-                                    fontWeight: 600, fontSize: '11px',
-                                    cursor: (occ._scheduling || !occReady) ? 'default' : 'pointer',
-                                    padding: '5px 11px', borderRadius: '7px'
-                                  }}
-                                >
-                                  <i className={`ti ${occ._scheduling ? 'ti-loader-2' : 'ti-send'}`} aria-hidden="true" />
-                                  {occ._scheduling ? 'Sending…' : scheduleButtonLabel(occ.status)}
-                                </button>
-                                <button
-                                  onClick={() => setCollapsedOccurrences(prev => ({ ...prev, [occ._key]: !collapsed }))}
-                                  title={collapsed ? 'Expand' : 'Collapse'}
-                                  style={{ display: 'flex', alignItems: 'center', background: 'transparent', border: 'none', color: 'var(--text3)', cursor: 'pointer', padding: '4px', fontSize: '15px' }}
-                                >
-                                  <i className={`ti ${collapsed ? 'ti-chevron-down' : 'ti-chevron-up'}`} aria-hidden="true" />
-                                </button>
-                              </div>
-                            </div>
-                            {collapsed && (
-                              <div style={{ fontSize: '11px', color: 'var(--text3)', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                {occ.platforms?.length > 0 ? occ.platforms.join(', ') : 'No platforms yet'}
-                                {occ.publish_date && <span>&middot; {occ.publish_date.replace('T', ' ')}</span>}
-                                {occ.caption?.trim() && <span>&middot; "{occ.caption.slice(0, 40)}{occ.caption.length > 40 ? '…' : ''}"</span>}
-                              </div>
-                            )}
-                            {occ.status === 'failed' && occ.schedule_error && (
-                              <div style={{ fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.08)', border: '1px solid rgba(240,153,123,0.25)', borderRadius: '6px', padding: '6px 10px', wordBreak: 'break-word' }}>
-                                {occ.schedule_error}
-                              </div>
-                            )}
-
-                      {!collapsed && (
-<>
-                      {/* Template + per-network overrides, matching
-                          Metricool's own "Edit by network" pattern rather
-                          than inventing a different one. Template is what
-                          every checked platform uses by default; switching
-                          to a platform's own tab and typing creates a real
-                          override for just that platform, without touching
-                          the template or any other platform's copy. */}
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap', marginBottom: '4px' }}>
-                          {[{ key: 'template', label: 'Template', icon: 'ti-template' }, ...PLATFORMS.filter(p => (d.platforms || []).includes(p.key))].map(tab => {
-                            const isTemplate = tab.key === 'template'
-                            const tabActive = (activeCaptionTab[occ._key] || 'template') === tab.key
-                            const hasOverride = !isTemplate && d.platform_captions?.[tab.key] !== undefined
-                            return (
-                              <button
-                                key={tab.key}
-                                onClick={() => setActiveCaptionTab(prev => ({ ...prev, [occ._key]: tab.key }))}
-                                style={{
-                                  display: 'flex', alignItems: 'center', gap: '4px',
-                                  background: tabActive ? 'var(--surface1)' : 'transparent',
-                                  border: '1px solid ' + (tabActive ? 'var(--border)' : 'transparent'),
-                                  borderBottom: tabActive ? '1px solid var(--surface1)' : '1px solid transparent',
-                                  color: tabActive ? 'var(--text)' : 'var(--text3)',
-                                  borderRadius: '6px 6px 0 0', padding: '4px 10px', fontSize: '11px', cursor: 'pointer'
-                                }}
-                              >
-                                {!isTemplate && <i className={`ti ${tab.icon}`} aria-hidden="true" />}
-                                {isTemplate ? 'Template' : tab.label}
-                                {hasOverride && <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: 'var(--teal)', display: 'inline-block' }} />}
-                              </button>
-                            )
-                          })}
-                        </div>
-
-                        {(() => {
-                          const tab = activeCaptionTab[occ._key] || 'template'
-                          const isTemplate = tab === 'template'
-                          const value = isTemplate ? d.caption : (d.platform_captions?.[tab] ?? d.caption)
-                          const hasOverride = !isTemplate && d.platform_captions?.[tab] !== undefined
-                          return (
-                            <div style={{ position: 'relative' }}>
-                              <textarea
-                                className={styles.input}
-                                placeholder={isTemplate ? 'Write the caption once — each platform uses this unless you customize it.' : `Customize the caption for this platform…`}
-                                value={value}
-                                onChange={e => {
-                                  if (isTemplate) {
-                                    updateOccurrence(f, occ._key, { caption: e.target.value })
-                                  } else {
-                                    updateOccurrence(f, occ._key, { platform_captions: { ...(d.platform_captions || {}), [tab]: e.target.value } })
-                                  }
-                                }}
-                                rows={2}
-                                style={{ resize: 'vertical', fontFamily: 'inherit', width: '100%' }}
-                              />
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                                <div>
-                                  {hasOverride && (
-                                    <button
-                                      onClick={() => {
-                                        const next = { ...(d.platform_captions || {}) }
-                                        delete next[tab]
-                                        updateOccurrence(f, occ._key, { platform_captions: next })
-                                      }}
-                                      style={{ background: 'transparent', border: 'none', color: 'var(--text3)', fontSize: '11px', cursor: 'pointer', padding: 0 }}
-                                    >
-                                      Reset to template
-                                    </button>
-                                  )}
-                                </div>
-                                <div style={{ position: 'relative' }}>
-                                  <button
-                                    onClick={() => setLinkBankOpenFor(prev => prev === occ._key ? null : occ._key)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: '11px', cursor: 'pointer', padding: '3px 8px', borderRadius: '5px' }}
-                                  >
-                                    <i className="ti ti-link" aria-hidden="true" />
-                                    Link bank
-                                  </button>
-                                  {linkBankOpenFor === occ._key && (
-                                    <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: '4px', background: 'var(--surface1)', border: '1px solid var(--border)', borderRadius: '8px', padding: '6px', zIndex: 10, minWidth: '220px', boxShadow: '0 8px 24px rgba(0,0,0,0.4)' }}>
-                                    {trackedLinks.length === 0 ? (
-                                      <div style={{ fontSize: '11px', color: 'var(--text3)', padding: '6px 8px' }}>No tracked links for this client yet.</div>
-                                    ) : trackedLinks.map(link => {
-                                      const url = `https://linkquick.org/go/${link.slug}`
-                                      const justCopied = copiedLinkId === link.id
-                                      return (
-                                        <button
-                                          key={link.id}
-                                          onClick={() => {
-                                            navigator.clipboard.writeText(url)
-                                            setCopiedLinkId(link.id)
-                                            setTimeout(() => setCopiedLinkId(null), 1500)
-                                          }}
-                                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', width: '100%', textAlign: 'left', background: 'transparent', border: 'none', color: 'var(--text)', fontSize: '11.5px', cursor: 'pointer', padding: '6px 8px', borderRadius: '5px' }}
-                                          onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
-                                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                                        >
-                                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', textTransform: 'capitalize' }}>
-                                            <i className={`ti ti-brand-${link.platform}`} style={{ fontSize: '12px', color: 'var(--text3)' }} aria-hidden="true" />
-                                            {link.label || link.platform}
-                                          </span>
-                                          <span style={{ fontSize: '10.5px', color: justCopied ? 'var(--teal)' : 'var(--text3)' }}>
-                                            {justCopied ? 'Copied' : 'Copy'}
-                                          </span>
-                                        </button>
-                                      )
-                                    })}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          )
-                        })()}
-                      </div>
-
-                      {/* Each platform is one self-contained vertical unit --
-                          checkbox on top, that platform's own settings
-                          directly beneath it in the same block. This is
-                          deliberate: an earlier version rendered the
-                          checkboxes in one row and the settings panels in
-                          a second row below, declared in a different order
-                          than the checkboxes -- so the two rows didn't
-                          line up and the settings visually crossed over
-                          to the wrong platform depending on which boxes
-                          were checked. Gluing each platform's settings to
-                          its own checkbox means there's no second row to
-                          fall out of sync with the first; it can't
-                          misalign because there's nothing separate to
-                          misalign. */}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px', alignItems: 'flex-start' }}>
-                        {PLATFORMS.map(p => {
-                          const active = (d.platforms || []).includes(p.key)
-                          return (
-                            <div key={p.key} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                              <ToggleSwitch
-                                checked={active}
-                                onChange={() => togglePlatform(f, occ._key, d.platforms || [], p.key)}
-                                icon={p.icon}
-                                label={p.label}
-                              />
-
-                              {active && p.key === 'instagram' && (
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingLeft: '20px' }}>
-                                  <select
-                                    className={styles.input}
-                                    style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                    value={d.ig_post_type}
-                                    onChange={e => updateOccurrence(f, occ._key, { ig_post_type: e.target.value })}
-                                  >
-                                    {IG_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                  </select>
-                                  {d.ig_post_type === 'REEL' && (
-                                    <ToggleSwitch
-                                      checked={d.ig_show_reel_on_feed}
-                                      onChange={e => updateOccurrence(f, occ._key, { ig_show_reel_on_feed: e.target.checked })}
-                                      label="Show on feed"
-                                    />
-                                  )}
-                                </div>
-                              )}
-
-                              {active && p.key === 'facebook' && (
-                                <div style={{ paddingLeft: '20px' }}>
-                                  <select
-                                    className={styles.input}
-                                    style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                    value={d.fb_post_type}
-                                    onChange={e => updateOccurrence(f, occ._key, { fb_post_type: e.target.value })}
-                                  >
-                                    {FB_POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                  </select>
-                                </div>
-                              )}
-
-                              {active && p.key === 'tiktok' && (
-                                <div style={{ paddingLeft: '20px' }}>
-                                  <select
-                                    className={styles.input}
-                                    style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                    value={d.tiktok_privacy}
-                                    onChange={e => updateOccurrence(f, occ._key, { tiktok_privacy: e.target.value })}
-                                  >
-                                    {TIKTOK_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                  </select>
-                                </div>
-                              )}
-
-                              {active && p.key === 'youtube' && (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingLeft: '20px', maxWidth: '360px' }}>
-                                  <span style={{ fontSize: '10.5px', color: 'var(--text3)', background: 'var(--surface1)', padding: '2px 6px', borderRadius: '4px', width: 'fit-content' }}>Short</span>
-                                  <input
-                                    type="text"
-                                    className={styles.input}
-                                    placeholder="Title (required by YouTube)"
-                                    value={d.yt_title}
-                                    onChange={e => updateOccurrence(f, occ._key, { yt_title: e.target.value })}
-                                    style={{ padding: '4px 8px', fontSize: '11.5px' }}
-                                  />
-                                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                    <select
-                                      className={styles.input}
-                                      style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                      value={d.yt_privacy}
-                                      onChange={e => updateOccurrence(f, occ._key, { yt_privacy: e.target.value })}
-                                    >
-                                      {YT_PRIVACY.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                    </select>
-                                    <select
-                                      className={styles.input}
-                                      style={{ width: 'auto', padding: '4px 6px', fontSize: '11.5px' }}
-                                      value={d.yt_category}
-                                      onChange={e => updateOccurrence(f, occ._key, { yt_category: e.target.value })}
-                                    >
-                                      <option value="">Category…</option>
-                                      {YT_CATEGORIES.map(c => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
-                                    </select>
-                                  </div>
-                                  <ToggleSwitch
-                                    checked={d.yt_made_for_kids}
-                                    onChange={e => updateOccurrence(f, occ._key, { yt_made_for_kids: e.target.checked })}
-                                    label="Made for kids"
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-
-                      {f.type === 'video' && thumbs[f.path_lower] && (
-                        <VideoCoverPicker
-                          videoUrl={thumbs[f.path_lower]}
-                          valueMs={d.video_cover_ms}
-                          onChange={ms => updateOccurrence(f, occ._key, { video_cover_ms: ms })}
-                        />
-                      )}
-
-                      {/* Date/timezone are not platform-specific, so they sit
-                          on their own row rather than inside any platform's
-                          column. */}
-                      <div style={{ display: 'flex', gap: '10px', alignItems: 'center', paddingTop: '4px' }}>
-                        <input
-                          type="datetime-local"
-                          className={styles.input}
-                          style={{ width: 'auto', padding: '5px 8px', fontSize: '12px' }}
-                          value={d.publish_date || ''}
-                          onChange={e => updateOccurrence(f, occ._key, { publish_date: e.target.value || null })}
-                        />
-                        <select
-                          className={styles.input}
-                          style={{ width: 'auto', padding: '5px 8px', fontSize: '12px' }}
-                          value={d.timezone || 'America/New_York'}
-                          onChange={e => updateOccurrence(f, occ._key, { timezone: e.target.value })}
-                        >
-                          {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-                        </select>
-                      </div>
-</>
-                      )}
-                          </div>
-                        )
-                      })}
-
-                      <button
-                        onClick={() => addOccurrence(f)}
-                        style={{ display: 'flex', alignItems: 'center', gap: '5px', alignSelf: 'flex-start', background: 'transparent', border: '1px dashed var(--border)', color: 'var(--text3)', fontSize: '11.5px', cursor: 'pointer', padding: '6px 12px', borderRadius: '6px' }}
-                      >
-                        <i className="ti ti-plus" aria-hidden="true" />
-                        {occurrences.length === 0 ? 'Add a posting' : 'Add another posting'}
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            /* Plain folder browser — not viewing the bank yet */
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '12px' }}>
-              {folderEntries.map(f => (
-                <div
-                  key={f.path_lower}
-                  onClick={() => openFolder(f)}
-                  style={{ cursor: 'pointer', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px 12px', textAlign: 'center' }}
-                >
-                  <i className="ti ti-folder" style={{ fontSize: '28px', color: 'var(--gold-light)' }} aria-hidden="true" />
-                  <div style={{ fontSize: '12px', color: 'var(--text)', marginTop: '8px', wordBreak: 'break-word' }}>{f.name}</div>
-                </div>
-              ))}
-              {fileEntries.map(f => {
-                const thumb = thumbs[f.path_lower]
-                const { icon, bg, color } = fileIcon(f.name)
-                return (
-                  <div key={f.path_lower} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-                    <div style={{ aspectRatio: '1', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-                      {thumb && f.type === 'photo' && <img src={thumb} alt={f.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                      {thumb && f.type === 'video' && <video src={thumb} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                      {(!thumb || (f.type !== 'photo' && f.type !== 'video')) && <i className={`ti ${icon}`} style={{ fontSize: '28px', color }} aria-hidden="true" />}
-                    </div>
-                    <div style={{ padding: '8px 10px' }}>
-                      <div style={{ fontSize: '11.5px', color: 'var(--text)', wordBreak: 'break-word', lineHeight: 1.3 }}>{f.name}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '3px' }}>{formatBytes(f.size)}</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </>
-      )}
-
-      {viewingBank && activeOccurrences.length > 0 && (
-        <div className={styles.empty} style={{ marginTop: '24px', padding: '22px 24px' }}>
-          <i className="ti ti-send" style={{ fontSize: '22px', color: 'var(--text3)', marginBottom: '8px', display: 'block' }} aria-hidden="true" />
-          Captions save automatically as you go — {readyCount} of {activeOccurrences.length} active postings have a caption, at least one platform, and a date. The Schedule button that sends the whole batch to Metricool is the next piece to build.
-        </div>
-      )}
-    </div>
-  )
 }
