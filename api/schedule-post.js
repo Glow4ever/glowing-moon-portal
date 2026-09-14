@@ -224,12 +224,19 @@ module.exports = async function handler(req, res) {
         media: [normalizedMediaUrl],
         mediaAltText: occurrence.media_alt_text || undefined,
         videoCoverMilliseconds: occurrence.video_cover_ms ?? undefined,
-        // Safety default rather than a convenience one: this schedules the
-        // post on Metricool without instructing it to auto-publish, so a
-        // freshly-scheduled batch doesn't go live unattended the first
-        // time this button is used for real. Worth revisiting once this
-        // has been trusted in practice for a while.
-        autoPublish: false,
+        // Was false as an initial safety default before either side of
+        // this build understood Metricool's per-platform behavior. Turns
+        // out that default was actively harmful for Instagram specifically:
+        // confirmed live that Facebook publishes fine regardless, but
+        // Instagram without autoPublish sits in a "sent, not actually
+        // published" limbo that Metricool's own status field nonetheless
+        // reports as "PUBLISHED" -- a real, confirmed-by-their-own-support
+        // false positive. The review step this tool is actually built
+        // around already happens before Schedule gets clicked (caption,
+        // platforms, date all deliberately set), so gating a second manual
+        // publish click inside Metricool afterward wasn't adding real
+        // safety, just adding a step that silently broke Instagram.
+        autoPublish: true,
         draft: false,
       }
       for (const platform of group.platforms) {
