@@ -558,6 +558,45 @@ export default function Schedule() {
   // the real cause. Slower, but every result is attributable to the exact
   // occurrence that produced it, which matters more for a first version of
   // a button that's about to actually schedule real public content.
+  // The batch button above only ever picks up 'draft' or 'failed' --
+  // deliberately conservative, since 'scheduled' means the system already
+  // believes this went out, and auto-retrying anything already believed
+  // successful risks a real double-post. This is the manual escape hatch:
+  // a single occurrence, any status, sent again on purpose. Needed the
+  // first time a real Instagram post came back 'PUBLISHED' from Metricool
+  // with no actual post on Instagram to show for it -- there was no way
+  // to force a second real attempt at that same occurrence without this.
+  async function rescheduleOne(file, occ) {
+    setDrafts(prev => ({
+      ...prev,
+      [file.path_lower]: (prev[file.path_lower] || []).map(o =>
+        o._key === occ._key ? { ...o, _rescheduling: true } : o
+      )
+    }))
+    try {
+      const res = await apiFetch('/api/schedule-post', {
+        method: 'POST',
+        body: JSON.stringify({ occurrenceId: occ.id })
+      })
+      const data = await res.json()
+      setDrafts(prev => ({
+        ...prev,
+        [file.path_lower]: (prev[file.path_lower] || []).map(o =>
+          o._key === occ._key
+            ? { ...o, _rescheduling: false, status: (res.ok && data.success) ? 'scheduled' : 'failed', metricool_post_ids: data.networkToPostId, schedule_error: data.errors?.join('; ') || data.error || null }
+            : o
+        )
+      }))
+    } catch (err) {
+      setDrafts(prev => ({
+        ...prev,
+        [file.path_lower]: (prev[file.path_lower] || []).map(o =>
+          o._key === occ._key ? { ...o, _rescheduling: false, status: 'failed', schedule_error: err.message } : o
+        )
+      }))
+    }
+  }
+
   async function scheduleBatch() {
     // 'draft' obviously, but also 'failed' -- a failure earlier (like a
     // real Dropbox config gap the first time this button was actually
@@ -780,6 +819,17 @@ export default function Schedule() {
                                   <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.12)', padding: '2px 8px', borderRadius: '10px' }} title={occ.schedule_error || ''}>
                                     <i className="ti ti-alert-circle" aria-hidden="true" /> Failed
                                   </span>
+                                )}
+                                {(occ.status === 'scheduled' || occ.status === 'failed') && occ.id && (
+                                  <button
+                                    onClick={() => rescheduleOne(f, occ)}
+                                    disabled={occ._rescheduling}
+                                    title="Sends this posting again regardless of what the system currently believes happened -- use this if a status here doesn't match what you're actually seeing on the platform."
+                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: '10.5px', cursor: occ._rescheduling ? 'default' : 'pointer', padding: '2px 8px', borderRadius: '10px' }}
+                                  >
+                                    <i className={`ti ${occ._rescheduling ? 'ti-loader-2' : 'ti-refresh'}`} aria-hidden="true" />
+                                    {occ._rescheduling ? 'Sending…' : 'Reschedule anyway'}
+                                  </button>
                                 )}
                               </div>
                               <div style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
