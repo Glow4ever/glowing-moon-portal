@@ -558,52 +558,69 @@ export default function Schedule() {
   // the real cause. Slower, but every result is attributable to the exact
   // occurrence that produced it, which matters more for a first version of
   // a button that's about to actually schedule real public content.
-  // The batch button above only ever picks up 'draft' or 'failed' --
-  // deliberately conservative, since 'scheduled' means the system already
-  // believes this went out, and auto-retrying anything already believed
-  // successful risks a real double-post. This is the manual escape hatch:
-  // a single occurrence, any status, sent again on purpose. Needed the
-  // first time a real Instagram post came back 'PUBLISHED' from Metricool
-  // with no actual post on Instagram to show for it -- there was no way
-  // to force a second real attempt at that same occurrence without this.
-  async function rescheduleOne(file, occ) {
+  //
+  // One action, not two. This used to be a separate "batch" path and a
+  // separate "reschedule anyway" path -- solving a real safety question
+  // (auto-retrying something already believed successful risks a genuine
+  // double-post) by inventing a second button instead of just scoping the
+  // one button correctly. Now every occurrence has exactly one schedule
+  // action, labeled for what it'll actually do (Schedule / Retry /
+  // Reschedule), and the page-level button is nothing but a loop that
+  // calls this same function for everything currently ready -- a
+  // convenience, not a second mechanism.
+  //
+  // Always re-fetches the occurrence from Supabase after attempting a
+  // send, rather than trusting the API response to describe local state.
+  // The first version trusted the client-side response, and a failure
+  // whose response never made it back (a network hiccup, a tab losing
+  // focus mid-request) left the UI showing "failed" while the database
+  // still held whatever was there before -- so the next real load quietly
+  // reverted it, and the failure looked like it had "disappeared." What's
+  // shown now is always what's actually saved, because it's re-read from
+  // the same place a fresh page load would read it from.
+  async function scheduleOne(file, occ) {
     setDrafts(prev => ({
       ...prev,
       [file.path_lower]: (prev[file.path_lower] || []).map(o =>
-        o._key === occ._key ? { ...o, _rescheduling: true } : o
+        o._key === occ._key ? { ...o, _scheduling: true } : o
       )
     }))
+
     try {
-      const res = await apiFetch('/api/schedule-post', {
+      await apiFetch('/api/schedule-post', {
         method: 'POST',
         body: JSON.stringify({ occurrenceId: occ.id })
       })
-      const data = await res.json()
-      setDrafts(prev => ({
-        ...prev,
-        [file.path_lower]: (prev[file.path_lower] || []).map(o =>
-          o._key === occ._key
-            ? { ...o, _rescheduling: false, status: (res.ok && data.success) ? 'scheduled' : 'failed', metricool_post_ids: data.networkToPostId, schedule_error: data.errors?.join('; ') || data.error || null }
-            : o
-        )
-      }))
     } catch (err) {
-      setDrafts(prev => ({
-        ...prev,
-        [file.path_lower]: (prev[file.path_lower] || []).map(o =>
-          o._key === occ._key ? { ...o, _rescheduling: false, status: 'failed', schedule_error: err.message } : o
-        )
-      }))
+      // Swallowed on purpose -- whatever happened, the re-fetch below is
+      // what decides what actually gets shown, not this response.
     }
+
+    const { data: fresh } = await supabase
+      .from('schedule_drafts')
+      .select('*')
+      .eq('id', occ.id)
+      .single()
+
+    setDrafts(prev => ({
+      ...prev,
+      [file.path_lower]: (prev[file.path_lower] || []).map(o =>
+        o._key === occ._key
+          ? (fresh ? { ...fresh, _key: occ._key } : { ...o, _scheduling: false, status: 'failed', schedule_error: 'Could not confirm what happened -- check this occurrence directly before assuming it failed.' })
+          : o
+      )
+    }))
+
+    return fresh
+  }
+
+  function scheduleButtonLabel(status) {
+    if (status === 'failed') return 'Retry'
+    if (status === 'scheduled' || status === 'published') return 'Reschedule'
+    return 'Schedule'
   }
 
   async function scheduleBatch() {
-    // 'draft' obviously, but also 'failed' -- a failure earlier (like a
-    // real Dropbox config gap the first time this button was actually
-    // used) shouldn't leave that posting permanently stuck. Fixing the
-    // underlying problem and clicking Schedule again is the expected way
-    // to recover, so failed postings are eligible for another attempt
-    // the same way drafts are, not walled off into a separate retry flow.
     const readyDrafts = activeOccurrences.filter(({ occ }) =>
       (occ.status === 'draft' || occ.status === 'failed') &&
       occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date && occ.id
@@ -618,32 +635,9 @@ export default function Schedule() {
     let succeeded = 0
 
     for (const { file, occ } of readyDrafts) {
-      try {
-        const res = await apiFetch('/api/schedule-post', {
-          method: 'POST',
-          body: JSON.stringify({ occurrenceId: occ.id })
-        })
-        const data = await res.json()
-        if (res.ok && data.success) {
-          succeeded++
-          setDrafts(prev => ({
-            ...prev,
-            [file.path_lower]: (prev[file.path_lower] || []).map(o =>
-              o._key === occ._key ? { ...o, status: 'scheduled', metricool_post_ids: data.networkToPostId } : o
-            )
-          }))
-        } else {
-          failed.push({ filename: occ.filename, error: data.errors?.join('; ') || data.error || 'Unknown error' })
-          setDrafts(prev => ({
-            ...prev,
-            [file.path_lower]: (prev[file.path_lower] || []).map(o =>
-              o._key === occ._key ? { ...o, status: 'failed' } : o
-            )
-          }))
-        }
-      } catch (err) {
-        failed.push({ filename: occ.filename, error: err.message })
-      }
+      const fresh = await scheduleOne(file, occ)
+      if (fresh?.status === 'scheduled') succeeded++
+      else failed.push({ filename: occ.filename, error: fresh?.schedule_error || 'Unknown error' })
       setScheduleProgress(prev => ({ ...prev, done: prev.done + 1 }))
     }
 
@@ -732,7 +726,7 @@ export default function Schedule() {
                   ? `Scheduling ${scheduleProgress?.done ?? 0} of ${scheduleProgress?.total ?? 0}…`
                   : readyCount === 0
                     ? 'Nothing ready to schedule yet'
-                    : `Schedule ${readyCount} ready post${readyCount === 1 ? '' : 's'}`}
+                    : `Schedule all ${readyCount} ready post${readyCount === 1 ? '' : 's'}`}
               </button>
               {readyCount === 0 && !scheduling && (
                 <span style={{ fontSize: '12px', color: 'var(--text3)' }}>
@@ -801,9 +795,10 @@ export default function Schedule() {
                         const d = occ
                         const saveState = savingPaths[occ._key]
                         const isActive = occ.active !== false
+                        const occReady = occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date && occ.id
                         return (
                           <div key={occ._key} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--surface1)', border: '1px solid ' + (isActive ? 'var(--border)' : 'transparent'), borderRadius: '8px', padding: '10px 12px', opacity: isActive ? 1 : 0.55 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <ToggleSwitch
                                   checked={isActive}
@@ -815,30 +810,51 @@ export default function Schedule() {
                                     <i className="ti ti-circle-check" aria-hidden="true" /> Scheduled
                                   </span>
                                 )}
+                                {occ.status === 'published' && (
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--teal)', background: 'rgba(29,158,117,0.12)', padding: '2px 8px', borderRadius: '10px' }}>
+                                    <i className="ti ti-circle-check-filled" aria-hidden="true" /> Published
+                                  </span>
+                                )}
                                 {occ.status === 'failed' && (
-                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.12)', padding: '2px 8px', borderRadius: '10px' }} title={occ.schedule_error || ''}>
+                                  <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.12)', padding: '2px 8px', borderRadius: '10px' }}>
                                     <i className="ti ti-alert-circle" aria-hidden="true" /> Failed
                                   </span>
                                 )}
-                                {(occ.status === 'scheduled' || occ.status === 'failed') && occ.id && (
-                                  <button
-                                    onClick={() => rescheduleOne(f, occ)}
-                                    disabled={occ._rescheduling}
-                                    title="Sends this posting again regardless of what the system currently believes happened -- use this if a status here doesn't match what you're actually seeing on the platform."
-                                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: '10.5px', cursor: occ._rescheduling ? 'default' : 'pointer', padding: '2px 8px', borderRadius: '10px' }}
-                                  >
-                                    <i className={`ti ${occ._rescheduling ? 'ti-loader-2' : 'ti-refresh'}`} aria-hidden="true" />
-                                    {occ._rescheduling ? 'Sending…' : 'Reschedule anyway'}
-                                  </button>
-                                )}
                               </div>
-                              <div style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
-                                {saveState === 'saving' && 'Saving…'}
-                                {saveState === 'saved' && <span style={{ color: 'var(--teal)' }}><i className="ti ti-check" aria-hidden="true" /> Saved</span>}
-                                {saveState === 'error' && <span style={{ color: 'var(--coral)' }}>Couldn't save</span>}
-                                {saveState === 'pending' && '…'}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
+                                  {saveState === 'saving' && 'Saving…'}
+                                  {saveState === 'saved' && <span style={{ color: 'var(--teal)' }}><i className="ti ti-check" aria-hidden="true" /> Saved</span>}
+                                  {saveState === 'error' && <span style={{ color: 'var(--coral)' }}>Couldn't save</span>}
+                                  {saveState === 'pending' && '…'}
+                                </div>
+                                {/* One schedule action per occurrence, always here, labeled
+                                    for what it'll actually do -- not a separate button for
+                                    "first time" versus "again." */}
+                                <button
+                                  onClick={() => scheduleOne(f, occ)}
+                                  disabled={occ._scheduling || !occReady}
+                                  title={!occReady ? 'Needs a caption, at least one platform, and a date first.' : ''}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: '5px',
+                                    background: (occ._scheduling || !occReady) ? 'var(--surface2)' : 'var(--teal)',
+                                    border: (occ._scheduling || !occReady) ? '1px solid var(--border)' : 'none',
+                                    color: (occ._scheduling || !occReady) ? 'var(--text3)' : '#04211d',
+                                    fontWeight: 600, fontSize: '11px',
+                                    cursor: (occ._scheduling || !occReady) ? 'default' : 'pointer',
+                                    padding: '5px 11px', borderRadius: '7px'
+                                  }}
+                                >
+                                  <i className={`ti ${occ._scheduling ? 'ti-loader-2' : 'ti-send'}`} aria-hidden="true" />
+                                  {occ._scheduling ? 'Sending…' : scheduleButtonLabel(occ.status)}
+                                </button>
                               </div>
                             </div>
+                            {occ.status === 'failed' && occ.schedule_error && (
+                              <div style={{ fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.08)', border: '1px solid rgba(240,153,123,0.25)', borderRadius: '6px', padding: '6px 10px', wordBreak: 'break-word' }}>
+                                {occ.schedule_error}
+                              </div>
+                            )}
 
                       {/* Template + per-network overrides, matching
                           Metricool's own "Edit by network" pattern rather
