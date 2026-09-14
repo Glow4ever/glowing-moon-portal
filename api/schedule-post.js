@@ -245,7 +245,25 @@ module.exports = async function handler(req, res) {
         headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       })
-      const postData = await postRes.json()
+
+      // Read as text first, same reason as normalizeMedia above: a real
+      // LinkedIn attempt once came back with a body starting "<JsonError",
+      // not JSON at all -- calling .json() directly on that produced an
+      // opaque "Unexpected token '<'" instead of showing what Metricool
+      // actually said. A same-shaped retry immediately after succeeded
+      // cleanly, so this looks like a transient gateway hiccup on their
+      // end rather than anything wrong with the payload -- but the next
+      // time something like it happens, the raw response should be
+      // visible in schedule_error instead of a parse-error message that
+      // hides it.
+      const postRaw = await postRes.text()
+      let postData
+      try {
+        postData = JSON.parse(postRaw)
+      } catch (err) {
+        errors.push(`${group.platforms.join('+')}: non-JSON response (${postRes.status}): ${postRaw.slice(0, 300)}`)
+        continue
+      }
 
       if (!postRes.ok) {
         errors.push(`${group.platforms.join('+')}: ${JSON.stringify(postData)}`)
