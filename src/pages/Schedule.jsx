@@ -353,6 +353,33 @@ export default function Schedule() {
     if (currentPath) loadFolder(currentPath)
   }, [currentPath])
 
+  // Every media file gets a thumbnail eventually -- not just the first N.
+  // That cap used to be harmless (a plain browsing grid, some files just
+  // showing a generic icon a little longer), but it quietly became a real
+  // functional gap once the video cover picker started depending on this
+  // same thumbnail existing: files past the cutoff couldn't have a cover
+  // selected at all, not just a plainer preview. Still throttled -- firing
+  // 100+ temporary-link requests at once isn't reasonable either -- but
+  // throttled in batches rather than dropped after a fixed count.
+  //
+  // Deliberately not awaited by loadFolder: this runs in the background
+  // while the folder grid renders immediately with whatever's already
+  // loaded, filling thumbnails in progressively. Awaiting it there would
+  // mean the whole page waits on every thumbnail before showing anything,
+  // which trades one real problem (files silently missing thumbnails) for
+  // another (the page feels slow to open at all).
+  async function loadThumbnailsInBackground(files) {
+    const media = files.filter(f => ['photo', 'video'].includes(getFileType(f.name)))
+    const THUMB_BATCH_SIZE = 8
+    for (let i = 0; i < media.length; i += THUMB_BATCH_SIZE) {
+      const batch = media.slice(i, i + THUMB_BATCH_SIZE)
+      await Promise.all(batch.map(async f => {
+        const link = await getDownloadLink(f.path_lower)
+        if (link) setThumbs(prev => ({ ...prev, [f.path_lower]: link }))
+      }))
+    }
+  }
+
   async function loadFolder(path) {
     setLoading(true)
     setEntries([])
@@ -366,12 +393,7 @@ export default function Schedule() {
         ...files.map(f => ({ ...f, type: getFileType(f.name) }))
       ]
       setEntries(sorted)
-
-      const media = files.filter(f => ['photo', 'video'].includes(getFileType(f.name))).slice(0, 40)
-      media.forEach(async f => {
-        const link = await getDownloadLink(f.path_lower)
-        if (link) setThumbs(prev => ({ ...prev, [f.path_lower]: link }))
-      })
+      loadThumbnailsInBackground(files)
     } catch (err) {
       console.error('loadFolder error:', err)
       setLoadError(true)
