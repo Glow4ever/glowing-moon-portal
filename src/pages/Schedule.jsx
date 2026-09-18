@@ -814,13 +814,20 @@ export default function Schedule() {
                 const thumb = thumbs[f.path_lower]
                 const { icon, bg, color } = fileIcon(f.name)
                 const occurrences = occurrencesFor(f)
-                // Fully retired: has at least one posting and every one of
-                // them is inactive. Lets you scan the bank for what's
-                // already been used without opening each file -- the
-                // point being to bounce around a folder out of order and
-                // still know at a glance what's spoken for.
+                // Three states worth telling apart at a glance, not just
+                // two. Fully retired -- every posting inactive -- was the
+                // only one with a visual signal until now, which left a
+                // real gap: the much more common state right after
+                // scheduling a batch is "sent to Metricool, not yet
+                // confirmed live" (status 'scheduled', still active,
+                // waiting on the cron's cross-check against real
+                // analytics). That state looked identical to a completely
+                // untouched file -- the only way to tell them apart was
+                // opening every single panel, which defeats the point of
+                // being able to scan a folder of 100+ files at all.
                 const fullyRetired = occurrences.length > 0 && occurrences.every(o => o.active === false)
                 const anyPublished = occurrences.some(o => o.status === 'published')
+                const spokenFor = !fullyRetired && occurrences.some(o => o.active !== false && (o.status === 'scheduled' || o.status === 'published'))
                 return (
                   <div key={f.path_lower} style={{ display: 'flex', gap: '14px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '14px' }}>
                     <div style={{ position: 'relative', width: '84px', height: '84px', flexShrink: 0, borderRadius: '8px', overflow: 'hidden', background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -830,6 +837,11 @@ export default function Schedule() {
                       {fullyRetired && (
                         <div style={{ position: 'absolute', top: '4px', right: '4px', width: '18px', height: '18px', borderRadius: '50%', background: anyPublished ? 'var(--teal)' : 'var(--surface1)', border: '1px solid ' + (anyPublished ? 'var(--teal)' : 'var(--border)'), display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: anyPublished ? '0 0 6px var(--teal)' : 'none' }}>
                           <i className="ti ti-check" style={{ fontSize: '11px', color: anyPublished ? '#fff' : 'var(--text3)' }} aria-hidden="true" />
+                        </div>
+                      )}
+                      {spokenFor && (
+                        <div style={{ position: 'absolute', top: '4px', right: '4px', width: '18px', height: '18px', borderRadius: '50%', background: 'var(--teal)', border: '1px solid var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 6px var(--teal)' }} title="Already scheduled -- not yet confirmed published">
+                          <i className="ti ti-clock" style={{ fontSize: '10px', color: '#04211d' }} aria-hidden="true" />
                         </div>
                       )}
                     </div>
