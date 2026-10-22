@@ -40,22 +40,24 @@ export default function Sidebar() {
           {item.label}
         </NavLink>
       ))}
-      {role === 'admin' && (
+      {(role === 'admin' || role === 'editor') && (
         <>
-          <div className={styles.section} style={{ marginTop: '12px' }}>Admin</div>
-          <NavLink
-            to="/admin"
-            className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
-            style={({ isActive }) => isActive ? {
-              background: primaryColor + '18',
-              color: primaryColor,
-              borderColor: primaryColor + '40'
-            } : {}}
-            onClick={() => setMobileOpen(false)}
-          >
-            <i className="ti ti-settings" aria-hidden="true" />
-            Admin Panel
-          </NavLink>
+          <div className={styles.section} style={{ marginTop: '12px' }}>{role === 'admin' ? 'Admin' : 'Team'}</div>
+          {role === 'admin' && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
+              style={({ isActive }) => isActive ? {
+                background: primaryColor + '18',
+                color: primaryColor,
+                borderColor: primaryColor + '40'
+              } : {}}
+              onClick={() => setMobileOpen(false)}
+            >
+              <i className="ti ti-settings" aria-hidden="true" />
+              Admin Panel
+            </NavLink>
+          )}
           <NavLink
             to="/schedule"
             className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
