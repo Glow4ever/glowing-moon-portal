@@ -20,6 +20,13 @@ function AdminRoute({ children }) {
   return children
 }
 
+function ScheduleRoute({ children }) {
+  const { role, loading } = useClient()
+  if (loading) return null
+  if (!['admin', 'editor'].includes(role)) return <Navigate to="/" replace />
+  return children
+}
+
 function MetricsRoute({ children }) {
   const { role, loading } = useClient()
   if (loading) return null
@@ -51,7 +58,7 @@ export default function Portal() {
             <Route path="/metrics"  element={<MetricsRoute><Metrics /></MetricsRoute>} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/admin"    element={<AdminRoute><Admin /></AdminRoute>} />
-            <Route path="/schedule" element={<AdminRoute><Schedule /></AdminRoute>} />
+            <Route path="/schedule" element={<ScheduleRoute><Schedule /></ScheduleRoute>} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
