@@ -1,23 +1,268 @@
 // api/client-reports.js
 //
-// Two independent clocks, on purpose:
-// - Mid-month note: every 14 days from each client's own retainer_start_date.
-//   Reassurance during the window after direct contact drops off — that's
-//   about time-since-onboarding, not calendar position.
-// - Month-in-review: calendar months, triggered on the 1st. This is where
-//   metrics/growth/ROI live, and those genuinely should read as "here's
-//   August" like every other dashboard and the ROI docs themselves do.
+// Daily cron. Only ever ASSEMBLES drafts and emails admin that they're
+// ready. Nothing goes to a client until admin reviews and clicks Send.
 //
-// This function only ever ASSEMBLES a draft and notifies admin. Nothing
-// sends automatically — Admin reviews, edits if needed, then explicitly
-// sends or cancels from the Admin Panel.
+// Schedules are FIXED, not relative to when the last note was sent:
+// - Two-week note (credibility clients only): due every 14 days from the
+//   client's report_schedule_start (falls back to retainer_start_date).
+//   Each note covers exactly the 14 days before its due date.
+// - Month in review (all clients): covers the previous calendar month,
+//   generated during the first 7 days of the new month.
+//
+// A draft for a given window is created once. Sending, cancelling, or
+// ignoring it never causes a second draft for that same window, which is
+// what previously produced a new onbikes draft every single day.
+//
+// Operations clients (primary_frame = 'operations') skip the two-week
+// note and get a monthly recap built around a summary admin writes.
 
 const { createClient } = require('@supabase/supabase-js')
+const { Resend } = require('resend')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+const resend = new Resend(process.env.RESEND_API_KEY)
 
-function isoDate(d) {
-  return d.toISOString().slice(0, 10)
+const ADMIN_EMAIL = process.env.REPORT_NOTIFY_EMAIL || 'hector@glowingmoonmedia.com'
+const SUMMARY_PLACEHOLDER = '[YOUR SUMMARY: 2-4 sentences on what we accomplished together this month.]'
+const DAY = 24 * 60 * 60 * 1000
+
+// All date math in UTC on plain YYYY-MM-DD strings, so there's no
+// timezone drift. The cron runs at 13:00 UTC, which is the same calendar
+// day in Eastern time.
+function parseDate(s) { return new Date(s + 'T00:00:00Z') }
+function iso(d) { return d.toISOString().slice(0, 10) }
+function addDays(d, n) { return new Date(d.getTime() + n * DAY) }
+
+async function draftExists(clientId, reportType, periodStart, periodEnd) {
+  const { data } = await supabase
+    .from('client_report_drafts')
+    .select('id')
+    .eq('client_id', clientId).eq('report_type', reportType)
+    .eq('period_start', periodStart).eq('period_end', periodEnd)
+    .maybeSingle()
+  return !!data
+}
+
+function roiLinesFor(client) {
+  const lines = []
+  if (client.time_recovered_hours && client.roi_show_time_hours) {
+    let line = `you're getting back roughly ${client.time_recovered_hours} hours a month`
+    if (client.time_recovered_value && client.roi_show_time_value) {
+      line += ` (about $${(client.time_recovered_hours * client.time_recovered_value).toLocaleString()} at your stated rate)`
+    }
+    lines.push(line)
+  }
+  if (client.cost_avoidance_amount && client.roi_show_cost_avoidance) {
+    lines.push(`this replaces roughly $${Number(client.cost_avoidance_amount).toLocaleString()}/mo you'd otherwise be spending on ${client.cost_avoidance_label || 'the alternative'}`)
+  }
+  return lines
+}
+
+async function buildTwoWeekNote(client, windowStart, windowEnd, dueDate) {
+  const { data: postRows } = await supabase
+    .from('calendar_events')
+    .select('date, title, metricool_id')
+    .eq('client_id', client.id)
+    .gte('date', windowStart).lte('date', windowEnd)
+    .not('metricool_id', 'is', null)
+  // Cross-posted content has one row per platform; dedupe to one per post.
+  const uniquePosts = Object.values(
+    (postRows || []).reduce((acc, r) => { acc[r.metricool_id] = r; return acc }, {})
+  )
+
+  const { data: cycles } = await supabase
+    .from('review_cycles')
+    .select('folder_label, resolved_at')
+    .eq('client_id', client.id)
+    .gte('resolved_at', windowStart).lt('resolved_at', dueDate)
+
+  let draft = uniquePosts.length > 0
+    ? `Another two weeks in the books! Here's a quick look at what's been moving on your channels.\n\n`
+    : `Checking in for your two-week update. A quieter stretch behind the scenes as we kept things steady.\n\n`
+
+  draft += `${uniquePosts.length} piece${uniquePosts.length === 1 ? '' : 's'} of content went out`
+  if (cycles && cycles.length > 0) {
+    draft += `, and you turned around ${cycles.length === 1 ? 'a' : cycles.length} review${cycles.length === 1 ? '' : 's'} for us along the way (${cycles.map(c => c.folder_label).join(', ')}). Thanks for the quick turnaround.`
+  } else {
+    draft += `.`
+  }
+  draft += `\n`
+
+  if (uniquePosts.length > 0) {
+    draft += `\nWhat went out:\n` + uniquePosts.slice(0, 10).map(p => `- ${p.date}: ${p.title || '(untitled)'}`).join('\n') + '\n'
+  }
+
+  draft += `\nAs always, reach out anytime if something's on your mind. Otherwise, see you at the next check-in!`
+  return draft
+}
+
+async function buildCredibilityMonthly(client, periodStart, periodEnd, isPartial) {
+  const { data: snapRows } = await supabase
+    .from('metric_snapshots')
+    .select('platform, metric_type, value, recorded_date')
+    .eq('client_id', client.id).in('metric_type', ['audience', 'engagement'])
+    .gte('recorded_date', periodStart).lte('recorded_date', periodEnd)
+    .order('recorded_date', { ascending: true })
+
+  const audienceByPlatform = {}
+  const engagementByPlatform = {}
+  ;(snapRows || []).forEach(r => {
+    const bucket = r.metric_type === 'audience' ? audienceByPlatform : engagementByPlatform
+    if (!bucket[r.platform]) bucket[r.platform] = []
+    bucket[r.platform].push(Number(r.value))
+  })
+
+  const platformStats = Object.entries(audienceByPlatform)
+    .filter(([, values]) => values.length > 1)
+    .map(([platform, values]) => {
+      const start = values[0]
+      const end = values[values.length - 1]
+      const delta = end - start
+      const pct = start > 0 ? Math.round((delta / start) * 100) : null
+      return { platform, start, end, delta, pct }
+    })
+  const totalAudienceNow = Object.values(audienceByPlatform)
+    .reduce((sum, values) => sum + values[values.length - 1], 0)
+  const standout = platformStats.filter(p => p.delta > 0).sort((a, b) => b.delta - a.delta)[0]
+  const avgEngagementByPlatform = Object.entries(engagementByPlatform)
+    .map(([platform, values]) => ({ platform, avg: values.reduce((s, v) => s + v, 0) / values.length }))
+
+  const { data: logEntries } = await supabase
+    .from('client_log_entries')
+    .select('title, note, entry_type')
+    .eq('client_id', client.id)
+    .gte('entry_date', periodStart).lte('entry_date', periodEnd)
+    .in('entry_type', ['press_mention', 'qualitative_win'])
+
+  let draft = isPartial
+    ? `Your first few weeks are in the books! Here's where things stand as we get rolling.\n\n`
+    : `Here's your month in review, a look back at what the last few weeks added up to.\n\n`
+
+  const roiLines = roiLinesFor(client)
+  if (roiLines.length > 0) {
+    draft += `First, the sure thing: ${roiLines.join(' and ')}, true regardless of anything else this month.\n\n`
+  }
+
+  if (platformStats.length > 0) {
+    draft += `Here's how things moved this period. `
+    if (totalAudienceNow > 0) draft += `You're sitting at ${totalAudienceNow.toLocaleString()} total followers across every connected platform. `
+    if (standout) {
+      const name = standout.platform.charAt(0).toUpperCase() + standout.platform.slice(1)
+      draft += `${name} led the way: ${standout.start.toLocaleString()} to ${standout.end.toLocaleString()}, up +${Math.round(standout.delta)}${standout.pct !== null ? ` (+${standout.pct}%)` : ''}. `
+    }
+    const others = platformStats.filter(p => p !== standout)
+    if (others.length > 0) {
+      draft += `Elsewhere: ` + others.map(p => `${p.platform} ${p.delta >= 0 ? '+' : ''}${Math.round(p.delta)}${p.pct !== null ? ` (${p.pct >= 0 ? '+' : ''}${p.pct}%)` : ''}`).join(', ') + '. '
+    }
+    if (avgEngagementByPlatform.length > 0) {
+      draft += `\n\nEngagement this period: ` + avgEngagementByPlatform.map(e => `${e.platform} averaging ${e.avg.toFixed(1)}%`).join(', ') + '.'
+    }
+    draft += '\n'
+  } else {
+    draft += `Performance breakdown: still early days on the trend lines. Check back next month as more history builds in.\n`
+  }
+
+  if (logEntries && logEntries.length > 0) {
+    draft += `\nA couple of things worth celebrating from this stretch:\n` + logEntries.map(e => `- ${e.title || e.note}`).join('\n') + '\n'
+  }
+
+  draft += `\nEach month is a chance to reflect on what we've built together: a growing presence that brings real credibility. Thank you for trusting us with this. Reach out anytime if you want to talk through any of it.`
+  return draft
+}
+
+// Operations clients: GMM supports their team's content work rather than
+// publishing for them, so platform stats aren't ours to report. The draft
+// leads with a summary admin writes, backed by a few delivery facts the
+// portal already knows. Admin.jsx blocks sending while the placeholder
+// is still in the text.
+async function buildOperationsMonthly(client, periodStart, periodEnd, monthName) {
+  const nextDay = iso(addDays(parseDate(periodEnd), 1))
+
+  const { data: cycles } = await supabase
+    .from('review_cycles')
+    .select('folder_label')
+    .eq('client_id', client.id)
+    .gte('resolved_at', periodStart).lt('resolved_at', nextDay)
+
+  const { count: approvedCount } = await supabase
+    .from('file_status')
+    .select('id', { count: 'exact', head: true })
+    .eq('client_id', client.id).eq('status', 'approved')
+    .gte('updated_at', periodStart).lt('updated_at', nextDay)
+
+  const { data: logEntries } = await supabase
+    .from('client_log_entries')
+    .select('title, note')
+    .eq('client_id', client.id)
+    .gte('entry_date', periodStart).lte('entry_date', periodEnd)
+    .eq('entry_type', 'qualitative_win')
+
+  let draft = `Here's your ${monthName} recap.\n\n${SUMMARY_PLACEHOLDER}\n`
+
+  const facts = []
+  if (approvedCount) facts.push(`${approvedCount} piece${approvedCount === 1 ? '' : 's'} delivered and approved`)
+  if (cycles && cycles.length > 0) facts.push(`${cycles.length} review round${cycles.length === 1 ? '' : 's'} completed (${cycles.map(c => c.folder_label).join(', ')})`)
+  if (facts.length > 0) draft += `\nBy the numbers:\n` + facts.map(f => `- ${f}`).join('\n') + '\n'
+
+  const roiLines = roiLinesFor(client)
+  if (roiLines.length > 0) draft += `\nFor your team: ${roiLines.join(' and ')}.\n`
+
+  if (logEntries && logEntries.length > 0) {
+    draft += `\nHighlights:\n` + logEntries.map(e => `- ${e.title || e.note}`).join('\n') + '\n'
+  }
+
+  draft += `\nThanks for having us on the team. Reach out anytime if there's anything you'd like us to take on next month.`
+  return draft
+}
+
+async function saveDraft(client, reportType, periodStart, periodEnd, draft, label, created) {
+  const { error } = await supabase.from('client_report_drafts').insert({
+    client_id: client.id,
+    report_type: reportType,
+    period_start: periodStart,
+    period_end: periodEnd,
+    draft_content: draft,
+    status: 'pending'
+  })
+  // A unique-constraint conflict means another run already made it. Fine.
+  if (error) return
+  await supabase.from('notifications').insert({
+    client_id: client.id,
+    type: 'report_ready',
+    message: `${client.name}'s ${label} is ready for review.`,
+    read: false
+  })
+  created.push({ client: client.name, label, periodStart, periodEnd })
+}
+
+async function emailAdmin(created) {
+  if (created.length === 0) return
+  const rows = created.map(c =>
+    `<tr><td style="padding:10px 0;border-bottom:1px solid #222;color:#fff;font-size:15px;">${c.client}</td>
+     <td style="padding:10px 0;border-bottom:1px solid #222;color:#888;font-size:14px;text-align:right;">${c.label}<br><span style="font-size:12px;color:#555;">${c.periodStart} to ${c.periodEnd}</span></td></tr>`
+  ).join('')
+  await resend.emails.send({
+    from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+    to: ADMIN_EMAIL,
+    subject: created.length === 1
+      ? `${created[0].client}: ${created[0].label} ready to review`
+      : `${created.length} client reports ready to review`,
+    html: `
+      <!DOCTYPE html><html><body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;"><tr><td align="center">
+          <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #D3C9A7;">
+            <tr><td style="padding:40px;">
+              <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
+              <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Reports ready to review</h1>
+              <p style="margin:0 0 20px;font-size:15px;color:#888;line-height:1.6;">Nothing has been sent to clients. Review, edit, and send from the Reports tab.</p>
+              <table width="100%" cellpadding="0" cellspacing="0">${rows}</table>
+              <a href="https://portal.glowingmoonmedia.com/admin?tab=reports" style="display:inline-block;margin-top:28px;background:#D3C9A7;color:#111;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:8px;">Open Reports</a>
+            </td></tr>
+          </table>
+        </td></tr></table>
+      </body></html>`
+  })
 }
 
 module.exports = async function handler(req, res) {
@@ -25,250 +270,68 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
-  const today = new Date()
-  const todayStr = isoDate(today)
+  const today = parseDate(iso(new Date()))
 
   const { data: clients, error: clientsError } = await supabase
     .from('clients')
-    .select('id, name, retainer_start_date, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
-    .not('retainer_start_date', 'is', null)
+    .select('id, name, primary_frame, retainer_start_date, report_schedule_start, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
 
   if (clientsError) return res.status(500).json({ error: clientsError.message })
 
-  const results = []
+  const created = []
 
-  for (const client of clients) {
-    const startDate = new Date(client.retainer_start_date + 'T00:00:00')
+  for (const client of clients || []) {
+    const anchorStr = client.report_schedule_start || client.retainer_start_date
+    if (!anchorStr) continue
+    const anchor = parseDate(anchorStr)
+    const isOperations = client.primary_frame === 'operations'
 
-    // ---------- MID-MONTH NOTE (at least 14 days since the last one, client's own clock) ----------
-    // Deliberately NOT an exact "daysSince % 14 === 0" check — that's
-    // fragile to a single missed cron run (a deploy hiccup, anything) and
-    // would then silently wait until the next exact 14-day mark instead of
-    // catching up. Checking "has it been >= 14 days since the last note"
-    // is self-healing: if a run gets missed, the next run just catches it.
-    const { data: lastMidMonth } = await supabase
-      .from('client_report_drafts')
-      .select('period_end')
-      .eq('client_id', client.id).eq('report_type', 'mid_month')
-      .eq('status', 'sent')
-      .order('period_end', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    const lastMidMonthDate = lastMidMonth ? new Date(lastMidMonth.period_end + 'T00:00:00') : startDate
-    const daysSinceLastNote = Math.floor((today - lastMidMonthDate) / (1000 * 60 * 60 * 24))
-    const daysSinceStart = Math.floor((today - startDate) / (1000 * 60 * 60 * 24))
-
-    if (daysSinceStart > 0 && daysSinceLastNote >= 14) {
-      const periodStart = isoDate(lastMidMonthDate)
-      const periodEnd = todayStr
-
-      const { data: existing } = await supabase
-        .from('client_report_drafts')
-        .select('id, status')
-        .eq('client_id', client.id).eq('report_type', 'mid_month')
-        .eq('period_start', periodStart).eq('period_end', periodEnd)
-        .maybeSingle()
-
-      // A cancelled draft for this exact window shouldn't block a fresh
-      // attempt — only an already-pending or already-sent one should.
-      if (!existing || existing.status === 'cancelled') {
-        // Real posts published in the window — dedupe by metricool_id since
-        // cross-posted content has one row per platform, not one per post.
-        const { data: postRows } = await supabase
-          .from('calendar_events')
-          .select('date, title, metricool_id')
-          .eq('client_id', client.id)
-          .gte('date', periodStart).lte('date', periodEnd)
-          .not('metricool_id', 'is', null)
-        const uniquePosts = Object.values(
-          (postRows || []).reduce((acc, r) => { acc[r.metricool_id] = r; return acc }, {})
-        )
-
-        const { data: cycles } = await supabase
-          .from('review_cycles')
-          .select('folder_label, resolved_at')
-          .eq('client_id', client.id)
-          .gte('resolved_at', periodStart).lte('resolved_at', periodEnd)
-
-        // Opener varies with what actually happened — a quiet period reads
-        // as "steady and consistent," not as an apology for low volume.
-        let draft = uniquePosts.length > 0
-          ? `Another two weeks in the books! Here's a quick look at what's been moving on your channels.\n\n`
-          : `Checking in for your two-week update — a quieter stretch behind the scenes as we kept things steady.\n\n`
-
-        draft += `${uniquePosts.length} piece${uniquePosts.length === 1 ? '' : 's'} of content went out`
-        if (cycles && cycles.length > 0) {
-          draft += `, and you turned around ${cycles.length === 1 ? 'a' : cycles.length} review${cycles.length === 1 ? '' : 's'} for us along the way (${cycles.map(c => c.folder_label).join(', ')}) — thanks for the quick turnaround.`
-        } else {
-          draft += `.`
+    // ---------- TWO-WEEK NOTE (credibility clients) ----------
+    // Only the most recent completed window is ever generated, so a client
+    // whose start date is far in the past gets one note, not a backlog.
+    if (!isOperations) {
+      const k = Math.floor((today - anchor) / (14 * DAY))
+      if (k >= 1) {
+        const dueDate = addDays(anchor, 14 * k)
+        const windowStart = iso(addDays(anchor, 14 * (k - 1)))
+        const windowEnd = iso(addDays(dueDate, -1))
+        if (!(await draftExists(client.id, 'mid_month', windowStart, windowEnd))) {
+          const draft = await buildTwoWeekNote(client, windowStart, windowEnd, iso(dueDate))
+          await saveDraft(client, 'mid_month', windowStart, windowEnd, draft, 'two-week note', created)
         }
-        draft += `\n`
-
-        if (uniquePosts.length > 0) {
-          draft += `\nWhat went out:\n` + uniquePosts.slice(0, 10).map(p => `- ${p.date}: ${p.title || '(untitled)'}`).join('\n') + '\n'
-        }
-
-        draft += `\nAs always, reach out anytime if something's on your mind. Otherwise, see you at the next check-in!`
-
-        await supabase.from('client_report_drafts').upsert({
-          client_id: client.id,
-          report_type: 'mid_month',
-          period_start: periodStart,
-          period_end: periodEnd,
-          draft_content: draft,
-          status: 'pending',
-          sent_at: null
-        }, { onConflict: 'client_id,report_type,period_start,period_end' })
-        await supabase.from('notifications').insert({
-          client_id: client.id,
-          type: 'report_ready',
-          message: `Time for ${client.name}'s mid-month note — draft ready for review.`,
-          read: false
-        })
-        results.push({ client: client.name, type: 'mid_month', status: 'created' })
       }
     }
 
-    // ---------- MONTH-IN-REVIEW (calendar month, triggered on the 1st) ----------
-    if (today.getDate() === 1) {
-      const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0)
-      const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    // ---------- MONTH IN REVIEW (all clients) ----------
+    // Generated any day in the first week of the month, so one missed cron
+    // run on the 1st doesn't skip the month.
+    if (today.getUTCDate() <= 7) {
+      const prevMonthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1))
+      const prevMonthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0))
+      if (anchor > prevMonthEnd) continue
 
-      if (startDate > prevMonthEnd) {
-        // Client hasn't started yet relative to this period at all — skip.
-        continue
-      }
-
-      let effectiveStart = isoDate(prevMonthStart)
+      let periodStart = iso(prevMonthStart)
       let isPartial = false
-      if (startDate >= prevMonthStart && startDate <= prevMonthEnd) {
-        // Started partway through last month — only worth a partial review
-        // if there's a real stretch to report on. Onboarding in the back
-        // half of a month means the first real review is just next month.
-        if (startDate.getDate() > 20) continue
-        effectiveStart = isoDate(startDate)
+      if (anchor >= prevMonthStart) {
+        // Started in the back half of last month: first review is next month.
+        if (anchor.getUTCDate() > 20) continue
+        periodStart = iso(anchor)
         isPartial = true
       }
-      const periodEnd = isoDate(prevMonthEnd)
+      const periodEnd = iso(prevMonthEnd)
 
-      const { data: existing } = await supabase
-        .from('client_report_drafts')
-        .select('id, status')
-        .eq('client_id', client.id).eq('report_type', 'month_in_review')
-        .eq('period_start', effectiveStart).eq('period_end', periodEnd)
-        .maybeSingle()
-
-      if (!existing || existing.status === 'cancelled') {
-        const { data: snapRows } = await supabase
-          .from('metric_snapshots')
-          .select('platform, metric_type, value, recorded_date')
-          .eq('client_id', client.id).in('metric_type', ['audience', 'engagement'])
-          .gte('recorded_date', effectiveStart).lte('recorded_date', periodEnd)
-          .order('recorded_date', { ascending: true })
-
-        const audienceByPlatform = {}
-        const engagementByPlatform = {}
-        ;(snapRows || []).forEach(r => {
-          const bucket = r.metric_type === 'audience' ? audienceByPlatform : engagementByPlatform
-          if (!bucket[r.platform]) bucket[r.platform] = []
-          bucket[r.platform].push(Number(r.value))
-        })
-
-        // Real per-platform figures — start, end, absolute change, and
-        // percent growth — not just a bare delta.
-        const platformStats = Object.entries(audienceByPlatform)
-          .filter(([, values]) => values.length > 1)
-          .map(([platform, values]) => {
-            const start = values[0]
-            const end = values[values.length - 1]
-            const delta = end - start
-            const pct = start > 0 ? Math.round((delta / start) * 100) : null
-            return { platform, start, end, delta, pct }
-          })
-        const totalAudienceNow = Object.values(audienceByPlatform)
-          .reduce((sum, values) => sum + values[values.length - 1], 0)
-        const standout = platformStats.filter(p => p.delta > 0).sort((a, b) => b.delta - a.delta)[0]
-
-        const avgEngagementByPlatform = Object.entries(engagementByPlatform)
-          .map(([platform, values]) => ({ platform, avg: values.reduce((s, v) => s + v, 0) / values.length }))
-
-        const { data: logEntries } = await supabase
-          .from('client_log_entries')
-          .select('title, note, entry_type')
-          .eq('client_id', client.id)
-          .gte('entry_date', effectiveStart).lte('entry_date', periodEnd)
-          .in('entry_type', ['press_mention', 'qualitative_win'])
-
-        let draft = isPartial
-          ? `Your first few weeks are in the books! Here's where things stand as we get rolling.\n\n`
-          : `Here's your month in review — a look back at what the last few weeks added up to.\n\n`
-
-        // ROI baselines — only ever mentioned if explicitly marked visible
-        // for this specific client. A number existing in the system is not
-        // enough on its own; each client has its own real sensitivities
-        // (comparing cost-avoidance to an existing team member, attaching
-        // a dollar figure to a CEO's personal time) that this is deliberately
-        // built to respect rather than assume.
-        const roiLines = []
-        if (client.time_recovered_hours && client.roi_show_time_hours) {
-          let line = `you're getting back roughly ${client.time_recovered_hours} hours a month`
-          if (client.time_recovered_value && client.roi_show_time_value) {
-            line += ` (≈ $${(client.time_recovered_hours * client.time_recovered_value).toLocaleString()} at your stated rate)`
-          }
-          roiLines.push(line)
-        }
-        if (client.cost_avoidance_amount && client.roi_show_cost_avoidance) {
-          roiLines.push(`this replaces roughly $${Number(client.cost_avoidance_amount).toLocaleString()}/mo you'd otherwise be spending on ${client.cost_avoidance_label || 'the alternative'}`)
-        }
-        if (roiLines.length > 0) {
-          const joinedRoi = roiLines.length === 2 ? roiLines.join(' and ') : roiLines[0]
-          draft += `First, the sure thing: ${joinedRoi} — true regardless of anything else this month.\n\n`
-        }
-
-        if (platformStats.length > 0) {
-          draft += `Here's how things moved this period. `
-          if (totalAudienceNow > 0) draft += `You're sitting at ${totalAudienceNow.toLocaleString()} total followers across every connected platform. `
-          if (standout) {
-            draft += `${standout.platform.charAt(0).toUpperCase() + standout.platform.slice(1)} led the way this period — ${standout.start.toLocaleString()} to ${standout.end.toLocaleString()}, up ${standout.delta >= 0 ? '+' : ''}${Math.round(standout.delta)}${standout.pct !== null ? ` (${standout.pct >= 0 ? '+' : ''}${standout.pct}%)` : ''}. `
-          }
-          const others = platformStats.filter(p => p !== standout)
-          if (others.length > 0) {
-            draft += `Elsewhere: ` + others.map(p => `${p.platform} ${p.delta >= 0 ? '+' : ''}${Math.round(p.delta)}${p.pct !== null ? ` (${p.pct >= 0 ? '+' : ''}${p.pct}%)` : ''}`).join(', ') + '. '
-          }
-          if (avgEngagementByPlatform.length > 0) {
-            draft += `\n\nEngagement this period: ` + avgEngagementByPlatform.map(e => `${e.platform} averaging ${e.avg.toFixed(1)}%`).join(', ') + '.'
-          }
-          draft += '\n'
-        } else {
-          draft += `Performance breakdown: still early days on the trend lines — check back next month as more history builds in.\n`
-        }
-
-        if (logEntries && logEntries.length > 0) {
-          draft += `\nA couple of things worth celebrating from this stretch:\n` + logEntries.map(e => `- ${e.title || e.note}`).join('\n') + '\n'
-        }
-
-        draft += `\nEach month is a chance to reflect on what we've built together — a growing presence that brings real credibility. Thank you for trusting us with this. We look forward to seeing where next month leads. Reach out anytime if you want to talk through any of it.`
-
-        await supabase.from('client_report_drafts').upsert({
-          client_id: client.id,
-          report_type: 'month_in_review',
-          period_start: effectiveStart,
-          period_end: periodEnd,
-          draft_content: draft,
-          status: 'pending',
-          sent_at: null
-        }, { onConflict: 'client_id,report_type,period_start,period_end' })
-        await supabase.from('notifications').insert({
-          client_id: client.id,
-          type: 'report_ready',
-          message: `Time for ${client.name}'s month-in-review — draft ready for review.`,
-          read: false
-        })
-        results.push({ client: client.name, type: 'month_in_review', status: 'created' })
+      if (!(await draftExists(client.id, 'month_in_review', periodStart, periodEnd))) {
+        const monthName = prevMonthStart.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
+        const draft = isOperations
+          ? await buildOperationsMonthly(client, periodStart, periodEnd, monthName)
+          : await buildCredibilityMonthly(client, periodStart, periodEnd, isPartial)
+        await saveDraft(client, 'month_in_review', periodStart, periodEnd, draft, isOperations ? `${monthName} recap` : 'month in review', created)
       }
     }
   }
 
-  return res.status(200).json({ ranAt: new Date().toISOString(), results })
+  let emailError = null
+  try { await emailAdmin(created) } catch (err) { emailError = err.message; console.error('Report email failed:', err) }
+
+  return res.status(200).json({ ranAt: new Date().toISOString(), created, emailError })
 }
