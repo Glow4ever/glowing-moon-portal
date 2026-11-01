@@ -10,11 +10,12 @@ import { apiFetch } from '../lib/apiFetch'
 export default function Admin() {
   const { allClients, updateClientBranding, loadUserContext, switchClient } = useClient()
   const navigate = useNavigate()
-  const [tab, setTab] = useState('clients')
+  const [tab, setTab] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('tab') || 'clients' } catch { return 'clients' }
+  })
   const [teamMembers, setTeamMembers] = useState([])
   const [trackerRollup, setTrackerRollup] = useState({})
   const [cyclesByClient, setCyclesByClient] = useState({})
-  const [attentionQueue, setAttentionQueue] = useState([])
   const [activityFeed, setActivityFeed] = useState([])
   const [activityLoading, setActivityLoading] = useState(false)
   const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
@@ -51,7 +52,10 @@ export default function Admin() {
     return Array.from(bytes, b => chars[b % chars.length]).join('')
   }
 
-  useEffect(() => { loadTeam(); loadTrackerRollup(); loadAttentionQueue(); loadActivityFeed(); loadCyclesByClient() }, [])
+  useEffect(() => {
+    loadTeam(); loadTrackerRollup(); loadActivityFeed(); loadCyclesByClient()
+    if (tab === 'reports') loadReportDrafts()
+  }, [])
 
   // Reset the active-client branding to GMM whenever the Admin panel mounts,
   // so opening a client folder themes to them but returning here is neutral.
@@ -145,91 +149,6 @@ export default function Admin() {
       grouped[cycle.client_id].push({ ...cycle, derivedStage, effectiveStage, roll })
     })
     setCyclesByClient(grouped)
-  }
-
-  async function loadAttentionQueue() {
-    const WAITING_THRESHOLD_DAYS = 3
-
-    const [{ data: pendingClients }, { data: commentRows }, { data: pendingReports }] = await Promise.all([
-      supabase.from('clients').select('id, name, approval_status, approval_sent_at').eq('approval_status', 'pending'),
-      // resolved = false was missing here — without it, a comment stayed
-      // "waiting on admin" forever even after being resolved, since
-      // resolving sets a flag on the comment itself rather than requiring
-      // a new admin reply row. This card genuinely never cleared.
-      supabase.from('file_comments').select('client_id, file_path, folder_path, sender_role, created_at').eq('resolved', false).order('created_at', { ascending: true }),
-      supabase.from('client_report_drafts').select('id, client_id, report_type').eq('status', 'pending')
-    ])
-
-    const items = []
-
-    // Waiting on client — review sent, no response in N+ days
-    ;(pendingClients || []).forEach(c => {
-      if (!c.approval_sent_at) return
-      const days = Math.floor((Date.now() - new Date(c.approval_sent_at).getTime()) / (1000 * 60 * 60 * 24))
-      if (days >= WAITING_THRESHOLD_DAYS) {
-        items.push({ type: 'waiting_client', clientId: c.id, clientName: c.name, days })
-      }
-    })
-
-    // Waiting on admin — client's revision note is the latest message in its thread, no reply yet
-    const lastMessageByThread = {}
-    ;(commentRows || []).forEach(r => {
-      lastMessageByThread[`${r.client_id}::${r.file_path}`] = r
-    })
-    const waitingOnAdminByClient = {}
-    const oldestFolderByClient = {}
-    Object.values(lastMessageByThread).forEach(r => {
-      if (r.sender_role !== 'admin') {
-        waitingOnAdminByClient[r.client_id] = (waitingOnAdminByClient[r.client_id] || 0) + 1
-        // commentRows is sorted oldest-first, so the first folder_path seen
-        // for a client is genuinely the oldest unresolved one — the most
-        // overdue, and the one worth jumping straight to.
-        if (!oldestFolderByClient[r.client_id]) oldestFolderByClient[r.client_id] = r.folder_path
-      }
-    })
-    Object.entries(waitingOnAdminByClient).forEach(([clientId, count]) => {
-      const c = allClients.find(cl => cl.id === clientId)
-      items.push({ type: 'waiting_admin', clientId, clientName: c?.name || 'A client', count, folderPath: oldestFolderByClient[clientId] })
-    })
-
-    // Report ready — a mid-month note or month-in-review has been assembled
-    // and is waiting on admin to review, edit, and send.
-    ;(pendingReports || []).forEach(r => {
-      const c = allClients.find(cl => cl.id === r.client_id)
-      items.push({
-        type: 'report_ready',
-        draftId: r.id,
-        clientId: r.client_id,
-        clientName: c?.name || 'A client',
-        reportType: r.report_type
-      })
-    })
-
-    setAttentionQueue(items)
-  }
-
-  // Genuinely resolves the comments this count is built from -- not a
-  // dismiss that hides the card while leaving real unanswered client
-  // feedback sitting there. This exists because "I already replied, why
-  // won't this clear" turned out to have two different real causes
-  // already (a missing resolved filter, then a stale query) -- this
-  // button is the direct, honest fix once you've actually attended to
-  // everything: it marks every currently-unresolved, non-admin comment
-  // for this client as resolved, the same effect as resolving each one by
-  // hand in Content Library, just in one action instead of hunting down
-  // every thread individually.
-  async function clearWaitingOnAdmin(clientId, clientName) {
-    if (!window.confirm(`Mark every unanswered revision note for ${clientName} as resolved? Only do this once you've actually replied to them.`)) return
-    const { data: openComments } = await supabase
-      .from('file_comments')
-      .select('id')
-      .eq('client_id', clientId)
-      .eq('resolved', false)
-      .neq('sender_role', 'admin')
-    const ids = (openComments || []).map(c => c.id)
-    if (ids.length === 0) { loadAttentionQueue(); return }
-    await supabase.from('file_comments').update({ resolved: true }).in('id', ids)
-    loadAttentionQueue()
   }
 
   async function loadActivityFeed() {
@@ -394,6 +313,10 @@ export default function Admin() {
 
   async function sendReportDraft() {
     if (!editingDraft) return
+    if (draftText.includes('[YOUR SUMMARY')) {
+      showToast('Write your summary first: replace the [YOUR SUMMARY] line')
+      return
+    }
     setSendingDraft(true)
     const client = editingDraft.clients
 
@@ -404,7 +327,7 @@ export default function Admin() {
       client_id: editingDraft.client_id,
       entry_type: editingDraft.report_type === 'mid_month' ? 'mid_month_note' : 'month_in_review',
       entry_date: new Date().toISOString().slice(0, 10),
-      title: editingDraft.report_type === 'mid_month' ? 'Mid-month note' : 'Month in review',
+      title: editingDraft.report_type === 'mid_month' ? 'Two-week note' : 'Month in review',
       note: draftText,
       client_visible: true
     })
@@ -437,18 +360,6 @@ export default function Admin() {
     if (!window.confirm('Cancel this draft? The portal won\'t re-prompt until the next real due date.')) return
     await supabase.from('client_report_drafts').update({ status: 'cancelled' }).eq('id', draft.id)
     setReportDrafts(prev => prev.filter(d => d.id !== draft.id))
-  }
-
-  async function skipDraftFromQueue(draftId) {
-    // Same action as cancelReportDraft, callable directly from the Needs
-    // Attention card — no navigation to the Reports tab required just to
-    // dismiss one. No confirm dialog here on purpose: skipping from the
-    // queue is a lighter-weight, lower-stakes action than cancelling a
-    // draft you're already reviewing in full.
-    if (!draftId) return
-    await supabase.from('client_report_drafts').update({ status: 'cancelled' }).eq('id', draftId)
-    setAttentionQueue(prev => prev.filter(item => item.draftId !== draftId))
-    setReportDrafts(prev => prev.filter(d => d.id !== draftId))
   }
 
   async function loadTrackedLinks() {
@@ -630,6 +541,7 @@ export default function Admin() {
       secondary_color: editingClient.secondary_color,
       notification_email: editingClient.notification_email || null,
       retainer_start_date: editingClient.retainer_start_date || null,
+      report_schedule_start: editingClient.report_schedule_start || null,
       cover_url: editingClient.cover_url || null,
       service_tier: editingClient.service_tier || null,
       mission_statement: editingClient.mission_statement || null,
@@ -820,93 +732,6 @@ export default function Admin() {
 
       {tab === 'clients' && (
         <>
-          {attentionQueue.length > 0 && (
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-                <i className="ti ti-alert-circle" style={{ fontSize: '15px', color: 'var(--gold-light)' }} />
-                <div className={styles.sectionLabel} style={{ marginBottom: 0 }}>Needs attention</div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
-                {attentionQueue.map((item, i) => {
-                  if (item.type === 'waiting_client') {
-                    return (
-                      <div key={i} style={{ background: 'var(--gold-bg)', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 0 16px 0 rgba(211,201,167,0.18)', border: '1px solid rgba(211,201,167,0.3)' }}>
-                        <div style={{ fontSize: '11px', color: 'var(--gold-light)', marginBottom: '4px' }}>Waiting on client</div>
-                        <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
-                          {item.clientName} hasn't responded in {item.days} day{item.days !== 1 ? 's' : ''}
-                        </div>
-                        <button
-                          onClick={() => showToast('Nudge is coming soon')}
-                          style={{ marginTop: '10px', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
-                        >
-                          Send nudge
-                        </button>
-                      </div>
-                    )
-                  }
-                  if (item.type === 'waiting_admin') {
-                    return (
-                      <div key={i} style={{ background: '#2a1a1a', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 0 16px 0 rgba(240,153,123,0.15)', border: '1px solid rgba(240,153,123,0.3)' }}>
-                        <div style={{ fontSize: '11px', color: '#F0997B', marginBottom: '4px' }}>Waiting on admin</div>
-                        <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
-                          {item.count} revision note{item.count !== 1 ? 's' : ''} unanswered for {item.clientName}
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                          <button
-                            onClick={() => {
-                              if (item.folderPath) {
-                                switchClient(item.clientId)
-                                navigate('/content', { state: { jumpToFolderPath: item.folderPath } })
-                              } else {
-                                setTrackerOpen(item.clientId)
-                              }
-                            }}
-                            style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
-                          >
-                            {item.folderPath ? 'Open folder' : 'Open tracker'}
-                          </button>
-                          <button
-                            onClick={() => clearWaitingOnAdmin(item.clientId, item.clientName)}
-                            title="Marks these as resolved -- only use once you've actually replied."
-                            style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text3)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  }
-                  if (item.type === 'report_ready') {
-                    return (
-                      <div key={i} style={{ background: 'var(--teal-bg)', borderRadius: '10px', padding: '14px 16px', boxShadow: '0 0 16px 0 rgba(29,158,117,0.18)', border: '1px solid rgba(29,158,117,0.3)' }}>
-                        <div style={{ fontSize: '11px', color: 'var(--teal)', marginBottom: '4px' }}>Report ready</div>
-                        <div style={{ fontSize: '13px', color: 'var(--text1)', lineHeight: '1.5' }}>
-                          {item.reportType === 'mid_month' ? 'Mid-month note' : 'Month in review'} drafted for {item.clientName}
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
-                          <button
-                            onClick={() => { setTab('reports'); loadReportDrafts() }}
-                            style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
-                          >
-                            Review &amp; send
-                          </button>
-                          <button
-                            onClick={() => skipDraftFromQueue(item.draftId)}
-                            title="Won't re-prompt until the next real due date"
-                            style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text3)', borderRadius: '6px', padding: '5px 12px', fontSize: '11px', cursor: 'pointer' }}
-                          >
-                            Skip
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  }
-                  return null
-                })}
-              </div>
-            </div>
-          )}
-
         <div className={styles.adminLayout}>
           <div>
             <div className={styles.sectionLabel}>Active Clients ({allClients.length})</div>
@@ -973,7 +798,11 @@ export default function Admin() {
                       >
                         <i className="ti ti-send" aria-hidden="true" /> Send for Review
                       </button>
-                      <button className={styles.editBtn} onClick={() => setEditingClient({...c})}>
+                      <button className={styles.editBtn} onClick={async () => {
+                        setEditingClient({...c})
+                        const { data } = await supabase.from('clients').select('report_schedule_start').eq('id', c.id).single()
+                        if (data) setEditingClient(p => p && p.id === c.id ? { ...p, report_schedule_start: data.report_schedule_start } : p)
+                      }}>
                         <i className="ti ti-pencil" aria-hidden="true" /> Edit
                       </button>
                     </div>
@@ -1116,7 +945,17 @@ export default function Admin() {
                             value={editingClient.retainer_start_date || ''}
                             onChange={e => setEditingClient(p => ({...p, retainer_start_date: e.target.value || null}))}
                           />
-                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Drives mid-month notes (every 14 days) — set this once at signing.</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Set this once at signing.</div>
+                        </div>
+                        <div className={styles.field}>
+                          <label className={styles.label}>Report Schedule Start</label>
+                          <input
+                            className={styles.input}
+                            type="date"
+                            value={editingClient.report_schedule_start || ''}
+                            onChange={e => setEditingClient(p => ({...p, report_schedule_start: e.target.value || null}))}
+                          />
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Two-week notes are due every 14 days from this date. Leave blank to use the retainer start date. Operations clients get a monthly recap only.</div>
                         </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Service Tier</label>
@@ -1670,7 +1509,7 @@ export default function Admin() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
                 <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text1)' }}>{draft.clients?.name}</span>
                 <span style={{ fontSize: '12px', background: 'var(--gold-bg)', color: 'var(--gold-light)', padding: '3px 10px', borderRadius: '20px' }}>
-                  {draft.report_type === 'mid_month' ? 'Mid-month note' : 'Month in review'}
+                  {draft.report_type === 'mid_month' ? 'Two-week note' : 'Month in review'}
                 </span>
               </div>
               <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '12px' }}>
@@ -1694,7 +1533,7 @@ export default function Admin() {
             style={{ background: 'var(--surface1)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '24px', maxWidth: '520px', width: '90%' }}
           >
             <div style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text1)', marginBottom: '4px' }}>
-              {editingDraft.report_type === 'mid_month' ? 'Mid-month note' : 'Month in review'} — {editingDraft.clients?.name}
+              {editingDraft.report_type === 'mid_month' ? 'Two-week note' : 'Month in review'}: {editingDraft.clients?.name}
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '12px' }}>
               Edit freely before sending — this goes out exactly as written below.
