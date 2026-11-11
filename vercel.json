@@ -15,6 +15,10 @@
     {
       "path": "/api/client-reports",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/team-reminders",
+      "schedule": "0 13 * * *"
     }
   ]
 }
