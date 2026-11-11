@@ -3,36 +3,30 @@
 // Daily cron. Only ever ASSEMBLES drafts and emails admin that they're
 // ready. Nothing goes to a client until admin reviews and clicks Send.
 //
-// Schedules are FIXED, not relative to when the last note was sent:
-// - Two-week note (credibility clients only): due every 14 days from the
-//   client's report_schedule_start (falls back to retainer_start_date).
-//   Each note covers exactly the 14 days before its due date.
-// - Month in review (all clients): covers the previous calendar month,
-//   generated during the first 7 days of the new month.
-//
-// A draft for a given window is created once. Sending, cancelling, or
-// ignoring it never causes a second draft for that same window, which is
-// what previously produced a new onbikes draft every single day.
+// Schedules follow each client's weekly rhythm (see _cadence.js), which
+// alternates so a client hears from GMM once a week:
+//   Week 1 review cycle, week 2 two-week note, week 3 review cycle,
+//   week 4 monthly report.
+// Drafts are created at the start of the week they go out, covering
+// everything since the previous report. Window boundaries never move,
+// so each draft is created once whether it's sent, cancelled or ignored.
 //
 // Operations clients (primary_frame = 'operations') skip the two-week
 // note and get a monthly recap built around a summary admin writes.
 
 const { createClient } = require('@supabase/supabase-js')
 const { Resend } = require('resend')
+const { parseDate, iso, addDays, todayUTC, cadenceFor, anchorFor } = require('./_cadence')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const ADMIN_EMAIL = process.env.REPORT_NOTIFY_EMAIL || 'hector@glowingmoonmedia.com'
-const SUMMARY_PLACEHOLDER = '[YOUR SUMMARY: 2-4 sentences on what we accomplished together this month.]'
-const DAY = 24 * 60 * 60 * 1000
+const SUMMARY_PLACEHOLDER = '[YOUR SUMMARY: 2-4 sentences on what we accomplished together these past four weeks.]'
 
-// All date math in UTC on plain YYYY-MM-DD strings, so there's no
-// timezone drift. The cron runs at 13:00 UTC, which is the same calendar
-// day in Eastern time.
-function parseDate(s) { return new Date(s + 'T00:00:00Z') }
-function iso(d) { return d.toISOString().slice(0, 10) }
-function addDays(d, n) { return new Date(d.getTime() + n * DAY) }
+function fmt(s) {
+  return parseDate(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
 
 async function draftExists(clientId, reportType, periodStart, periodEnd) {
   const { data } = await supabase
@@ -176,7 +170,7 @@ async function buildCredibilityMonthly(client, periodStart, periodEnd, isPartial
 // leads with a summary admin writes, backed by a few delivery facts the
 // portal already knows. Admin.jsx blocks sending while the placeholder
 // is still in the text.
-async function buildOperationsMonthly(client, periodStart, periodEnd, monthName) {
+async function buildOperationsMonthly(client, periodStart, periodEnd) {
   const nextDay = iso(addDays(parseDate(periodEnd), 1))
 
   const { data: cycles } = await supabase
@@ -198,7 +192,7 @@ async function buildOperationsMonthly(client, periodStart, periodEnd, monthName)
     .gte('entry_date', periodStart).lte('entry_date', periodEnd)
     .eq('entry_type', 'qualitative_win')
 
-  let draft = `Here's your ${monthName} recap.\n\n${SUMMARY_PLACEHOLDER}\n`
+  let draft = `Here's your recap for ${fmt(periodStart)} to ${fmt(periodEnd)}.\n\n${SUMMARY_PLACEHOLDER}\n`
 
   const facts = []
   if (approvedCount) facts.push(`${approvedCount} piece${approvedCount === 1 ? '' : 's'} delivered and approved`)
@@ -270,62 +264,45 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ error: 'Unauthorized' })
   }
 
-  const today = parseDate(iso(new Date()))
+  const today = todayUTC()
 
   const { data: clients, error: clientsError } = await supabase
     .from('clients')
-    .select('id, name, primary_frame, retainer_start_date, report_schedule_start, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
+    .select('id, name, active, primary_frame, retainer_start_date, report_schedule_start, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
 
   if (clientsError) return res.status(500).json({ error: clientsError.message })
 
   const created = []
 
   for (const client of clients || []) {
-    const anchorStr = client.report_schedule_start || client.retainer_start_date
-    if (!anchorStr) continue
-    const anchor = parseDate(anchorStr)
+    if (client.active === false) continue
+    const cad = cadenceFor(anchorFor(client), today)
+    if (!cad) continue
     const isOperations = client.primary_frame === 'operations'
 
-    // ---------- TWO-WEEK NOTE (credibility clients) ----------
-    // Only the most recent completed window is ever generated, so a client
-    // whose start date is far in the past gets one note, not a backlog.
-    if (!isOperations) {
-      const k = Math.floor((today - anchor) / (14 * DAY))
-      if (k >= 1) {
-        const dueDate = addDays(anchor, 14 * k)
-        const windowStart = iso(addDays(anchor, 14 * (k - 1)))
-        const windowEnd = iso(addDays(dueDate, -1))
-        if (!(await draftExists(client.id, 'mid_month', windowStart, windowEnd))) {
-          const draft = await buildTwoWeekNote(client, windowStart, windowEnd, iso(dueDate))
-          await saveDraft(client, 'mid_month', windowStart, windowEnd, draft, 'two-week note', created)
-        }
+    // Each report covers everything since the previous one: the last week
+    // of the prior cycle onward. The very first cycle starts at the
+    // client's own start instead.
+    const windowStart = cad.cycleIndex === 0 ? cad.start : addDays(cad.cycleStart, -7)
+    const periodStart = iso(windowStart)
+
+    // ---------- WEEK 2: TWO-WEEK NOTE (credibility clients) ----------
+    if (cad.weekInCycle === 2 && !isOperations) {
+      const periodEnd = iso(addDays(cad.cycleStart, 6))
+      if (!(await draftExists(client.id, 'mid_month', periodStart, periodEnd))) {
+        const draft = await buildTwoWeekNote(client, periodStart, periodEnd, iso(cad.weekStart))
+        await saveDraft(client, 'mid_month', periodStart, periodEnd, draft, 'two-week note', created)
       }
     }
 
-    // ---------- MONTH IN REVIEW (all clients) ----------
-    // Generated any day in the first week of the month, so one missed cron
-    // run on the 1st doesn't skip the month.
-    if (today.getUTCDate() <= 7) {
-      const prevMonthStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1))
-      const prevMonthEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0))
-      if (anchor > prevMonthEnd) continue
-
-      let periodStart = iso(prevMonthStart)
-      let isPartial = false
-      if (anchor >= prevMonthStart) {
-        // Started in the back half of last month: first review is next month.
-        if (anchor.getUTCDate() > 20) continue
-        periodStart = iso(anchor)
-        isPartial = true
-      }
-      const periodEnd = iso(prevMonthEnd)
-
+    // ---------- WEEK 4: MONTHLY REPORT (all clients) ----------
+    if (cad.weekInCycle === 4) {
+      const periodEnd = iso(addDays(cad.cycleStart, 20))
       if (!(await draftExists(client.id, 'month_in_review', periodStart, periodEnd))) {
-        const monthName = prevMonthStart.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' })
         const draft = isOperations
-          ? await buildOperationsMonthly(client, periodStart, periodEnd, monthName)
-          : await buildCredibilityMonthly(client, periodStart, periodEnd, isPartial)
-        await saveDraft(client, 'month_in_review', periodStart, periodEnd, draft, isOperations ? `${monthName} recap` : 'month in review', created)
+          ? await buildOperationsMonthly(client, periodStart, periodEnd)
+          : await buildCredibilityMonthly(client, periodStart, periodEnd, cad.cycleIndex === 0)
+        await saveDraft(client, 'month_in_review', periodStart, periodEnd, draft, isOperations ? 'monthly recap' : 'monthly report', created)
       }
     }
   }
