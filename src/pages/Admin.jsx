@@ -7,6 +7,27 @@ import { reconcileClientCounts } from '../lib/fileCounts'
 import styles from './Admin.module.css'
 import { apiFetch } from '../lib/apiFetch'
 
+// Mirrors api/_cadence.js: weeks run Monday to Sunday from the client's
+// schedule start; the quarterly call reminder starts at week 9 of each
+// 12-week quarter and clears once marked booked within that quarter.
+function quarterlyCallStatus(row) {
+  const anchor = row?.report_schedule_start || row?.retainer_start_date
+  if (!anchor) return null
+  const DAY = 86400000
+  const a = new Date(String(anchor).slice(0, 10) + 'T00:00:00Z')
+  const start = new Date(a.getTime() - ((a.getUTCDay() + 6) % 7) * DAY)
+  const now = new Date()
+  const today = new Date(now.toISOString().slice(0, 10) + 'T00:00:00Z')
+  const days = Math.floor((today - start) / DAY)
+  if (days < 0) return null
+  const weekIndex = Math.floor(days / 7)
+  const quarterStart = new Date(start.getTime() + Math.floor(weekIndex / 12) * 84 * DAY)
+  const quarterEnd = new Date(quarterStart.getTime() + 83 * DAY)
+  const weekInQuarter = (weekIndex % 12) + 1
+  const booked = row.quarterly_call_booked_at && new Date(row.quarterly_call_booked_at) >= quarterStart
+  return { due: weekInQuarter >= 9 && !booked, quarterEnd }
+}
+
 export default function Admin() {
   const { allClients, updateClientBranding, loadUserContext, switchClient } = useClient()
   const navigate = useNavigate()
@@ -16,6 +37,7 @@ export default function Admin() {
   const [teamMembers, setTeamMembers] = useState([])
   const [trackerRollup, setTrackerRollup] = useState({})
   const [cyclesByClient, setCyclesByClient] = useState({})
+  const [callInfo, setCallInfo] = useState({})
   const [activityFeed, setActivityFeed] = useState([])
   const [activityLoading, setActivityLoading] = useState(false)
   const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
@@ -53,7 +75,7 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    loadTeam(); loadTrackerRollup(); loadActivityFeed(); loadCyclesByClient()
+    loadTeam(); loadTrackerRollup(); loadActivityFeed(); loadCyclesByClient(); loadCallInfo()
     if (tab === 'reports') loadReportDrafts()
   }, [])
 
@@ -104,6 +126,20 @@ export default function Admin() {
     })
 
     setTrackerRollup(rollup)
+  }
+
+  async function loadCallInfo() {
+    const { data } = await supabase.from('clients').select('id, retainer_start_date, report_schedule_start, quarterly_call_booked_at')
+    const map = {}
+    ;(data || []).forEach(r => { map[r.id] = r })
+    setCallInfo(map)
+  }
+
+  async function markCallBooked(client) {
+    if (!window.confirm(`Mark ${client.name}'s quarterly call as booked? The reminder clears until next quarter.`)) return
+    await supabase.from('clients').update({ quarterly_call_booked_at: new Date().toISOString() }).eq('id', client.id)
+    await loadCallInfo()
+    showToast(`${client.name}: quarterly call marked booked`)
   }
 
   async function loadCyclesByClient() {
@@ -753,6 +789,21 @@ export default function Admin() {
                       </div>
                       <div className={styles.clientSlug}>/{c.slug}</div>
                       {(() => {
+                        const call = quarterlyCallStatus(callInfo[c.id])
+                        if (!call?.due) return null
+                        return (
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginTop: '8px', background: 'var(--gold-bg)', border: '0.5px solid rgba(211,201,167,0.35)', borderRadius: '20px', padding: '3px 4px 3px 12px', fontSize: '11px', color: 'var(--gold-light)' }}>
+                            Quarterly call due by {call.quarterEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                            <button
+                              onClick={() => markCallBooked(c)}
+                              style={{ background: 'transparent', border: '0.5px solid var(--gold-light)', color: 'var(--gold-light)', borderRadius: '20px', padding: '2px 10px', fontSize: '11px', cursor: 'pointer' }}
+                            >
+                              Mark booked
+                            </button>
+                          </div>
+                        )
+                      })()}
+                      {(() => {
                         const clientCycles = cyclesByClient[c.id] || []
                         if (clientCycles.length === 0) {
                           return <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '8px' }}>No active review cycle</div>
@@ -955,7 +1006,7 @@ export default function Admin() {
                             value={editingClient.report_schedule_start || ''}
                             onChange={e => setEditingClient(p => ({...p, report_schedule_start: e.target.value || null}))}
                           />
-                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Two-week notes are due every 14 days from this date. Leave blank to use the retainer start date. Operations clients get a monthly recap only.</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Weekly rhythm counts from the Monday of this date: review weeks 1 and 3, two-week note week 2, monthly report week 4. Leave blank to use the retainer start date.</div>
                         </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Service Tier</label>
