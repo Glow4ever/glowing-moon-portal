@@ -1,20 +1,23 @@
 // api/_cadence.js
 //
-// One weekly rhythm per client, shared by the report job and the team
-// reminder job so they can never disagree about what week it is.
+// One weekly rhythm per client, shared by the report job, the team reminder
+// job and the Admin screen so they can never disagree about what is due.
 //
-// Weeks run Monday to Sunday, counted from the Monday on or before the
-// client's report_schedule_start (or retainer_start_date).
+// Two dates per client, each with one job:
+//   delivery_start_date  ("Delivery week 1")  starts the weekly rhythm.
+//   retainer_start_date  ("Onboard date")     starts the quarters.
 //
-// Every 4 weeks is one cycle:
-//   Week 1: send review cycle
-//   Week 2: two-week note (credibility clients only)
-//   Week 3: send review cycle
-//   Week 4: monthly report (recap for operations clients)
+// A client with no delivery_start_date is ONBOARDING: the delivery clock is
+// off, so no reports are drafted and no delivery reminders go out.
 //
-// Every 12 weeks (3 cycles) is one quarter. The quarterly call reminder
-// starts at the 8-week mark (week 9) so all of the third cycle is left to
-// book the call and plan the next quarter.
+// Weeks run Monday to Sunday. The rhythm is a 4-week cycle:
+//   standard:     W1 delivery | W2 two-week note | W3 delivery | W4 monthly report
+//   operational:  W1 delivery | W2 quiet         | W3 delivery | W4 monthly recap
+// Every 12 weeks of the client's own quarter, the quarterly call reminder
+// starts at week 9 and clears once the call is marked booked.
+//
+// Everything else should call weekPlan(client, today) and never work out the
+// week itself. src/lib/cadence.js is a copy of this file for the browser.
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -24,6 +27,7 @@ function addDays(d, n) { return new Date(d.getTime() + n * DAY) }
 function todayUTC() { return parseDate(iso(new Date())) }
 function mondayOnOrBefore(d) { return addDays(d, -((d.getUTCDay() + 6) % 7)) }
 
+// Position within the 4-week cycle, counted from the delivery start.
 function cadenceFor(anchorStr, today) {
   if (!anchorStr) return null
   const start = mondayOnOrBefore(parseDate(anchorStr))
@@ -31,9 +35,7 @@ function cadenceFor(anchorStr, today) {
   if (days < 0) return null
   const weekIndex = Math.floor(days / 7)
   const cycleIndex = Math.floor(weekIndex / 4)
-  const quarterIndex = Math.floor(weekIndex / 12)
   const weekStart = addDays(start, weekIndex * 7)
-  const quarterStart = addDays(start, quarterIndex * 84)
   return {
     start,
     weekIndex,
@@ -42,22 +44,125 @@ function cadenceFor(anchorStr, today) {
     cycleStart: addDays(start, cycleIndex * 28),
     weekStart,
     weekEnd: addDays(weekStart, 6),
+  }
+}
+
+// Position within the client's 12-week quarter, counted from the onboard date.
+function quarterFor(anchorStr, today) {
+  if (!anchorStr) return null
+  const start = mondayOnOrBefore(parseDate(anchorStr))
+  const days = Math.floor((today - start) / DAY)
+  if (days < 0) return null
+  const weekIndex = Math.floor(days / 7)
+  const quarterIndex = Math.floor(weekIndex / 12)
+  const quarterStart = addDays(start, quarterIndex * 84)
+  return {
     quarterIndex,
+    quarterNumber: quarterIndex + 1,
     quarterStart,
     quarterEnd: addDays(quarterStart, 83),
     weekInQuarter: (weekIndex % 12) + 1,
   }
 }
 
+// The rhythm is anchored on delivery week 1 only. No fallback: a client
+// without it is onboarding.
 function anchorFor(client) {
-  return client.report_schedule_start || client.retainer_start_date || null
+  return client?.delivery_start_date || null
+}
+
+// Quarters count from the onboard date. If it is missing, fall back to the
+// delivery start so the call reminder still works.
+function quarterAnchorFor(client) {
+  return client?.retainer_start_date || client?.delivery_start_date || null
+}
+
+// Which cadence template a client follows. Pulse gets its own in Session 6.
+function templateFor(client) {
+  return client?.primary_frame === 'operations' ? 'operational' : 'standard'
+}
+
+const TEMPLATES = {
+  standard: {
+    1: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
+    2: { kind: 'note', text: 'Two-week note goes out', short: 'two-week note week' },
+    3: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
+    4: { kind: 'report', text: 'Monthly report goes out', short: 'monthly report week' },
+  },
+  operational: {
+    1: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
+    2: null,
+    3: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
+    4: { kind: 'report', text: 'Monthly recap goes out', short: 'monthly recap week' },
+  },
 }
 
 // Booked counts for the current quarter only if it was marked after the
 // quarter began, so last quarter's booking never silences this quarter.
-function quarterlyCallDue(cad, bookedAt) {
-  if (!cad || cad.weekInQuarter < 9) return false
-  return !(bookedAt && new Date(bookedAt) >= cad.quarterStart)
+function quarterlyCallDue(quarter, bookedAt) {
+  if (!quarter || quarter.weekInQuarter < 9) return false
+  return !(bookedAt && new Date(bookedAt) >= quarter.quarterStart)
 }
 
-module.exports = { DAY, parseDate, iso, addDays, todayUTC, cadenceFor, anchorFor, quarterlyCallDue }
+// Monday of the next delivery week after the current one.
+function nextDeliveryStart(cad, template) {
+  for (let i = 1; i <= 4; i++) {
+    const w = ((cad.weekInCycle - 1 + i) % 4) + 1
+    if (TEMPLATES[template][w]?.kind === 'delivery') return addDays(cad.weekStart, i * 7)
+  }
+  return null
+}
+
+// What is due for a client this week. Returns:
+//   status    'onboarding' (no delivery week 1), 'upcoming' (starts later), 'active'
+//   template  'standard' | 'operational'
+//   cycle     cycle position (active only)
+//   quarter   quarter position (null if no onboard/delivery date yet)
+//   items     [{ kind: 'delivery' | 'note' | 'report' | 'call', text }]
+//   weekLabel short name of this week, e.g. 'two-week note week'
+//   nextDelivery  Date of the next delivery week's Monday (active only)
+//   chip      one line for the client card
+function weekPlan(client, today, opts = {}) {
+  const template = templateFor(client)
+  const anchor = anchorFor(client)
+  const quarter = quarterFor(quarterAnchorFor(client), today)
+  const base = { template, quarter, items: [], cycle: null, weekLabel: null, nextDelivery: null }
+
+  if (!anchor) {
+    return { ...base, status: 'onboarding', chip: 'Onboarding' }
+  }
+  const cycle = cadenceFor(anchor, today)
+  if (!cycle) {
+    const startsOn = mondayOnOrBefore(parseDate(anchor))
+    return { ...base, status: 'upcoming', startsOn, chip: 'Delivery starts ' + shortDate(startsOn) }
+  }
+
+  const slot = TEMPLATES[template][cycle.weekInCycle]
+  const items = []
+  if (slot) items.push({ kind: slot.kind, text: slot.text })
+  if (quarterlyCallDue(quarter, opts.quarterlyCallBookedAt ?? client.quarterly_call_booked_at)) {
+    items.push({ kind: 'call', text: 'Book quarterly call (quarter ends ' + shortDate(quarter.quarterEnd) + ')' })
+  }
+  const weekLabel = slot ? slot.short : 'quiet week'
+  const chip = (quarter ? 'Q' + quarter.quarterNumber + ', week ' + quarter.weekInQuarter + ', ' : '') + weekLabel
+
+  return {
+    ...base,
+    status: 'active',
+    cycle,
+    items,
+    weekLabel,
+    nextDelivery: nextDeliveryStart(cycle, template),
+    chip,
+  }
+}
+
+function shortDate(d) {
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+module.exports = {
+  DAY, parseDate, iso, addDays, todayUTC, mondayOnOrBefore,
+  cadenceFor, quarterFor, anchorFor, quarterAnchorFor, templateFor,
+  quarterlyCallDue, weekPlan, shortDate,
+}
