@@ -3,10 +3,11 @@
 // Daily cron. Only ever ASSEMBLES drafts and emails admin that they're
 // ready. Nothing goes to a client until admin reviews and clicks Send.
 //
-// Schedules follow each client's weekly rhythm (see _cadence.js), which
-// alternates so a client hears from GMM once a week:
+// Schedules follow each client's weekly rhythm (see _cadence.js weekPlan),
+// which alternates so a client hears from GMM once a week:
 //   Week 1 review cycle, week 2 two-week note, week 3 review cycle,
 //   week 4 monthly report.
+// Clients with no Delivery week 1 are onboarding and get nothing.
 // Drafts are created at the start of the week they go out, covering
 // everything since the previous report. Window boundaries never move,
 // so each draft is created once whether it's sent, cancelled or ignored.
@@ -16,7 +17,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const { Resend } = require('resend')
-const { parseDate, iso, addDays, todayUTC, cadenceFor, anchorFor } = require('./_cadence')
+const { parseDate, iso, addDays, todayUTC, weekPlan } = require('./_cadence')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 const resend = new Resend(process.env.RESEND_API_KEY)
@@ -28,6 +29,10 @@ function fmt(s) {
   return parseDate(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+// A draft already exists for this window, OR the same report type was
+// drafted for this client in the last 10 days. The second check means
+// changing a client's Delivery week 1 mid-week can never produce a
+// duplicate, because the windows move but the recent draft is still found.
 async function draftExists(clientId, reportType, periodStart, periodEnd) {
   const { data } = await supabase
     .from('client_report_drafts')
@@ -35,7 +40,15 @@ async function draftExists(clientId, reportType, periodStart, periodEnd) {
     .eq('client_id', clientId).eq('report_type', reportType)
     .eq('period_start', periodStart).eq('period_end', periodEnd)
     .maybeSingle()
-  return !!data
+  if (data) return true
+  const since = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString()
+  const { data: recent } = await supabase
+    .from('client_report_drafts')
+    .select('id')
+    .eq('client_id', clientId).eq('report_type', reportType)
+    .gte('created_at', since)
+    .limit(1)
+  return !!(recent && recent.length)
 }
 
 function roiLinesFor(client) {
@@ -268,7 +281,7 @@ module.exports = async function handler(req, res) {
 
   const { data: clients, error: clientsError } = await supabase
     .from('clients')
-    .select('id, name, active, primary_frame, retainer_start_date, report_schedule_start, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
+    .select('id, name, active, primary_frame, retainer_start_date, delivery_start_date, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
 
   if (clientsError) return res.status(500).json({ error: clientsError.message })
 
@@ -276,8 +289,9 @@ module.exports = async function handler(req, res) {
 
   for (const client of clients || []) {
     if (client.active === false) continue
-    const cad = cadenceFor(anchorFor(client), today)
-    if (!cad) continue
+    const plan = weekPlan(client, today)
+    if (plan.status !== 'active') continue
+    const cad = plan.cycle
     const isOperations = client.primary_frame === 'operations'
 
     // Each report covers everything since the previous one: the last week
@@ -287,7 +301,7 @@ module.exports = async function handler(req, res) {
     const periodStart = iso(windowStart)
 
     // ---------- WEEK 2: TWO-WEEK NOTE (credibility clients) ----------
-    if (cad.weekInCycle === 2 && !isOperations) {
+    if (plan.items.some(i => i.kind === 'note')) {
       const periodEnd = iso(addDays(cad.cycleStart, 6))
       if (!(await draftExists(client.id, 'mid_month', periodStart, periodEnd))) {
         const draft = await buildTwoWeekNote(client, periodStart, periodEnd, iso(cad.weekStart))
@@ -296,7 +310,7 @@ module.exports = async function handler(req, res) {
     }
 
     // ---------- WEEK 4: MONTHLY REPORT (all clients) ----------
-    if (cad.weekInCycle === 4) {
+    if (plan.items.some(i => i.kind === 'report')) {
       const periodEnd = iso(addDays(cad.cycleStart, 20))
       if (!(await draftExists(client.id, 'month_in_review', periodStart, periodEnd))) {
         const draft = isOperations
