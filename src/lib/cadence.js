@@ -11,7 +11,7 @@
 // off, so no reports are drafted and no delivery reminders go out.
 //
 // Weeks run Monday to Sunday. The rhythm is a 4-week cycle:
-//   standard:     W1 delivery | W2 two-week note | W3 delivery | W4 monthly report
+//   standard:     W1 delivery | W2 quiet         | W3 delivery | W4 monthly report
 //   operational:  W1 delivery | W2 quiet         | W3 delivery | W4 monthly recap
 // Every 12 weeks of the client's own quarter, the quarterly call reminder
 // starts at week 9 and clears once the call is marked booked.
@@ -85,7 +85,10 @@ export function templateFor(client) {
 const TEMPLATES = {
   standard: {
     1: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
-    2: { kind: 'note', text: 'Two-week note goes out', short: 'two-week note week' },
+    // Two-week note switched off Nov 12, 2026: review cycles in weeks 1 and 3
+    // already keep clients hearing from us. To bring it back, restore:
+    // 2: { kind: 'note', text: 'Two-week note goes out', short: 'two-week note week' },
+    2: null,
     3: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
     4: { kind: 'report', text: 'Monthly report goes out', short: 'monthly report week' },
   },
