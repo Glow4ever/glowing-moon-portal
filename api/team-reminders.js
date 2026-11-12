@@ -6,6 +6,9 @@
 // - Thursday: one follow-up, only if a review cycle due this week still
 //   hasn't been sent. No follow-up at all if everything's sent.
 //
+// Clients with no Delivery week 1 yet are listed on Monday as onboarding so
+// the delivery clock is never forgotten. They get no other reminders.
+//
 // Nothing here needs ticking off. A review counts as sent the moment a
 // review cycle is created for that client during the week. A quarterly
 // call clears when someone clicks "Mark booked" on the client card.
@@ -15,7 +18,7 @@
 
 const { createClient } = require('@supabase/supabase-js')
 const { Resend } = require('resend')
-const { iso, addDays, todayUTC, cadenceFor, anchorFor, quarterlyCallDue } = require('./_cadence')
+const { iso, addDays, todayUTC, weekPlan, shortDate } = require('./_cadence')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 const resend = new Resend(process.env.RESEND_API_KEY)
@@ -30,40 +33,42 @@ function fmt(d) {
 async function buildClientItems(today) {
   const { data: clients, error } = await supabase
     .from('clients')
-    .select('id, name, active, primary_frame, retainer_start_date, report_schedule_start, quarterly_call_booked_at')
+    .select('id, name, active, primary_frame, retainer_start_date, delivery_start_date, quarterly_call_booked_at')
     .order('name')
   if (error) throw new Error(error.message)
 
   const out = []
+  const onboarding = []
   for (const client of clients || []) {
     if (client.active === false) continue
-    const cad = cadenceFor(anchorFor(client), today)
-    if (!cad) continue
-    const isOps = client.primary_frame === 'operations'
+    const plan = weekPlan(client, today)
+    if (plan.status !== 'active') {
+      onboarding.push({ client, plan })
+      continue
+    }
+    const cad = plan.cycle
     const items = []
-
-    if (cad.weekInCycle === 1 || cad.weekInCycle === 3) {
-      const { count } = await supabase
-        .from('review_cycles')
-        .select('id', { count: 'exact', head: true })
-        .eq('client_id', client.id)
-        .gte('sent_at', iso(cad.weekStart))
-        .lt('sent_at', iso(addDays(cad.weekEnd, 1)))
-      items.push({ kind: 'review', done: (count || 0) > 0, text: 'Send review cycle' })
+    for (const it of plan.items) {
+      if (it.kind === 'delivery') {
+        const { count } = await supabase
+          .from('review_cycles')
+          .select('id', { count: 'exact', head: true })
+          .eq('client_id', client.id)
+          .gte('sent_at', iso(cad.weekStart))
+          .lt('sent_at', iso(addDays(cad.weekEnd, 1)))
+        items.push({ kind: 'review', done: (count || 0) > 0, text: it.text })
+      } else if (it.kind === 'note') {
+        items.push({ kind: 'report', text: 'Two-week note goes out (draft arrives by email)' })
+      } else if (it.kind === 'report') {
+        const isOps = plan.template === 'operational'
+        items.push({ kind: 'report', text: isOps ? 'Monthly recap goes out (write your summary first)' : 'Monthly report goes out (draft arrives by email)' })
+      } else {
+        items.push({ kind: 'call', text: it.text })
+      }
     }
-    if (cad.weekInCycle === 2 && !isOps) {
-      items.push({ kind: 'report', text: 'Two-week note goes out (draft arrives by email)' })
-    }
-    if (cad.weekInCycle === 4) {
-      items.push({ kind: 'report', text: isOps ? 'Monthly recap goes out (write your summary first)' : 'Monthly report goes out (draft arrives by email)' })
-    }
-    if (quarterlyCallDue(cad, client.quarterly_call_booked_at)) {
-      items.push({ kind: 'call', text: `Book quarterly call (quarter ends ${fmt(cad.quarterEnd)})` })
-    }
-
     out.push({ client, cad, items })
   }
-  return out
+  return { rows: out, onboarding }
 }
 
 function shell(title, intro, bodyRows) {
@@ -96,22 +101,25 @@ function clientBlock(name, weekLabel, items) {
   </div>`
 }
 
-async function sendMonday(rows, today) {
+async function sendMonday({ rows, onboarding }, today) {
   const withItems = rows.filter(r => r.items.length > 0)
-  if (withItems.length === 0) return { sent: false, reason: 'nothing due' }
+  if (withItems.length === 0 && onboarding.length === 0) return { sent: false, reason: 'nothing due' }
   const body = withItems.map(r => clientBlock(r.client.name, `week ${r.cad.weekInCycle} of 4`, r.items)).join('')
   const quiet = rows.filter(r => r.items.length === 0).map(r => r.client.name)
   const quietLine = quiet.length ? `<p style="margin:16px 0 0;font-size:13px;color:#666;">Nothing due: ${quiet.join(', ')}</p>` : ''
+  const onboardingLine = onboarding.length
+    ? `<p style="margin:16px 0 0;font-size:13px;color:#D3C9A7;">Onboarding: ${onboarding.map(o => o.plan.status === 'upcoming' ? `${o.client.name} (delivery starts ${shortDate(o.plan.startsOn)})` : `${o.client.name} (delivery week 1 not set)`).join(', ')}</p>`
+    : ''
   await resend.emails.send({
     from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
     to: RECIPIENTS,
     subject: `This week: ${fmt(today)} to ${fmt(addDays(today, 6))}`,
-    html: shell('This week', `What's due per client for the week of ${fmt(today)}.`, body + quietLine)
+    html: shell('This week', `What's due per client for the week of ${fmt(today)}.`, body + quietLine + onboardingLine)
   })
-  return { sent: true, clients: withItems.length }
+  return { sent: true, clients: withItems.length, onboarding: onboarding.length }
 }
 
-async function sendThursday(rows) {
+async function sendThursday({ rows }) {
   const unsent = rows
     .map(r => ({ ...r, items: r.items.filter(i => i.kind === 'review' && !i.done) }))
     .filter(r => r.items.length > 0)
