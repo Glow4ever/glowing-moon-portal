@@ -6,26 +6,11 @@ import { useClient } from '../lib/ClientContext'
 import { reconcileClientCounts } from '../lib/fileCounts'
 import styles from './Admin.module.css'
 import { apiFetch } from '../lib/apiFetch'
+import { weekPlan, todayUTC, shortDate } from '../lib/cadence'
 
-// Mirrors api/_cadence.js: weeks run Monday to Sunday from the client's
-// schedule start; the quarterly call reminder starts at week 9 of each
-// 12-week quarter and clears once marked booked within that quarter.
-function quarterlyCallStatus(row) {
-  const anchor = row?.report_schedule_start || row?.retainer_start_date
-  if (!anchor) return null
-  const DAY = 86400000
-  const a = new Date(String(anchor).slice(0, 10) + 'T00:00:00Z')
-  const start = new Date(a.getTime() - ((a.getUTCDay() + 6) % 7) * DAY)
-  const now = new Date()
-  const today = new Date(now.toISOString().slice(0, 10) + 'T00:00:00Z')
-  const days = Math.floor((today - start) / DAY)
-  if (days < 0) return null
-  const weekIndex = Math.floor(days / 7)
-  const quarterStart = new Date(start.getTime() + Math.floor(weekIndex / 12) * 84 * DAY)
-  const quarterEnd = new Date(quarterStart.getTime() + 83 * DAY)
-  const weekInQuarter = (weekIndex % 12) + 1
-  const booked = row.quarterly_call_booked_at && new Date(row.quarterly_call_booked_at) >= quarterStart
-  return { due: weekInQuarter >= 9 && !booked, quarterEnd }
+// All cadence math lives in lib/cadence.js (a copy of api/_cadence.js).
+function clientPlan(row) {
+  return row ? weekPlan(row, todayUTC()) : null
 }
 
 export default function Admin() {
@@ -129,7 +114,7 @@ export default function Admin() {
   }
 
   async function loadCallInfo() {
-    const { data } = await supabase.from('clients').select('id, retainer_start_date, report_schedule_start, quarterly_call_booked_at')
+    const { data } = await supabase.from('clients').select('id, primary_frame, retainer_start_date, delivery_start_date, quarterly_call_booked_at')
     const map = {}
     ;(data || []).forEach(r => { map[r.id] = r })
     setCallInfo(map)
@@ -577,7 +562,7 @@ export default function Admin() {
       secondary_color: editingClient.secondary_color,
       notification_email: editingClient.notification_email || null,
       retainer_start_date: editingClient.retainer_start_date || null,
-      report_schedule_start: editingClient.report_schedule_start || null,
+      delivery_start_date: editingClient.delivery_start_date || null,
       cover_url: editingClient.cover_url || null,
       service_tier: editingClient.service_tier || null,
       mission_statement: editingClient.mission_statement || null,
@@ -789,11 +774,19 @@ export default function Admin() {
                       </div>
                       <div className={styles.clientSlug}>/{c.slug}</div>
                       {(() => {
-                        const call = quarterlyCallStatus(callInfo[c.id])
-                        if (!call?.due) return null
+                        const plan = clientPlan(callInfo[c.id])
+                        if (!plan) return null
+                        return (
+                          <div style={{ fontSize: '11px', marginTop: '4px', color: plan.status === 'active' ? 'var(--text3)' : 'var(--gold-light)' }}>{plan.chip}</div>
+                        )
+                      })()}
+                      {(() => {
+                        const plan = clientPlan(callInfo[c.id])
+                        const callItem = plan?.items.find(i => i.kind === 'call')
+                        if (!callItem) return null
                         return (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginTop: '8px', background: 'var(--gold-bg)', border: '0.5px solid rgba(211,201,167,0.35)', borderRadius: '20px', padding: '3px 4px 3px 12px', fontSize: '11px', color: 'var(--gold-light)' }}>
-                            Quarterly call due by {call.quarterEnd.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
+                            Quarterly call due by {shortDate(plan.quarter.quarterEnd)}
                             <button
                               onClick={() => markCallBooked(c)}
                               style={{ background: 'transparent', border: '0.5px solid var(--gold-light)', color: 'var(--gold-light)', borderRadius: '20px', padding: '2px 10px', fontSize: '11px', cursor: 'pointer' }}
@@ -851,8 +844,8 @@ export default function Admin() {
                       </button>
                       <button className={styles.editBtn} onClick={async () => {
                         setEditingClient({...c})
-                        const { data } = await supabase.from('clients').select('report_schedule_start').eq('id', c.id).single()
-                        if (data) setEditingClient(p => p && p.id === c.id ? { ...p, report_schedule_start: data.report_schedule_start } : p)
+                        const { data } = await supabase.from('clients').select('delivery_start_date').eq('id', c.id).single()
+                        if (data) setEditingClient(p => p && p.id === c.id ? { ...p, delivery_start_date: data.delivery_start_date } : p)
                       }}>
                         <i className="ti ti-pencil" aria-hidden="true" /> Edit
                       </button>
@@ -989,24 +982,32 @@ export default function Admin() {
                           />
                         </div>
                         <div className={styles.field}>
-                          <label className={styles.label}>Retainer Start Date</label>
+                          <label className={styles.label}>Onboard date</label>
                           <input
                             className={styles.input}
                             type="date"
                             value={editingClient.retainer_start_date || ''}
                             onChange={e => setEditingClient(p => ({...p, retainer_start_date: e.target.value || null}))}
                           />
-                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Set this once at signing.</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Set once at signing. Starts the client's 12-week quarters.</div>
                         </div>
                         <div className={styles.field}>
-                          <label className={styles.label}>Report Schedule Start</label>
+                          <label className={styles.label}>Delivery week 1</label>
                           <input
                             className={styles.input}
                             type="date"
-                            value={editingClient.report_schedule_start || ''}
-                            onChange={e => setEditingClient(p => ({...p, report_schedule_start: e.target.value || null}))}
+                            value={editingClient.delivery_start_date || ''}
+                            onChange={e => setEditingClient(p => ({...p, delivery_start_date: e.target.value || null}))}
                           />
-                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Weekly rhythm counts from the Monday of this date: review weeks 1 and 3, two-week note week 2, monthly report week 4. Leave blank to use the retainer start date.</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Starts the weekly rhythm: review weeks 1 and 3, two-week note week 2, monthly report week 4. Leave blank while onboarding. No reports or reminders until it is set.</div>
+                          {(() => {
+                            const plan = weekPlan({ ...(callInfo[editingClient.id] || {}), primary_frame: editingClient.primary_frame || 'operations', retainer_start_date: editingClient.retainer_start_date, delivery_start_date: editingClient.delivery_start_date }, todayUTC())
+                            let text
+                            if (plan.status === 'onboarding') text = 'Onboarding. Delivery clock is off.'
+                            else if (plan.status === 'upcoming') text = 'Delivery starts ' + shortDate(plan.startsOn) + '.'
+                            else text = 'This week is week ' + plan.cycle.weekInCycle + ' of 4 (' + plan.weekLabel.replace(/ week$/, '') + ').' + (plan.nextDelivery ? ' Next delivery: ' + shortDate(plan.nextDelivery) + '.' : '')
+                            return <div style={{ fontSize: '12px', color: 'var(--gold-light)', marginTop: '6px' }}>{text}</div>
+                          })()}
                         </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Service Tier</label>
