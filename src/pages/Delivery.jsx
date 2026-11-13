@@ -325,22 +325,24 @@ export default function Delivery() {
                 {post ? (
                   <>
                     <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: 500, marginBottom: '4px' }}>{whenLabel(post)}</div>
+                    {/* One row of platforms. When captions differ by platform, each one
+                        is also a tab that shows that platform's caption. */}
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                      {platforms.map(p => (
-                        <span key={p} style={{ fontSize: '11px', color: 'var(--text2)', border: '1px solid var(--border)', borderRadius: '999px', padding: '2px 8px' }}>
-                          {platformName(p)}{p === 'instagram' && post.ig_post_type && post.ig_post_type !== 'POST' ? ` ${post.ig_post_type.toLowerCase()}` : ''}
-                        </span>
-                      ))}
+                      {platforms.map(p => {
+                        const on = captionsDiffer && tab === p
+                        const label = platformName(p) + (p === 'instagram' && post.ig_post_type && post.ig_post_type !== 'POST' ? ` ${post.ig_post_type.toLowerCase()}` : '')
+                        return captionsDiffer ? (
+                          <button key={p} onClick={() => setCaptionTab(t => ({ ...t, [item.id]: p }))}
+                            style={{ fontSize: '11px', cursor: 'pointer', background: 'transparent', borderRadius: '999px', padding: '2px 8px', color: on ? 'var(--gold-light)' : 'var(--text2)', border: '1px solid ' + (on ? 'var(--gold-light)' : 'var(--border)') }}>
+                            {label}
+                          </button>
+                        ) : (
+                          <span key={p} style={{ fontSize: '11px', color: 'var(--text2)', border: '1px solid var(--border)', borderRadius: '999px', padding: '2px 8px' }}>{label}</span>
+                        )
+                      })}
                     </div>
                     {captionsDiffer && (
-                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
-                        {platforms.map(p => (
-                          <button key={p} onClick={() => setCaptionTab(t => ({ ...t, [item.id]: p }))}
-                            style={btn({ padding: '3px 9px', fontSize: '11px', color: tab === p ? 'var(--gold-light)' : 'var(--text3)', borderColor: tab === p ? 'var(--gold-light)' : 'var(--border)' })}>
-                            {platformName(p)}
-                          </button>
-                        ))}
-                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px' }}>Caption for {platformName(tab)}. Tap a platform to see its caption.</div>
                     )}
                     <div style={{ fontSize: '13px', color: 'var(--text1)', whiteSpace: 'pre-wrap', lineHeight: 1.5, background: 'var(--surface)', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', maxHeight: '220px', overflowY: 'auto' }}>
                       {captionFor(post, captionsDiffer ? tab : platforms[0]) || <span style={{ color: 'var(--text3)' }}>No caption</span>}
