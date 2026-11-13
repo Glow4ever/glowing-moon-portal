@@ -48,6 +48,26 @@ export default function Calendar() {
 
   useEffect(() => { if (client?.id) loadEvents() }, [client?.id])
   useEffect(() => { if (client?.id) loadMetricoolPosts() }, [client?.id])
+  useEffect(() => { if (client?.id) loadReviewStates() }, [client?.id])
+
+  // Client review state for posts sent in a delivery, keyed by Metricool post id.
+  const [reviewById, setReviewById] = useState({})
+  async function loadReviewStates() {
+    const { data } = await supabase
+      .from('review_cycle_items')
+      .select('metricool_ids, review_status, cycle_id, created_at')
+      .eq('client_id', client.id)
+      .not('schedule_draft_id', 'is', null)
+      .order('created_at', { ascending: false })
+    const map = {}
+    ;(data || []).forEach(r => (r.metricool_ids || []).forEach(mid => {
+      if (!map[String(mid)]) map[String(mid)] = { status: r.review_status, cycleId: r.cycle_id }
+    }))
+    setReviewById(map)
+  }
+  const REVIEW_LABEL = { approved: 'Approved', changes_requested: 'Change requested', awaiting: 'Awaiting review' }
+  const REVIEW_COLOR = { approved: 'var(--teal)', changes_requested: 'var(--coral)', awaiting: 'var(--gold-light)' }
+  const reviewOf = ev => (ev && ev.metricool_id ? reviewById[String(ev.metricool_id)] : null)
 
   async function loadEvents() {
     const { data, error } = await supabase.from('calendar_events').select('*').eq('client_id', client.id).order('date')
@@ -231,6 +251,9 @@ function getMediaForEvent(ev) {
                     <span style={{ color: 'var(--text1)', fontSize: '12px' }}>
                       {truncate(ev.title, 20)}
                     </span>
+                    {reviewOf(ev) && (
+                      <span title={REVIEW_LABEL[reviewOf(ev).status]} style={{ display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%', background: REVIEW_COLOR[reviewOf(ev).status], marginLeft: '5px', verticalAlign: 'middle' }} />
+                    )}
                   </div>
                 ))}
                 {dayEvents.length > 3 && (
@@ -336,6 +359,12 @@ function getMediaForEvent(ev) {
             <div style={{ fontSize: '14px', color: 'var(--text)', lineHeight: '1.6', marginBottom: '20px' }}>
               {viewEvent.title}
             </div>
+            {reviewOf(viewEvent) && (
+              <div style={{ fontSize: '13px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ color: REVIEW_COLOR[reviewOf(viewEvent).status] }}>Client review: {REVIEW_LABEL[reviewOf(viewEvent).status]}</span>
+                <a href={'/delivery/' + reviewOf(viewEvent).cycleId} style={{ color: 'var(--text3)', fontSize: '12px' }}>Open delivery</a>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
               {viewEvent.metricool_id && (
                 <div style={{ fontSize: '12px', color: 'var(--text3)', marginRight: 'auto' }}>
