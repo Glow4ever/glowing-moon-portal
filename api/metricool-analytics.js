@@ -364,7 +364,8 @@ export default async function handler(req, res) {
             headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
           })
           if (!res.ok) continue
-          const post = await res.json()
+          const json = await res.json()
+          const post = json.data || json
           for (const provider of post.providers || []) statuses.push(provider.status)
         }
 
