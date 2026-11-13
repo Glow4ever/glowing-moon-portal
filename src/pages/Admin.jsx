@@ -537,6 +537,7 @@ export default function Admin() {
       roi_show_time_value: !!editingClient.roi_show_time_value,
       roi_show_cost_avoidance: !!editingClient.roi_show_cost_avoidance,
       primary_frame: editingClient.primary_frame || 'operations',
+      delivery_mode: editingClient.delivery_mode === 'operational' ? 'operational' : 'publishing',
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -1060,6 +1061,30 @@ export default function Admin() {
                             </label>
                           </div>
                           <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Changes which Overview layout this client sees. Credibility fits person-led brands where content builds an individual's standing. Operations fits teams where content supports an existing marketing function.</div>
+                        </div>
+                        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                          <label className={styles.label}>Delivery Mode</label>
+                          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text2)', cursor: 'pointer', padding: '10px 14px', background: editingClient.delivery_mode !== 'operational' ? 'var(--surface3)' : 'transparent', border: '0.5px solid var(--border)', borderRadius: '8px' }}>
+                              <input
+                                type="radio"
+                                name="delivery_mode"
+                                checked={editingClient.delivery_mode !== 'operational'}
+                                onChange={() => setEditingClient(p => ({...p, delivery_mode: 'publishing'}))}
+                              />
+                              Publishing — we schedule their posts
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', color: 'var(--text2)', cursor: 'pointer', padding: '10px 14px', background: editingClient.delivery_mode === 'operational' ? 'var(--surface3)' : 'transparent', border: '0.5px solid var(--border)', borderRadius: '8px' }}>
+                              <input
+                                type="radio"
+                                name="delivery_mode"
+                                checked={editingClient.delivery_mode === 'operational'}
+                                onChange={() => setEditingClient(p => ({...p, delivery_mode: 'operational'}))}
+                              />
+                              Delivery — we send files for review, they publish
+                            </label>
+                          </div>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Changes what the Content Bank does for this client: scheduling posts, or picking files to send for review.</div>
                         </div>
                         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
                           <label className={styles.label}>ROI Baselines (captured once at onboarding, restated quarterly)</label>
