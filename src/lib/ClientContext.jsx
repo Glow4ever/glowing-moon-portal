@@ -24,7 +24,7 @@ export function ClientProvider({ children }) {
     if (authLoading) return
     if (user) loadUserContext()
     else { setRole(null); setClient(null); setLoading(false) }
-  }, [user, authLoading])
+  }, [user?.id, authLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadUserContext() {
     setLoading(true)
