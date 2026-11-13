@@ -60,6 +60,15 @@ export default function ThisWeek() {
   const onboarding = rows.filter(r => r.status !== 'active')
 
   const smallBtn = { fontSize: '12px', padding: '5px 12px' }
+  // Your own clients' posts first.
+  const flags = [...(data?.postFlags || [])].sort((a, b) => (b.mine ? 1 : 0) - (a.mine ? 1 : 0))
+  function whenText(v) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(v || '')
+    if (!m) return v
+    const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))
+    let h = +m[4]; const ap = h >= 12 ? 'PM' : 'AM'; h = h % 12 || 12
+    return d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }) + ' ' + h + ':' + m[5] + ' ' + ap
+  }
 
   return (
     <div className={styles.page}>
@@ -71,6 +80,27 @@ export default function ThisWeek() {
       {error && <div className={styles.empty}>{error}</div>}
       {data && rows.length === 0 && (
         <div className={styles.empty}>No clients yet.</div>
+      )}
+
+      {flags.length > 0 && (
+        <>
+          <div className={styles.sectionLabel}>Going out in the next 48 hours, not approved</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '22px' }}>
+            {flags.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text1)', minWidth: '120px' }}>{f.clientName}</span>
+                <span style={{ color: 'var(--text2)' }}>{whenText(f.when)}</span>
+                <span style={{ color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '260px' }}>{f.filename}</span>
+                <span style={{ color: f.kind === 'change' ? 'var(--coral)' : 'var(--gold-light)' }}>
+                  {f.kind === 'change' ? 'Change requested' : 'Not reviewed'}
+                </span>
+                <button className={styles.editBtn} style={{ marginLeft: 'auto' }} onClick={() => { switchClient(f.clientId); navigate('/delivery/' + f.cycleId) }}>
+                  Open delivery
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
       )}
 
       {due.length > 0 && (
@@ -94,8 +124,8 @@ export default function ThisWeek() {
                         {item.done ? '✓' : '○'}&nbsp; {item.text}{item.done ? ' (sent)' : ''}
                       </span>
                       {item.kind === 'review' && !item.done && (
-                        <button className={styles.editBtn} onClick={() => openFor(row, '/content')}>
-                          Open Content Library
+                        <button className={styles.editBtn} onClick={() => openFor(row, '/content-bank')}>
+                          Open Content Bank
                         </button>
                       )}
                       {item.kind === 'report' && item.draftReady && (
