@@ -14,6 +14,12 @@ const navItems = [
   { to: '/settings',  icon: 'ti-settings',          label: 'Settings' },
 ]
 
+const teamItems = [
+  { to: '/this-week',    icon: 'ti-calendar-event', label: 'This Week' },
+  { to: '/content-bank', icon: 'ti-calendar-plus',  label: 'Content Bank' },
+  { to: '/reports',      icon: 'ti-report',         label: 'Reports' },
+]
+
 export default function Sidebar() {
   const { signOut, user } = useAuth()
   const { role, client } = useClient()
@@ -42,10 +48,11 @@ export default function Sidebar() {
       ))}
       {(role === 'admin' || role === 'editor') && (
         <>
-          <div className={styles.section} style={{ marginTop: '12px' }}>{role === 'admin' ? 'Admin' : 'Team'}</div>
-          {role === 'admin' && (
+          <div className={styles.section} style={{ marginTop: '12px' }}>Team</div>
+          {teamItems.map(item => (
             <NavLink
-              to="/admin"
+              key={item.to}
+              to={item.to}
               className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
               style={({ isActive }) => isActive ? {
                 background: primaryColor + '18',
@@ -54,12 +61,17 @@ export default function Sidebar() {
               } : {}}
               onClick={() => setMobileOpen(false)}
             >
-              <i className="ti ti-settings" aria-hidden="true" />
-              Admin Panel
+              <i className={`ti ${item.icon}`} aria-hidden="true" />
+              {item.label}
             </NavLink>
-          )}
+          ))}
+        </>
+      )}
+      {role === 'admin' && (
+        <>
+          <div className={styles.section} style={{ marginTop: '12px' }}>Admin</div>
           <NavLink
-            to="/schedule"
+            to="/admin"
             className={({ isActive }) => `${styles.navItem} ${isActive ? styles.active : ''}`}
             style={({ isActive }) => isActive ? {
               background: primaryColor + '18',
@@ -68,8 +80,8 @@ export default function Sidebar() {
             } : {}}
             onClick={() => setMobileOpen(false)}
           >
-            <i className="ti ti-calendar-plus" aria-hidden="true" />
-            Schedule
+            <i className="ti ti-settings" aria-hidden="true" />
+            Admin Panel
           </NavLink>
         </>
       )}
