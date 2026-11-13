@@ -1,8 +1,12 @@
 // src/pages/Delivery.jsx
 //
-// One delivery built from the content bank. Clients review and approve
-// here; the team can follow it, send a revised file back, or close it.
-// Reads go straight to Supabase (RLS); every change goes through /api/delivery.
+// One delivery built from the content bank. Two kinds:
+//   files  (delivery clients)   the client approves assets and downloads them
+//   posts  (publishing clients) the client reviews posts that are already
+//                               scheduled; anything not reviewed publishes on time
+// Clients review here; the team follows along, replies, and sends things back.
+// Reads go to Supabase (RLS) plus /api/delivery 'details' for post content.
+// Every change goes through /api/delivery.
 
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -11,6 +15,33 @@ import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/apiFetch'
 import { getPreviewLink, getDownloadLink, getFileType } from '../lib/dropbox'
 import styles from './Admin.module.css'
+
+const PLATFORM_NAMES = {
+  instagram: 'Instagram', facebook: 'Facebook', linkedin: 'LinkedIn',
+  tiktok: 'TikTok', youtube: 'YouTube', twitter: 'X', threads: 'Threads', pinterest: 'Pinterest'
+}
+const platformName = p => PLATFORM_NAMES[p] || p
+
+const TZ_SHORT = { 'America/New_York': 'ET', 'America/Chicago': 'CT', 'America/Denver': 'MT', 'America/Los_Angeles': 'PT' }
+
+// publish_date is stored as wall-clock time in the post's own timezone, so it
+// is formatted as written, never converted.
+function whenLabel(post) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(post.publish_date || '')
+  if (!m) return 'No date set'
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))
+  const day = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' })
+  let h = +m[4]
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  h = h % 12 || 12
+  const tz = TZ_SHORT[post.timezone] || post.timezone || ''
+  return `${day}, ${h}:${m[5]} ${ampm}${tz ? ' ' + tz : ''}`
+}
+
+function captionFor(post, platform) {
+  const own = post.platform_captions && post.platform_captions[platform]
+  return own !== undefined && own !== null ? own : (post.caption || '')
+}
 
 export default function Delivery() {
   const { id } = useParams()
@@ -22,9 +53,10 @@ export default function Delivery() {
   const [cycle, setCycle] = useState(null)
   const [owner, setOwner] = useState(null) // the client row
   const [items, setItems] = useState([])
-  const [approved, setApproved] = useState({}) // dropbox_path -> true
+  const [posts, setPosts] = useState({}) // schedule_draft_id -> post details
   const [comments, setComments] = useState([])
   const [previews, setPreviews] = useState({}) // item id -> url
+  const [captionTab, setCaptionTab] = useState({}) // item id -> platform
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -35,17 +67,20 @@ export default function Delivery() {
   const load = useCallback(async () => {
     const { data: cy } = await supabase.from('review_cycles').select('*').eq('id', id).maybeSingle()
     if (!cy || cy.source !== 'bank') { setNotFound(true); setLoading(false); return }
-    const [{ data: its }, { data: sts }, { data: cms }, { data: cl }] = await Promise.all([
+    const [{ data: its }, { data: cms }, { data: cl }] = await Promise.all([
       supabase.from('review_cycle_items').select('*').eq('cycle_id', id).order('position'),
-      supabase.from('file_status').select('file_path, status').eq('cycle_id', id),
       supabase.from('file_comments').select('*').eq('cycle_id', id).order('created_at'),
       supabase.from('clients').select('id, name, notification_email').eq('id', cy.client_id).maybeSingle()
     ])
+    if ((its || []).some(i => i.schedule_draft_id)) {
+      try {
+        const res = await apiFetch('/api/delivery', { method: 'POST', body: JSON.stringify({ action: 'details', cycleId: id }) })
+        const json = await res.json()
+        if (res.ok) setPosts(json.posts || {})
+      } catch (e) { console.error('Delivery details error:', e) }
+    }
     setCycle(cy)
     setItems(its || [])
-    const ap = {}
-    ;(sts || []).forEach(s => { if (s.status === 'approved') ap[s.file_path] = true })
-    setApproved(ap)
     setComments(cms || [])
     setOwner(cl || null)
     setLoading(false)
@@ -82,8 +117,8 @@ export default function Delivery() {
     try {
       const res = await apiFetch('/api/delivery', { method: 'POST', body: JSON.stringify({ cycleId: id, ...payload }) })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data.error || 'That did not work.'); setBusy(false); return null }
       setBusy(false)
+      if (!res.ok) { setError(data.error || 'That did not work.'); return null }
       return data
     } catch (e) {
       console.error(e)
@@ -128,7 +163,13 @@ export default function Delivery() {
       } else {
         await apiFetch('/api/send-email', {
           method: 'POST',
-          body: JSON.stringify({ type: 'comment', clientName: owner?.name, fileName: item.filename, comment: text, link: pageLink })
+          body: JSON.stringify({
+            type: 'comment',
+            clientName: owner?.name,
+            fileName: item.filename + (data.published ? ' (already published)' : ''),
+            comment: text,
+            link: pageLink
+          })
         })
       }
     } catch (e) { console.error('Comment email error:', e) }
@@ -159,12 +200,12 @@ export default function Delivery() {
   }
 
   async function closeDelivery() {
-    if (!window.confirm('Close this delivery now? Files that are not approved stay unapproved.')) return
+    if (!window.confirm('Close this delivery now? Anything not approved stays unapproved.')) return
     if (await call({ action: 'resolve' })) await load()
   }
 
   async function cancelDelivery() {
-    if (!window.confirm('Delete this delivery? The client will no longer see it.')) return
+    if (!window.confirm('Delete this delivery? The client will no longer see it. Scheduled posts stay scheduled.')) return
     if (await call({ action: 'cancel' })) navigate('/content-bank')
   }
 
@@ -176,17 +217,40 @@ export default function Delivery() {
   if (loading) return <div className={styles.page}><div className={styles.empty}>Loading...</div></div>
   if (notFound || !cycle) return <div className={styles.page}><div className={styles.empty}>This delivery was not found.</div></div>
 
+  const isPosts = items.some(i => i.schedule_draft_id)
+  const postOf = item => (item.schedule_draft_id ? posts[item.schedule_draft_id] : null)
+  const liveStatus = item => {
+    const p = postOf(item)
+    if (!item.schedule_draft_id) return null
+    if (!p) return 'gone'
+    if (p.status === 'published') return 'published'
+    if (p.status === 'cancelled') return 'pulled'
+    return null
+  }
+  const isDone = item => item.review_status === 'approved' || !!liveStatus(item)
+  const approvedCount = items.filter(i => i.review_status === 'approved').length
+  const liveCount = items.filter(i => liveStatus(i) === 'published').length
   const total = items.length
-  const doneCount = items.filter(i => approved[i.dropbox_path]).length
   const closed = !!cycle.resolved_at
-  const remaining = items.filter(i => !approved[i.dropbox_path])
+  const remaining = items.filter(i => !isDone(i))
+  // The note written when the delivery was sent is the only comment with no item.
   const teamNote = comments.find(c => !c.item_id && c.sender_role === 'admin')
-  const itemComments = id2 => comments.filter(c => c.item_id === id2)
+  const itemComments = itemId => comments.filter(c => c.item_id === itemId)
 
   const btn = (extra) => ({
     background: 'transparent', border: '1px solid var(--border)', color: 'var(--text2)',
     fontSize: '12px', padding: '6px 12px', borderRadius: '8px', cursor: 'pointer', ...extra
   })
+
+  function statusLine(item) {
+    const live = liveStatus(item)
+    if (live === 'published') return { text: 'Published', color: 'var(--teal)' }
+    if (live === 'pulled') return { text: 'Removed from the schedule', color: 'var(--text3)' }
+    if (live === 'gone') return { text: 'No longer scheduled', color: 'var(--text3)' }
+    if (item.review_status === 'approved') return { text: 'Approved', color: 'var(--teal)' }
+    if (item.review_status === 'changes_requested') return { text: 'Change requested', color: 'var(--coral)' }
+    return { text: isPosts ? 'Scheduled, waiting for review' : 'Waiting for approval', color: 'var(--gold-light)' }
+  }
 
   return (
     <div className={styles.page}>
@@ -197,14 +261,20 @@ export default function Delivery() {
       <div style={{ display: 'flex', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap', marginBottom: '6px' }}>
         <h1 style={{ margin: 0, fontSize: '22px', color: 'var(--text1)' }}>{cycle.folder_label}</h1>
         <span style={{ fontSize: '13px', color: closed ? 'var(--teal)' : cycle.stage === 'revisions' ? 'var(--coral)' : 'var(--gold-light)' }}>
-          {closed ? 'All approved' : cycle.stage === 'revisions' ? 'Revisions asked' : 'In review'}
+          {closed ? (isPosts ? 'Done' : 'All approved') : cycle.stage === 'revisions' ? 'Changes requested' : 'In review'}
         </span>
         {isTeam && owner && <span style={{ fontSize: '13px', color: 'var(--text3)' }}>{owner.name}</span>}
       </div>
       <div style={{ fontSize: '13px', color: 'var(--text3)', marginBottom: '18px' }}>
-        {doneCount} of {total} approved
+        {approvedCount} of {total} approved{liveCount ? ` · ${liveCount} published` : ''}
         {cycle.due_date ? ` · Review by ${new Date(cycle.due_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}
       </div>
+
+      {isPosts && !closed && (
+        <div style={{ fontSize: '13px', color: 'var(--text2)', marginBottom: '16px', lineHeight: 1.5 }}>
+          These posts are already scheduled. Approve them, or request a change before they go out. Anything not reviewed publishes as scheduled.
+        </div>
+      )}
 
       {teamNote && (
         <div style={{ background: 'var(--surface2)', borderLeft: '3px solid var(--gold-light)', borderRadius: '6px', padding: '12px 14px', marginBottom: '18px', fontSize: '14px', color: 'var(--text1)' }}>
@@ -221,22 +291,27 @@ export default function Delivery() {
             disabled={busy}
             style={{ background: 'var(--teal)', border: 'none', color: '#04211d', fontWeight: 600, fontSize: '13px', padding: '9px 16px', borderRadius: '8px', cursor: 'pointer', opacity: busy ? 0.7 : 1 }}
           >
-            {doneCount === 0 ? `Approve all ${total}` : `Approve the remaining ${remaining.length}`}
+            {remaining.length === total ? `Approve all ${total}` : `Approve the remaining ${remaining.length}`}
           </button>
         )}
         {isTeam && !closed && <button onClick={closeDelivery} disabled={busy} style={btn()}>Close delivery</button>}
         {isTeam && <button onClick={cancelDelivery} disabled={busy} style={btn({ color: 'var(--coral)' })}>Delete delivery</button>}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${isPosts ? 300 : 260}px, 1fr))`, gap: '16px' }}>
         {items.map(item => {
-          const ok = !!approved[item.dropbox_path]
+          const post = postOf(item)
+          const live = liveStatus(item)
+          const done = isDone(item)
           const type = getFileType(item.filename)
           const url = previews[item.id]
           const notes = itemComments(item.id)
-          const needsRevision = notes.some(n => n.sender_role === 'member' && !n.resolved)
+          const st = statusLine(item)
+          const platforms = (post && post.platforms) || []
+          const tab = captionTab[item.id] || platforms[0]
+          const captionsDiffer = post && platforms.some(p => captionFor(post, p) !== captionFor(post, platforms[0]))
           return (
-            <div key={item.id} style={{ background: 'var(--surface2)', border: '1px solid ' + (ok ? 'var(--teal)' : 'var(--border)'), borderRadius: '12px', overflow: 'hidden' }}>
+            <div key={item.id} style={{ background: 'var(--surface2)', border: '1px solid ' + (item.review_status === 'approved' ? 'var(--teal)' : item.review_status === 'changes_requested' && !done ? 'var(--coral)' : 'var(--border)'), borderRadius: '12px', overflow: 'hidden', opacity: live === 'pulled' || live === 'gone' ? 0.6 : 1 }}>
               <div style={{ background: 'var(--surface)', aspectRatio: '4 / 3', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {url && type === 'photo' ? (
                   <img src={url} alt={item.filename} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -247,8 +322,35 @@ export default function Delivery() {
                 )}
               </div>
               <div style={{ padding: '12px 14px' }}>
-                <div style={{ fontSize: '13px', color: 'var(--text1)', marginBottom: '4px', wordBreak: 'break-word' }}>{item.filename}</div>
-                <div style={{ fontSize: '12px', color: ok ? 'var(--teal)' : 'var(--gold-light)', marginBottom: '10px' }}>{ok ? 'Approved' : 'Waiting for approval'}</div>
+                {post ? (
+                  <>
+                    <div style={{ fontSize: '13px', color: 'var(--text1)', fontWeight: 500, marginBottom: '4px' }}>{whenLabel(post)}</div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                      {platforms.map(p => (
+                        <span key={p} style={{ fontSize: '11px', color: 'var(--text2)', border: '1px solid var(--border)', borderRadius: '999px', padding: '2px 8px' }}>
+                          {platformName(p)}{p === 'instagram' && post.ig_post_type && post.ig_post_type !== 'POST' ? ` ${post.ig_post_type.toLowerCase()}` : ''}
+                        </span>
+                      ))}
+                    </div>
+                    {captionsDiffer && (
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginBottom: '6px' }}>
+                        {platforms.map(p => (
+                          <button key={p} onClick={() => setCaptionTab(t => ({ ...t, [item.id]: p }))}
+                            style={btn({ padding: '3px 9px', fontSize: '11px', color: tab === p ? 'var(--gold-light)' : 'var(--text3)', borderColor: tab === p ? 'var(--gold-light)' : 'var(--border)' })}>
+                            {platformName(p)}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '13px', color: 'var(--text1)', whiteSpace: 'pre-wrap', lineHeight: 1.5, background: 'var(--surface)', borderRadius: '8px', padding: '10px 12px', marginBottom: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+                      {captionFor(post, captionsDiffer ? tab : platforms[0]) || <span style={{ color: 'var(--text3)' }}>No caption</span>}
+                    </div>
+                    <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '4px', wordBreak: 'break-word' }}>{item.filename}</div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: '13px', color: 'var(--text1)', marginBottom: '4px', wordBreak: 'break-word' }}>{item.filename}</div>
+                )}
+                <div style={{ fontSize: '12px', color: st.color, marginBottom: '10px' }}>{st.text}</div>
 
                 {notes.map(n => (
                   <div key={n.id} style={{ fontSize: '12px', marginBottom: '6px', color: n.resolved ? 'var(--text3)' : 'var(--text1)' }}>
@@ -257,16 +359,28 @@ export default function Delivery() {
                 ))}
 
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '8px' }}>
-                  {!ok && !isViewer && !closed && (
+                  {!done && !isViewer && !closed && (
                     <button onClick={() => approve([item.id])} disabled={busy} style={btn({ color: 'var(--teal)', borderColor: 'var(--teal)' })}>Approve</button>
                   )}
-                  {!closed && <button onClick={() => { setCommentFor(commentFor === item.id ? null : item.id); setCommentText('') }} style={btn()}>{isTeam ? 'Reply' : 'Request a change'}</button>}
-                  {isTeam && (ok || needsRevision) && !closed && <button onClick={() => reopen(item)} disabled={busy} style={btn()}>Send revised file</button>}
-                  {ok && <button onClick={() => download(item)} style={btn()}>Download</button>}
+                  {live !== 'pulled' && live !== 'gone' && (
+                    <button onClick={() => { setCommentFor(commentFor === item.id ? null : item.id); setCommentText('') }} style={btn()}>
+                      {isTeam ? 'Reply' : live === 'published' ? 'Leave a note' : 'Request a change'}
+                    </button>
+                  )}
+                  {isTeam && !post && !closed && (item.review_status !== 'awaiting') && (
+                    <button onClick={() => reopen(item)} disabled={busy} style={btn()}>Send revised file</button>
+                  )}
+                  {isTeam && post && !live && (
+                    <button onClick={() => navigate('/content-bank')} style={btn()}>Edit in Content Bank</button>
+                  )}
+                  {!post && item.review_status === 'approved' && <button onClick={() => download(item)} style={btn()}>Download</button>}
                 </div>
 
                 {commentFor === item.id && (
                   <div style={{ marginTop: '10px' }}>
+                    {!isTeam && live === 'published' && (
+                      <div style={{ fontSize: '11px', color: 'var(--text3)', marginBottom: '6px' }}>This post is already live. Your note goes to the team.</div>
+                    )}
                     <textarea
                       value={commentText}
                       onChange={e => setCommentText(e.target.value)}
