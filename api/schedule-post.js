@@ -1,6 +1,7 @@
 const { requireAuth } = require('./_auth')
 const { createClient } = require('@supabase/supabase-js')
 const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+const { snapshotOf, contentKey, settle, settleForDrafts } = require('./_delivery')
 
 // Everything below the media/caption handling is built against Metricool's
 // real API, verified live rather than assumed -- see the Schedule feature's
@@ -164,6 +165,87 @@ function buildNetworkData(platform, occurrence) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Replacing a post that is already scheduled (Session 4).
+//
+// Clicking Schedule again on a scheduled post used to create a SECOND post in
+// Metricool next to the first. Now the old Metricool posts are deleted first,
+// then the post is created fresh. Delete and re-create rather than Metricool's
+// PUT, because a caption change can regroup platforms (see note 2 above):
+// one post can become two, or two can become one, which PUT cannot express.
+//
+// Order is delete first, then create. If the create then fails, the post is
+// marked failed and shows Retry: a missing post is visible and fixable. The
+// other order risks a duplicate public post, which is not.
+//
+// Before deleting, each post is read back. If any network already shows
+// PUBLISHED, nothing is deleted: a live post cannot be changed from here.
+// ---------------------------------------------------------------------------
+
+function metricoolParams(blogId) {
+  return new URLSearchParams({ blogId: String(blogId), userId: process.env.METRICOOL_USER_ID })
+}
+
+function postIdsOf(occurrence) {
+  return [...new Set(Object.values(occurrence.metricool_post_ids || {}).map(String))]
+}
+
+async function anyPublished(blogId, ids) {
+  for (const id of ids) {
+    const r = await fetch(`https://app.metricool.com/api/v2/scheduler/posts/${id}?${metricoolParams(blogId)}`, {
+      headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
+    })
+    if (!r.ok) continue
+    let post
+    try { post = await r.json() } catch (e) { continue }
+    if ((post.providers || []).some(p => p.status === 'PUBLISHED')) return true
+  }
+  return false
+}
+
+async function deletePosts(blogId, ids) {
+  const failures = []
+  for (const id of ids) {
+    const r = await fetch(`https://app.metricool.com/api/v2/scheduler/posts/${id}?${metricoolParams(blogId)}`, {
+      method: 'DELETE',
+      headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
+    })
+    // 404 means it is already gone, which is what we wanted.
+    if (!r.ok && r.status !== 404) failures.push(`${id}: ${r.status} ${(await r.text()).slice(0, 200)}`)
+  }
+  return failures
+}
+
+// After a post is sent again, update every delivery item that holds it.
+// If the caption, platforms or post type changed, the client sees it again.
+async function syncDeliveryItems(occurrence, newIds) {
+  const { data: items } = await supabaseAdmin
+    .from('review_cycle_items')
+    .select('id, cycle_id, review_status, content_key, filename')
+    .eq('schedule_draft_id', occurrence.id)
+  const key = contentKey(occurrence)
+  const returned = []
+  for (const item of items || []) {
+    const patch = { metricool_ids: newIds }
+    if (item.content_key !== key) {
+      patch.content_key = key
+      if (item.review_status !== 'awaiting') {
+        patch.review_status = 'awaiting'
+        patch.reviewed_at = null
+        returned.push({ cycleId: item.cycle_id, filename: item.filename })
+      }
+    }
+    await supabaseAdmin.from('review_cycle_items').update(patch).eq('id', item.id)
+    if (patch.review_status === 'awaiting') {
+      await supabaseAdmin.from('file_comments').update({ resolved: true })
+        .eq('item_id', item.id).eq('sender_role', 'member')
+      const { data: cycle } = await supabaseAdmin.from('review_cycles').select('*').eq('id', item.cycle_id).maybeSingle()
+      if (cycle) await settle(supabaseAdmin, cycle, { reopen: true })
+    }
+  }
+  return returned
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', 'https://portal.glowingmoonmedia.com')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -202,7 +284,51 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'This client has no Metricool blog connected' })
   }
 
+  const blogId = occurrence.clients.metricool_blog_id
+  const oldIds = occurrence.status === 'scheduled' ? postIdsOf(occurrence) : []
+
+  // ---------- pull: take a scheduled post off the calendar ----------
+  if ((req.body || {}).action === 'pull') {
+    if (occurrence.status !== 'scheduled') return res.status(400).json({ error: 'Only a scheduled post can be pulled.' })
+    try {
+      if (oldIds.length && await anyPublished(blogId, oldIds)) {
+        await supabaseAdmin.from('schedule_drafts').update({ status: 'published', active: false }).eq('id', occurrenceId)
+        await settleForDrafts(supabaseAdmin, [occurrenceId])
+        return res.status(409).json({ error: 'This post has already gone live, so it cannot be pulled from here.' })
+      }
+      const failures = await deletePosts(blogId, oldIds)
+      if (failures.length) {
+        await supabaseAdmin.from('schedule_drafts').update({ schedule_error: 'Pull failed: ' + failures.join(' | ') }).eq('id', occurrenceId)
+        return res.status(502).json({ error: 'Metricool did not remove the post. Check it in Metricool.', failures })
+      }
+      await supabaseAdmin.from('schedule_drafts').update({
+        status: 'cancelled', active: false, metricool_post_ids: {}, schedule_error: null
+      }).eq('id', occurrenceId)
+      await supabaseAdmin.from('review_cycle_items').update({ metricool_ids: [] }).eq('schedule_draft_id', occurrenceId)
+      await settleForDrafts(supabaseAdmin, [occurrenceId])
+      return res.status(200).json({ success: true, pulled: true })
+    } catch (err) {
+      console.error('pull error:', err)
+      return res.status(500).json({ error: err.message })
+    }
+  }
+
   try {
+    // Replacing an already scheduled post: check it has not gone live, then
+    // remove the old Metricool posts before creating the new ones.
+    if (oldIds.length) {
+      if (await anyPublished(blogId, oldIds)) {
+        await supabaseAdmin.from('schedule_drafts').update({ status: 'published', active: false }).eq('id', occurrenceId)
+        await settleForDrafts(supabaseAdmin, [occurrenceId])
+        return res.status(409).json({ error: 'This post has already gone live. Changes to a live post have to be made on the platform itself.' })
+      }
+      const failures = await deletePosts(blogId, oldIds)
+      if (failures.length) {
+        await supabaseAdmin.from('schedule_drafts').update({ schedule_error: 'Update stopped, the old post could not be removed: ' + failures.join(' | ') }).eq('id', occurrenceId)
+        return res.status(502).json({ error: 'Metricool did not remove the old post, so nothing was changed. Check it in Metricool.', failures })
+      }
+    }
+
     // Media is the same file regardless of how many separate posts this
     // occurrence turns into, so it's normalized once and reused across
     // every caption group below.
@@ -287,12 +413,27 @@ module.exports = async function handler(req, res) {
         metricool_post_ids: networkToPostId,
         schedule_error: errors.length > 0 ? errors.join(' | ') : null,
         scheduled_at: new Date().toISOString(),
+        scheduled_snapshot: fullyFailed ? null : snapshotOf(occurrence),
       })
       .eq('id', occurrenceId)
 
+    const newIds = [...new Set(Object.values(networkToPostId).map(String))]
+    // A post that already went out and is being posted again is a new post,
+    // not a change to the one the client reviewed, so deliveries are left alone.
+    let returnedForReview = []
+    if (occurrence.status !== 'published') {
+      if (fullyFailed) {
+        if (oldIds.length) await supabaseAdmin.from('review_cycle_items').update({ metricool_ids: [] }).eq('schedule_draft_id', occurrenceId)
+      } else {
+        returnedForReview = await syncDeliveryItems(occurrence, newIds)
+      }
+    }
+
     return res.status(fullyFailed ? 500 : 200).json({
       success: !fullyFailed,
+      replaced: oldIds.length > 0,
       networkToPostId,
+      returnedForReview,
       errors
     })
   } catch (err) {
