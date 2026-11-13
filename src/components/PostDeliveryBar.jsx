@@ -4,7 +4,8 @@
 // in an open delivery and sends them to the client for review. Posts are
 // already scheduled (schedule-first), so review never holds up the calendar.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/apiFetch'
 
@@ -15,11 +16,33 @@ function shortWhen(v) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) + ' ' + m[4] + ':' + m[5]
 }
 
+// Wall-clock "YYYY-MM-DDTHH:mm" now in a timezone, to compare with publish_date.
+function nowIn(tz) {
+  const parts = {}
+  new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date()).forEach(p => { parts[p.type] = p.value })
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`
+}
+
 export default function PostDeliveryBar({ client, occurrences, reviewByDraft, onSent }) {
   const navigate = useNavigate()
+  // When the last delivery went out. Posts scheduled after it are "new" and
+  // ticked by default; older unsent ones are listed but left unticked.
+  const [lastSentAt, setLastSentAt] = useState(null)
+  useEffect(() => {
+    if (!client?.id) return
+    supabase.from('review_cycles').select('sent_at').eq('client_id', client.id).eq('source', 'bank')
+      .order('sent_at', { ascending: false }).limit(1)
+      .then(({ data }) => setLastSentAt((data && data[0] && data[0].sent_at) || null))
+  }, [client?.id])
+
+  // Only posts still to come. Ones whose time has passed are not worth reviewing.
   const eligible = occurrences
     .filter(o => o.id && o.status === 'scheduled' && o.active !== false && !(reviewByDraft[o.id] && reviewByDraft[o.id].open))
+    .filter(o => o.publish_date && String(o.publish_date).slice(0, 16) > nowIn(o.timezone))
     .sort((a, b) => String(a.publish_date || '').localeCompare(String(b.publish_date || '')))
+  const isNew = o => !lastSentAt || !o.scheduled_at || new Date(o.scheduled_at) > new Date(lastSentAt)
+  const newCount = eligible.filter(isNew).length
 
   const [open, setOpen] = useState(false)
   const [picked, setPicked] = useState({})
@@ -32,9 +55,9 @@ export default function PostDeliveryBar({ client, occurrences, reviewByDraft, on
   if (!eligible.length) return null
 
   function start() {
-    const all = {}
-    eligible.forEach(o => { all[o.id] = true })
-    setPicked(all)
+    const start = {}
+    eligible.forEach(o => { start[o.id] = isNew(o) })
+    setPicked(start)
     setError('')
     setOpen(true)
   }
@@ -87,9 +110,13 @@ export default function PostDeliveryBar({ client, occurrences, reviewByDraft, on
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
         <button onClick={start} style={{ display: 'flex', alignItems: 'center', gap: '7px', background: 'transparent', border: '1px solid var(--gold-light)', color: 'var(--gold-light)', fontWeight: 600, fontSize: '13px', padding: '9px 16px', borderRadius: '8px', cursor: 'pointer' }}>
           <i className="ti ti-eye-check" aria-hidden="true" />
-          Send {eligible.length} scheduled post{eligible.length === 1 ? '' : 's'} for review
+          {newCount > 0
+            ? `Send ${newCount} new post${newCount === 1 ? '' : 's'} for review`
+            : 'Send scheduled posts for review'}
         </button>
-        <span style={{ fontSize: '12px', color: 'var(--text3)' }}>Scheduled posts the client has not been sent yet.</span>
+        <span style={{ fontSize: '12px', color: 'var(--text3)' }}>
+          {newCount > 0 ? 'Scheduled since the last delivery.' : 'Nothing new since the last delivery.'}
+        </span>
       </div>
 
       {open && (
@@ -106,6 +133,7 @@ export default function PostDeliveryBar({ client, occurrences, reviewByDraft, on
                   <input type="checkbox" checked={!!picked[o.id]} onChange={e => setPicked(p => ({ ...p, [o.id]: e.target.checked }))} />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ color: 'var(--text1)' }}>{shortWhen(o.publish_date)}</span> · {(o.platforms || []).join(', ')}
+                    {!isNew(o) && <span style={{ color: 'var(--text3)' }}> · scheduled before the last delivery</span>}
                     <span style={{ display: 'block', color: 'var(--text3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.caption || o.filename}</span>
                   </span>
                 </label>
