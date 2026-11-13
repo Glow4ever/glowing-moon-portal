@@ -241,12 +241,12 @@ async function syncDeliveryItems(occurrence, newIds) {
   for (const item of items || []) {
     const patch = { metricool_ids: newIds }
     if (item.content_key !== key) {
+      // Any change the client would see goes back to them, and they are told,
+      // whether or not they had responded yet. They may already have looked.
       patch.content_key = key
-      if (item.review_status !== 'awaiting') {
-        patch.review_status = 'awaiting'
-        patch.reviewed_at = null
-        returned.push({ cycleId: item.cycle_id, filename: item.filename })
-      }
+      patch.review_status = 'awaiting'
+      patch.reviewed_at = null
+      returned.push({ cycleId: item.cycle_id, filename: item.filename })
     }
     await supabaseAdmin.from('review_cycle_items').update(patch).eq('id', item.id)
     if (patch.review_status === 'awaiting') {
