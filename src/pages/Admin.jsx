@@ -190,7 +190,8 @@ export default function Admin() {
       let derivedStage = 'in_review'
       if (hasRevisions) derivedStage = 'revisions'
       else if (roll.approved > 0 && roll.in_review === 0) derivedStage = 'approved'
-      const effectiveStage = cycle.manual_override || derivedStage
+      // Bank deliveries keep their stage on the row (unapproved files have no status row).
+      const effectiveStage = cycle.manual_override || (cycle.source === 'bank' ? cycle.stage : derivedStage)
       if (!grouped[cycle.client_id]) grouped[cycle.client_id] = []
       grouped[cycle.client_id].push({ ...cycle, derivedStage, effectiveStage, roll })
     })
@@ -332,10 +333,11 @@ export default function Admin() {
         supabase.from('file_status').select('status').eq('cycle_id', comment.cycle_id),
         supabase.from('file_comments').select('id, sender_role').eq('cycle_id', comment.cycle_id).eq('resolved', false)
       ])
+      const { data: cyRow } = await supabase.from('review_cycles').select('source').eq('id', comment.cycle_id).maybeSingle()
       const clientRemaining = (remainingComments || []).filter(r => r.sender_role !== 'admin')
       let recomputed = 'in_review'
       if (clientRemaining.length > 0) recomputed = 'revisions'
-      else if ((statusRows || []).length > 0 && statusRows.every(r => r.status === 'approved')) recomputed = 'approved'
+      else if (cyRow?.source !== 'bank' && (statusRows || []).length > 0 && statusRows.every(r => r.status === 'approved')) recomputed = 'approved'
       await supabase.from('review_cycles').update({ stage: recomputed }).eq('id', comment.cycle_id)
       await loadCyclesByClient()
     }
@@ -878,10 +880,10 @@ export default function Admin() {
                                 <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto' }}>
                                   <button
                                     className={styles.editBtn}
-                                    onClick={() => { switchClient(c.id); navigate('/content', { state: { jumpToFolderPath: cycle.folder_path } }) }}
+                                    onClick={() => { switchClient(c.id); cycle.source === 'bank' ? navigate('/delivery/' + cycle.id) : navigate('/content', { state: { jumpToFolderPath: cycle.folder_path } }) }}
                                     style={{ whiteSpace: 'nowrap', color: 'var(--gold-light)' }}
                                   >
-                                    Open folder <i className="ti ti-arrow-right" aria-hidden="true" />
+                                    {cycle.source === 'bank' ? 'Open delivery' : 'Open folder'} <i className="ti ti-arrow-right" aria-hidden="true" />
                                   </button>
                                   <button
                                     className={styles.editBtn}
