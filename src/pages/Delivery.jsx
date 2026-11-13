@@ -373,7 +373,7 @@ export default function Delivery() {
                     <button onClick={() => reopen(item)} disabled={busy} style={btn()}>Send revised file</button>
                   )}
                   {isTeam && post && !live && (
-                    <button onClick={() => navigate('/content-bank')} style={btn()}>Edit in Content Bank</button>
+                    <button onClick={() => navigate('/content-bank', { state: { openDraftId: item.schedule_draft_id } })} style={btn()}>Edit in Content Bank</button>
                   )}
                   {!post && item.review_status === 'approved' && <button onClick={() => download(item)} style={btn()}>Download</button>}
                 </div>
