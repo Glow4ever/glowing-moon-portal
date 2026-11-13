@@ -431,8 +431,11 @@ export default function Schedule() {
     setStack(prev => prev.slice(0, index + 1))
   }
 
-  const fileEntries = entries.filter(e => e.type !== 'folder')
-  const folderEntries = entries.filter(e => e.type === 'folder')
+  // Dropbox returns files in no fixed order. Sort by name, with numbers in
+  // number order (R2 before R10).
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+  const fileEntries = entries.filter(e => e.type !== 'folder').sort(byName)
+  const folderEntries = entries.filter(e => e.type === 'folder').sort(byName)
   const viewingBank = bankFolder && currentPath === bankFolder.path
   const operational = client?.delivery_mode === 'operational'
 
