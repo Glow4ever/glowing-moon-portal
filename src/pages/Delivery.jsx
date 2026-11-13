@@ -15,7 +15,7 @@ import styles from './Admin.module.css'
 export default function Delivery() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { role } = useClient()
+  const { role, client: activeClient, switchClient } = useClient()
   const isTeam = role === 'admin' || role === 'editor'
   const isViewer = role === 'viewer'
 
@@ -52,6 +52,13 @@ export default function Delivery() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  // A team member who opens a link from an email lands on the delivery's own client.
+  useEffect(() => {
+    if (isTeam && owner && activeClient?.id !== owner.id && switchClient) switchClient(owner.id)
+  }, [isTeam, owner, activeClient?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pageLink = 'https://portal.glowingmoonmedia.com/delivery/' + id
 
   // Previews load in the background, a few at a time.
   useEffect(() => {
@@ -93,7 +100,7 @@ export default function Delivery() {
       try {
         await apiFetch('/api/send-email', {
           method: 'POST',
-          body: JSON.stringify({ type: 'approved', clientName: owner.name, month: cycle.folder_label })
+          body: JSON.stringify({ type: 'approved', clientName: owner.name, month: cycle.folder_label, link: pageLink })
         })
         await supabase.from('notifications').insert({
           client_id: owner.id,
@@ -115,13 +122,13 @@ export default function Delivery() {
         if (owner?.notification_email) {
           await apiFetch('/api/send-email', {
             method: 'POST',
-            body: JSON.stringify({ type: 'comment_reply', notificationEmail: owner.notification_email, fileName: item.filename, comment: text })
+            body: JSON.stringify({ type: 'comment_reply', notificationEmail: owner.notification_email, fileName: item.filename, comment: text, link: pageLink })
           })
         }
       } else {
         await apiFetch('/api/send-email', {
           method: 'POST',
-          body: JSON.stringify({ type: 'comment', clientName: owner?.name, fileName: item.filename, comment: text })
+          body: JSON.stringify({ type: 'comment', clientName: owner?.name, fileName: item.filename, comment: text, link: pageLink })
         })
       }
     } catch (e) { console.error('Comment email error:', e) }
@@ -143,7 +150,7 @@ export default function Delivery() {
             month: cycle.folder_label,
             fileName: item.filename,
             notificationEmail: owner.notification_email,
-            link: 'https://portal.glowingmoonmedia.com/delivery/' + id
+            link: pageLink
           })
         })
       }
