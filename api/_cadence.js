@@ -17,7 +17,7 @@
 // starts at week 9 and clears once the call is marked booked.
 //
 // Everything else should call weekPlan(client, today) and never work out the
-// week itself. src/lib/cadence.js is a copy of this file for the browser.
+// week itself. The browser never works out the week: it asks api/week-plan.js.
 
 const DAY = 24 * 60 * 60 * 1000
 
