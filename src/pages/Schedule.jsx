@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/apiFetch'
 import { getDownloadLink, getFileType, formatBytes } from '../lib/dropbox'
 import styles from './Admin.module.css'
+import OperationalBank from '../components/OperationalBank'
 
 // Admin-only by design — gated at the route level in Portal.jsx via
 // AdminRoute, the same guard already used for /admin. This page is
@@ -412,6 +413,7 @@ export default function Schedule() {
   const fileEntries = entries.filter(e => e.type !== 'folder')
   const folderEntries = entries.filter(e => e.type === 'folder')
   const viewingBank = bankFolder && currentPath === bankFolder.path
+  const operational = client?.delivery_mode === 'operational'
 
   // Load existing draft rows for the bank folder whenever it's the one
   // being viewed — this is what makes revisiting a folder show whatever
@@ -756,7 +758,7 @@ export default function Schedule() {
             )}
           </div>
 
-          {viewingBank && activeOccurrences.length > 0 && (
+          {viewingBank && !operational && activeOccurrences.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
               <button
                 onClick={scheduleBatch}
@@ -807,6 +809,8 @@ export default function Schedule() {
             <div className={styles.empty}>Couldn't load this folder. Try again.</div>
           ) : entries.length === 0 ? (
             <div className={styles.empty}>Empty folder.</div>
+          ) : viewingBank && operational ? (
+            <OperationalBank client={client} fileEntries={fileEntries} thumbs={thumbs} />
           ) : viewingBank ? (
             /* Composer — one row per file: caption, platforms, date */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -1247,7 +1251,7 @@ export default function Schedule() {
         </>
       )}
 
-      {viewingBank && activeOccurrences.length > 0 && (
+      {viewingBank && !operational && activeOccurrences.length > 0 && (
         <div className={styles.empty} style={{ marginTop: '24px', padding: '22px 24px' }}>
           <i className="ti ti-send" style={{ fontSize: '22px', color: 'var(--text3)', marginBottom: '8px', display: 'block' }} aria-hidden="true" />
           Captions save automatically as you go — {readyCount} of {activeOccurrences.length} active postings have a caption, at least one platform, and a date. The Schedule button that sends the whole batch to Metricool is the next piece to build.
