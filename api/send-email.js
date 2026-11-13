@@ -99,6 +99,7 @@ module.exports = async function handler(req, res) {
                       <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
                       <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Content Approved</h1>
                       <p style="margin:0;font-size:15px;color:#888;line-height:1.6;"><strong style="color:#fff;">${safeClient}</strong> has approved all content for <strong style="color:#fff;">${safeMonth}</strong>. You're clear to schedule and publish.</p>
+                      ${safeLink ? `<p style="margin:24px 0 0;"><a href="${safeLink}" style="color:#D3C9A7;text-decoration:none;">Open in the portal →</a></p>` : ''}
                     </td>
                   </tr>
                 </table>
@@ -130,6 +131,7 @@ module.exports = async function handler(req, res) {
                       <div style="background:#1a1a1c;border-left:3px solid #D3C9A7;border-radius:4px;padding:16px 20px;">
                         <p style="margin:0;font-size:15px;color:#fff;line-height:1.6;">${safeComment}</p>
                       </div>
+                      ${safeLink ? `<p style="margin:24px 0 0;"><a href="${safeLink}" style="color:#D3C9A7;text-decoration:none;">View the thread in the portal →</a></p>` : ''}
                     </td>
                   </tr>
                 </table>
