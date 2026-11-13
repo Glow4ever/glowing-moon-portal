@@ -190,19 +190,26 @@ function postIdsOf(occurrence) {
   return [...new Set(Object.values(occurrence.metricool_post_ids || {}).map(String))]
 }
 
+async function getPost(blogId, id) {
+  const r = await fetch(`https://app.metricool.com/api/v2/scheduler/posts/${id}?${metricoolParams(blogId)}`, {
+    headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
+  })
+  const text = await r.text()
+  let json = null
+  try { json = JSON.parse(text) } catch (e) { /* keep text */ }
+  return { status: r.status, ok: r.ok, post: json && (json.data || json), text }
+}
+
 async function anyPublished(blogId, ids) {
   for (const id of ids) {
-    const r = await fetch(`https://app.metricool.com/api/v2/scheduler/posts/${id}?${metricoolParams(blogId)}`, {
-      headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
-    })
-    if (!r.ok) continue
-    let post
-    try { post = await r.json() } catch (e) { continue }
-    if ((post.providers || []).some(p => p.status === 'PUBLISHED')) return true
+    const g = await getPost(blogId, id)
+    if (g.ok && ((g.post && g.post.providers) || []).some(p => p.status === 'PUBLISHED')) return true
   }
   return false
 }
 
+// Delete, then read each post back to confirm it is really gone. A delete
+// that "succeeds" but leaves the post in Metricool is reported, not trusted.
 async function deletePosts(blogId, ids) {
   const failures = []
   for (const id of ids) {
@@ -210,11 +217,17 @@ async function deletePosts(blogId, ids) {
       method: 'DELETE',
       headers: { 'X-Mc-Auth': process.env.METRICOOL_API_TOKEN }
     })
-    // 404 means it is already gone, which is what we wanted.
-    if (!r.ok && r.status !== 404) failures.push(`${id}: ${r.status} ${(await r.text()).slice(0, 200)}`)
+    const body = (await r.text()).slice(0, 200)
+    if (!r.ok && r.status !== 404) { failures.push(`${id}: delete ${r.status} ${body}`); continue }
+    const after = await getPost(blogId, id)
+    if (after.ok && after.post && (after.post.providers || []).length) {
+      failures.push(`${id}: delete answered ${r.status} but the post is still in Metricool`)
+    }
   }
   return failures
 }
+
+const NO_ID_MESSAGE = 'No Metricool id was saved for this post, so the portal cannot find it in Metricool. Delete the post in Metricool yourself, then click Retry here to schedule the new version.'
 
 // After a post is sent again, update every delivery item that holds it.
 // If the caption, platforms or post type changed, the client sees it again.
@@ -290,6 +303,9 @@ module.exports = async function handler(req, res) {
   // ---------- pull: take a scheduled post off the calendar ----------
   if ((req.body || {}).action === 'pull') {
     if (occurrence.status !== 'scheduled') return res.status(400).json({ error: 'Only a scheduled post can be pulled.' })
+    if (!oldIds.length) {
+      return res.status(409).json({ error: 'No Metricool id was saved for this post, so it cannot be pulled from here. Delete it in Metricool.' })
+    }
     try {
       if (oldIds.length && await anyPublished(blogId, oldIds)) {
         await supabaseAdmin.from('schedule_drafts').update({ status: 'published', active: false }).eq('id', occurrenceId)
@@ -311,6 +327,11 @@ module.exports = async function handler(req, res) {
       console.error('pull error:', err)
       return res.status(500).json({ error: err.message })
     }
+  }
+
+  if (occurrence.status === 'scheduled' && !oldIds.length) {
+    await supabaseAdmin.from('schedule_drafts').update({ status: 'failed', schedule_error: NO_ID_MESSAGE }).eq('id', occurrenceId)
+    return res.status(409).json({ error: NO_ID_MESSAGE })
   }
 
   try {
@@ -402,7 +423,15 @@ module.exports = async function handler(req, res) {
         errors.push(`${group.platforms.join('+')}: ${JSON.stringify(postData)}`)
         continue
       }
-      for (const platform of group.platforms) networkToPostId[platform] = postData.id
+      // Metricool has answered both as { id } and as { data: { id } }. Reading
+      // only postData.id saved nothing for the wrapped form, which left the
+      // portal unable to find the post again (Pull and Update did nothing).
+      const newId = postData.id ?? postData.data?.id ?? postData.data?.[0]?.id
+      if (newId === undefined || newId === null) {
+        errors.push(`${group.platforms.join('+')}: scheduled, but Metricool returned no post id: ${postRaw.slice(0, 300)}`)
+        continue
+      }
+      for (const platform of group.platforms) networkToPostId[platform] = newId
     }
 
     const fullyFailed = errors.length > 0 && errors.length === groups.length
