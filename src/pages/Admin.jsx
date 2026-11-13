@@ -538,6 +538,7 @@ export default function Admin() {
       roi_show_cost_avoidance: !!editingClient.roi_show_cost_avoidance,
       primary_frame: editingClient.primary_frame || 'operations',
       delivery_mode: editingClient.delivery_mode === 'operational' ? 'operational' : 'publishing',
+      metricool_blog_id: editingClient.metricool_blog_id ? Number(String(editingClient.metricool_blog_id).replace(/\D/g, '')) || null : null,
     })
     setEditingClient(null)
     showToast('Branding saved!')
@@ -1061,6 +1062,17 @@ export default function Admin() {
                             </label>
                           </div>
                           <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>Changes which Overview layout this client sees. Credibility fits person-led brands where content builds an individual's standing. Operations fits teams where content supports an existing marketing function.</div>
+                        </div>
+                        <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
+                          <label className={styles.label}>Metricool Brand ID</label>
+                          <input
+                            className={styles.input}
+                            inputMode="numeric"
+                            value={editingClient.metricool_blog_id ?? ''}
+                            onChange={e => setEditingClient(p => ({...p, metricool_blog_id: e.target.value.replace(/\D/g, '')}))}
+                            placeholder="e.g. 6995371"
+                          />
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '6px' }}>The blogId number in the address bar when this brand is open in Metricool. Connects scheduling, the calendar and metrics. Leave blank to disconnect. The brand must be under the portal's Metricool account.</div>
                         </div>
                         <div className={styles.field} style={{ gridColumn: '1 / -1' }}>
                           <label className={styles.label}>Delivery Mode</label>
