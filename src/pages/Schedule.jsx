@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useClient } from '../lib/ClientContext'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/apiFetch'
 import { getDownloadLink, getFileType, formatBytes } from '../lib/dropbox'
 import styles from './Admin.module.css'
 import OperationalBank from '../components/OperationalBank'
+import PostDeliveryBar from '../components/PostDeliveryBar'
+import { hasUnsentChanges } from '../lib/postSnapshot'
 
 // Admin-only by design — gated at the route level in Portal.jsx via
 // AdminRoute, the same guard already used for /admin. This page is
@@ -242,6 +245,7 @@ export default function Schedule() {
   // and back) it reset to whatever the real global client still was —
   // GMM, since that's the default and nothing had ever really changed it.
   const { client } = useClient()
+  const navigate = useNavigate()
   const clientName = client?.name
   const selectedClientId = client?.id
 
@@ -268,6 +272,7 @@ export default function Schedule() {
   const [collapsedOccurrences, setCollapsedOccurrences] = useState({})
   const [scheduling, setScheduling] = useState(false)
   const [scheduleProgress, setScheduleProgress] = useState(null) // { done, total }
+  const [reviewByDraft, setReviewByDraft] = useState({}) // draft id -> { status, cycleId, open }
   const [scheduleResults, setScheduleResults] = useState(null) // { succeeded, failed: [{filename, error}] }
 
   // The client's tracked links -- one small fetch per client, reused
@@ -445,6 +450,25 @@ export default function Schedule() {
     })()
     return () => { cancelled = true }
   }, [viewingBank, selectedClientId, bankFolder?.path])
+
+  // Client review state for each post, from its newest delivery.
+  const loadReview = useCallback(async () => {
+    if (!selectedClientId) return
+    const { data } = await supabase
+      .from('review_cycle_items')
+      .select('schedule_draft_id, review_status, cycle_id, created_at, review_cycles(resolved_at)')
+      .eq('client_id', selectedClientId)
+      .not('schedule_draft_id', 'is', null)
+      .order('created_at', { ascending: false })
+    const map = {}
+    ;(data || []).forEach(r => {
+      if (map[r.schedule_draft_id]) return
+      map[r.schedule_draft_id] = { status: r.review_status, cycleId: r.cycle_id, open: !(r.review_cycles && r.review_cycles.resolved_at) }
+    })
+    setReviewByDraft(map)
+  }, [selectedClientId])
+
+  useEffect(() => { if (viewingBank && !operational) loadReview() }, [viewingBank, operational, loadReview])
 
   function occurrencesFor(file) {
     return drafts[file.path_lower] || []
@@ -631,7 +655,7 @@ export default function Schedule() {
   // reverted it, and the failure looked like it had "disappeared." What's
   // shown now is always what's actually saved, because it's re-read from
   // the same place a fresh page load would read it from.
-  async function scheduleOne(file, occ) {
+  async function scheduleOne(file, occ, action) {
     setDrafts(prev => ({
       ...prev,
       [file.path_lower]: (prev[file.path_lower] || []).map(o =>
@@ -639,11 +663,31 @@ export default function Schedule() {
       )
     }))
 
+    let notice = null
     try {
-      await apiFetch('/api/schedule-post', {
+      const res = await apiFetch('/api/schedule-post', {
         method: 'POST',
-        body: JSON.stringify({ occurrenceId: occ.id })
+        body: JSON.stringify({ occurrenceId: occ.id, ...(action ? { action } : {}) })
       })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok && body.error) notice = body.error
+      // A caption, platform or post type change sends the post back to the
+      // client. Tell them, with a link to the delivery.
+      if (body.returnedForReview && body.returnedForReview.length && client?.notification_email) {
+        const seen = new Set()
+        for (const r of body.returnedForReview) {
+          if (seen.has(r.cycleId)) continue
+          seen.add(r.cycleId)
+          await apiFetch('/api/send-email', {
+            method: 'POST',
+            body: JSON.stringify({
+              type: 'file_revised', clientName: client.name, fileName: r.filename,
+              notificationEmail: client.notification_email,
+              link: 'https://portal.glowingmoonmedia.com/delivery/' + r.cycleId
+            })
+          }).catch(() => {})
+        }
+      }
     } catch (err) {
       // Swallowed on purpose -- whatever happened, the re-fetch below is
       // what decides what actually gets shown, not this response.
@@ -659,18 +703,26 @@ export default function Schedule() {
       ...prev,
       [file.path_lower]: (prev[file.path_lower] || []).map(o =>
         o._key === occ._key
-          ? (fresh ? { ...fresh, _key: occ._key } : { ...o, _scheduling: false, status: 'failed', schedule_error: 'Could not confirm what happened -- check this occurrence directly before assuming it failed.' })
+          ? (fresh ? { ...fresh, _key: occ._key, _notice: notice } : { ...o, _scheduling: false, status: 'failed', schedule_error: 'Could not confirm what happened -- check this occurrence directly before assuming it failed.' })
           : o
       )
     }))
+    if (!operational) loadReview()
 
     return fresh
   }
 
   function scheduleButtonLabel(status) {
     if (status === 'failed') return 'Retry'
-    if (status === 'scheduled' || status === 'published') return 'Reschedule'
+    // Replaces the post in Metricool (old one removed first), never a second copy.
+    if (status === 'scheduled') return 'Update in Metricool'
+    if (status === 'published') return 'Post again'
     return 'Schedule'
+  }
+
+  async function pullPost(file, occ) {
+    if (!window.confirm('Pull this post? It is removed from Metricool and will not publish. You can schedule it again later.')) return
+    await scheduleOne(file, occ, 'pull')
   }
 
   async function scheduleBatch() {
@@ -757,6 +809,15 @@ export default function Schedule() {
               </button>
             )}
           </div>
+
+          {viewingBank && !operational && (
+            <PostDeliveryBar
+              client={client}
+              occurrences={allOccurrences.map(x => x.occ)}
+              reviewByDraft={reviewByDraft}
+              onSent={loadReview}
+            />
+          )}
 
           {viewingBank && !operational && activeOccurrences.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px', flexWrap: 'wrap' }}>
@@ -888,6 +949,29 @@ export default function Schedule() {
                                     <i className="ti ti-alert-circle" aria-hidden="true" /> Failed
                                   </span>
                                 )}
+                                {occ.status === 'cancelled' && (
+                                  <span style={{ fontSize: '11px', color: 'var(--text3)', padding: '2px 8px', borderRadius: '10px', border: '1px solid var(--border)' }}>Pulled</span>
+                                )}
+                                {occ.id && reviewByDraft[occ.id] && (() => {
+                                  const rv = reviewByDraft[occ.id]
+                                  const meta = rv.status === 'approved'
+                                    ? { t: 'Client approved', c: 'var(--teal)' }
+                                    : rv.status === 'changes_requested'
+                                      ? { t: 'Change requested', c: 'var(--coral)' }
+                                      : { t: rv.open ? 'Awaiting review' : 'Not reviewed', c: 'var(--gold-light)' }
+                                  return (
+                                    <button onClick={() => navigate('/delivery/' + rv.cycleId)} title="Open the delivery"
+                                      style={{ fontSize: '11px', color: meta.c, background: 'transparent', border: '1px solid ' + meta.c, padding: '1px 8px', borderRadius: '10px', cursor: 'pointer' }}>
+                                      {meta.t}
+                                    </button>
+                                  )
+                                })()}
+                                {hasUnsentChanges(occ) && (
+                                  <span title="Edited since it was sent to Metricool. Click Update in Metricool to send the change."
+                                    style={{ fontSize: '11px', color: 'var(--gold-light)', padding: '2px 8px', borderRadius: '10px', background: 'var(--gold-bg)' }}>
+                                    Unsent changes
+                                  </span>
+                                )}
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{ fontSize: '11px', color: 'var(--text3)', flexShrink: 0 }}>
@@ -896,6 +980,12 @@ export default function Schedule() {
                                   {saveState === 'error' && <span style={{ color: 'var(--coral)' }}>Couldn't save</span>}
                                   {saveState === 'pending' && '…'}
                                 </div>
+                                {occ.status === 'scheduled' && !occ._scheduling && (
+                                  <button onClick={() => pullPost(f, occ)} title="Remove from Metricool so it does not publish"
+                                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--text3)', fontSize: '11px', padding: '4px 10px', borderRadius: '7px', cursor: 'pointer' }}>
+                                    Pull
+                                  </button>
+                                )}
                                 {/* One schedule action per occurrence, always here, labeled
                                     for what it'll actually do -- not a separate button for
                                     "first time" versus "again." */}
@@ -931,6 +1021,9 @@ export default function Schedule() {
                                 {occ.publish_date && <span>&middot; {occ.publish_date.replace('T', ' ')}</span>}
                                 {occ.caption?.trim() && <span>&middot; "{occ.caption.slice(0, 40)}{occ.caption.length > 40 ? '…' : ''}"</span>}
                               </div>
+                            )}
+                            {occ._notice && (
+                              <div style={{ fontSize: '11px', color: 'var(--gold-light)', background: 'var(--gold-bg)', borderRadius: '6px', padding: '6px 10px' }}>{occ._notice}</div>
                             )}
                             {occ.status === 'failed' && occ.schedule_error && (
                               <div style={{ fontSize: '11px', color: 'var(--coral)', background: 'rgba(240,153,123,0.08)', border: '1px solid rgba(240,153,123,0.25)', borderRadius: '6px', padding: '6px 10px', wordBreak: 'break-word' }}>
