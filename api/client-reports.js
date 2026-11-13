@@ -1,7 +1,8 @@
 // api/client-reports.js
 //
-// Daily cron. Only ever ASSEMBLES drafts and emails admin that they're
-// ready. Nothing goes to a client until admin reviews and clicks Send.
+// Daily cron. Only ever ASSEMBLES drafts and emails the client's owner
+// (admin copied) that they're ready. Nothing goes to a client until a
+// person reviews and clicks Send on the Reports page.
 //
 // Schedules follow each client's weekly rhythm (see _cadence.js weekPlan),
 // which alternates so a client hears from GMM once a week:
@@ -18,11 +19,11 @@
 const { createClient } = require('@supabase/supabase-js')
 const { Resend } = require('resend')
 const { parseDate, iso, addDays, todayUTC, weekPlan } = require('./_cadence')
+const { loadTeam, routingFor } = require('./_team')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-const ADMIN_EMAIL = process.env.REPORT_NOTIFY_EMAIL || 'hector@glowingmoonmedia.com'
 const SUMMARY_PLACEHOLDER = '[YOUR SUMMARY: 2-4 sentences on what we accomplished together these past four weeks.]'
 
 function fmt(s) {
@@ -240,36 +241,53 @@ async function saveDraft(client, reportType, periodStart, periodEnd, draft, labe
     message: `${client.name}'s ${label} is ready for review.`,
     read: false
   })
-  created.push({ client: client.name, label, periodStart, periodEnd })
+  created.push({ client: client.name, ownerId: client.account_manager_id || null, label, periodStart, periodEnd })
 }
 
-async function emailAdmin(created) {
-  if (created.length === 0) return
+function reportsEmailHtml(created) {
   const rows = created.map(c =>
     `<tr><td style="padding:10px 0;border-bottom:1px solid #222;color:#fff;font-size:15px;">${c.client}</td>
      <td style="padding:10px 0;border-bottom:1px solid #222;color:#888;font-size:14px;text-align:right;">${c.label}<br><span style="font-size:12px;color:#555;">${c.periodStart} to ${c.periodEnd}</span></td></tr>`
   ).join('')
-  await resend.emails.send({
-    from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
-    to: ADMIN_EMAIL,
-    subject: created.length === 1
-      ? `${created[0].client}: ${created[0].label} ready to review`
-      : `${created.length} client reports ready to review`,
-    html: `
+  return `
       <!DOCTYPE html><html><body style="margin:0;padding:0;background:#0a0a0b;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0b;padding:40px 20px;"><tr><td align="center">
           <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#111113;border-radius:12px;overflow:hidden;border-top:2px solid #D3C9A7;">
             <tr><td style="padding:40px;">
               <div style="font-size:13px;letter-spacing:3px;color:#D3C9A7;text-transform:uppercase;font-weight:600;margin-bottom:24px;">Glowing Moon Media</div>
               <h1 style="margin:0 0 16px;font-size:24px;font-weight:700;color:#ffffff;">Reports ready to review</h1>
-              <p style="margin:0 0 20px;font-size:15px;color:#888;line-height:1.6;">Nothing has been sent to clients. Review, edit, and send from the Reports tab.</p>
+              <p style="margin:0 0 20px;font-size:15px;color:#888;line-height:1.6;">Nothing has been sent to clients. Review, edit, and send from the Reports page.</p>
               <table width="100%" cellpadding="0" cellspacing="0">${rows}</table>
-              <a href="https://portal.glowingmoonmedia.com/admin?tab=reports" style="display:inline-block;margin-top:28px;background:#D3C9A7;color:#111;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:8px;">Open Reports</a>
+              <a href="https://portal.glowingmoonmedia.com/reports" style="display:inline-block;margin-top:28px;background:#D3C9A7;color:#111;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:8px;">Open Reports</a>
             </td></tr>
           </table>
         </td></tr></table>
       </body></html>`
-  })
+}
+
+// One email per owner, listing only that owner's clients, admin copied.
+async function emailOwners(created) {
+  if (created.length === 0) return
+  const team = await loadTeam(supabase)
+  const groups = new Map()
+  for (const c of created) {
+    const routing = routingFor(team, c.ownerId)
+    const key = routing.to.join(',')
+    if (!groups.has(key)) groups.set(key, { routing, items: [] })
+    groups.get(key).items.push(c)
+  }
+  for (const { routing, items } of groups.values()) {
+    const payload = {
+      from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
+      to: routing.to,
+      subject: items.length === 1
+        ? `${items[0].client}: ${items[0].label} ready to review`
+        : `${items.length} client reports ready to review`,
+      html: reportsEmailHtml(items),
+    }
+    if (routing.cc.length) payload.cc = routing.cc
+    await resend.emails.send(payload)
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -281,7 +299,7 @@ module.exports = async function handler(req, res) {
 
   const { data: clients, error: clientsError } = await supabase
     .from('clients')
-    .select('id, name, active, primary_frame, retainer_start_date, delivery_start_date, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
+    .select('id, name, active, account_manager_id, primary_frame, retainer_start_date, delivery_start_date, time_recovered_hours, time_recovered_value, cost_avoidance_amount, cost_avoidance_label, roi_show_time_hours, roi_show_time_value, roi_show_cost_avoidance')
 
   if (clientsError) return res.status(500).json({ error: clientsError.message })
 
@@ -322,7 +340,7 @@ module.exports = async function handler(req, res) {
   }
 
   let emailError = null
-  try { await emailAdmin(created) } catch (err) { emailError = err.message; console.error('Report email failed:', err) }
+  try { await emailOwners(created) } catch (err) { emailError = err.message; console.error('Report email failed:', err) }
 
   return res.status(200).json({ ranAt: new Date().toISOString(), created, emailError })
 }
