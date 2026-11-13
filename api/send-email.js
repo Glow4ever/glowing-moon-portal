@@ -19,7 +19,7 @@ module.exports = async function handler(req, res) {
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType, note } = req.body
+  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType, note, link } = req.body
 
   const safeClient = sanitize(clientName)
   const safeMonth = sanitize(month)
@@ -31,7 +31,9 @@ module.exports = async function handler(req, res) {
   const safeReportType = sanitize(reportType)
   const safeNote = sanitize(note)
 
-  const portalLink = 'https://portal.glowingmoonmedia.com/content'
+  // Optional deep link (deliveries). Only our own portal addresses are accepted.
+  const safeLink = typeof link === 'string' && /^https:\/\/portal\.glowingmoonmedia\.com\/[A-Za-z0-9\/_\-]*$/.test(link) ? link : null
+  const portalLink = safeLink || 'https://portal.glowingmoonmedia.com/content'
   const loginLink = 'https://portal.glowingmoonmedia.com/login'
 
   try {
@@ -39,7 +41,7 @@ module.exports = async function handler(req, res) {
       await resend.emails.send({
         from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
         to: safeEmail,
-        subject: `Your ${safeMonth} content is ready for review`,
+        subject: safeLink ? `New content ready for review: ${safeMonth}` : `Your ${safeMonth} content is ready for review`,
         html: `
           <!DOCTYPE html>
           <html>
