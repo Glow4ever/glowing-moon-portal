@@ -203,6 +203,7 @@ export default function Content() {
       .from('review_cycles')
       .select('*')
       .eq('client_id', client.id)
+      .eq('source', 'folder')
       .is('resolved_at', null)
       .order('sent_at', { ascending: false })
     setCycles(data || [])
