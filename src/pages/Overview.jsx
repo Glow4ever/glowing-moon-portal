@@ -267,7 +267,8 @@ export default function Overview() {
           let derivedStage = 'in_review'
           if (hasRevisions) derivedStage = 'revisions'
           else if (roll.approved > 0 && roll.in_review === 0) derivedStage = 'approved'
-          const effectiveStage = cycle.manual_override || derivedStage
+          // Bank deliveries keep their stage on the row (unapproved files have no status row).
+          const effectiveStage = cycle.manual_override || (cycle.source === 'bank' ? cycle.stage : derivedStage)
           return { ...cycle, effectiveStage }
         })
         // Active means still open — approved cycles have nothing left to
@@ -493,10 +494,10 @@ export default function Overview() {
                     : (role === 'viewer' ? 'View files or leave feedback' : 'Approve files or leave revision notes')}
                 </div>
                 <button
-                  onClick={() => navigate('/content', { state: { jumpToFolderPath: cycle.folder_path } })}
+                  onClick={() => cycle.source === 'bank' ? navigate('/delivery/' + cycle.id) : navigate('/content', { state: { jumpToFolderPath: cycle.folder_path } })}
                   style={{ width: '100%', background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', padding: '8px', borderRadius: '7px', fontSize: '12px', cursor: 'pointer' }}
                 >
-                  {role === 'viewer' ? 'View now' : (role === 'admin' || role === 'editor' ? 'Open folder' : 'Review now')} <i className="ti ti-arrow-right" style={{ marginLeft: '2px' }} />
+                  {role === 'viewer' ? 'View now' : (role === 'admin' || role === 'editor' ? (cycle.source === 'bank' ? 'Open delivery' : 'Open folder') : 'Review now')} <i className="ti ti-arrow-right" style={{ marginLeft: '2px' }} />
                 </button>
               </div>
             )
