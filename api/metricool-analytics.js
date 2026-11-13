@@ -125,6 +125,9 @@ export default async function handler(req, res) {
   }
 
   const { createClient } = await import('@supabase/supabase-js')
+  // _delivery.js is CommonJS; this file is ESM, so load it the same way as supabase-js above.
+  const deliveryMod = await import('./_delivery.js')
+  const { settleForDrafts } = deliveryMod.settleForDrafts ? deliveryMod : deliveryMod.default
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
   const { data: clients, error: clientsError } = await supabase
@@ -372,6 +375,9 @@ export default async function handler(req, res) {
 
         if (allPublished) {
           await supabase.from('schedule_drafts').update({ status: 'published', active: false }).eq('id', occ.id)
+          // A post that went out needs nothing more from the client. Close any
+          // delivery that was only waiting on it.
+          await settleForDrafts(supabase, [occ.id])
         } else if (anyUnrecognized) {
           await supabase.from('schedule_drafts').update({
             status: 'failed',
