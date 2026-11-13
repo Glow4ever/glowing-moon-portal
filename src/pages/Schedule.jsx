@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useClient } from '../lib/ClientContext'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/apiFetch'
@@ -107,7 +107,11 @@ function buildStackFromPath(root, path) {
   const rest = path.slice(root.length).replace(/^\/+/, '')
   const parts = rest ? rest.split('/') : []
   const stack = [{ name: 'Content', path: root }]
-  let acc = root
+  // Build each crumb from the saved path itself, not from root, so the last
+  // crumb matches it exactly. Root is mixed case and saved paths are Dropbox's
+  // lowercase form; mixing the two made a restored bank folder fail the
+  // "is this the bank" check and show as a plain folder with no postings.
+  let acc = path.slice(0, root.length)
   for (const part of parts) {
     acc = `${acc}/${part}`
     stack.push({ name: part, path: acc })
@@ -246,6 +250,10 @@ export default function Schedule() {
   // GMM, since that's the default and nothing had ever really changed it.
   const { client } = useClient()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Arriving from a delivery's "Edit in Content Bank": open the bank and the post.
+  const jumpDraftId = location.state && location.state.openDraftId
+  const jumpedRef = useRef(false)
   const clientName = client?.name
   const selectedClientId = client?.id
 
@@ -356,6 +364,14 @@ export default function Schedule() {
   const currentPath = stack?.[stack.length - 1]?.path
 
   useEffect(() => {
+    if (!jumpDraftId || jumpedRef.current || !bankFolder || !clientName) return
+    const root = `/Glowing Moon Portal/${clientName}/Content`
+    const st = buildStackFromPath(root, bankFolder.path)
+    if (st) setStack(st)
+    jumpedRef.current = true
+  }, [jumpDraftId, bankFolder, clientName])
+
+  useEffect(() => {
     if (currentPath) loadFolder(currentPath)
   }, [currentPath])
 
@@ -450,6 +466,12 @@ export default function Schedule() {
     })()
     return () => { cancelled = true }
   }, [viewingBank, selectedClientId, bankFolder?.path])
+
+  useEffect(() => {
+    if (!jumpDraftId) return
+    const el = document.getElementById('occ-' + jumpDraftId)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [jumpDraftId, drafts])
 
   // Client review state for each post, from its newest delivery.
   const loadReview = useCallback(async () => {
@@ -926,7 +948,7 @@ export default function Schedule() {
                         const occReady = occ.caption?.trim() && occ.platforms?.length > 0 && occ.publish_date && occ.id
                         const collapsed = collapsedOccurrences[occ._key] ?? false
                         return (
-                          <div key={occ._key} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--surface1)', border: '1px solid ' + (isActive ? 'var(--border)' : 'transparent'), borderRadius: '8px', padding: '10px 12px', opacity: isActive ? 1 : 0.55 }}>
+                          <div key={occ._key} id={occ.id ? 'occ-' + occ.id : undefined} style={{ display: 'flex', flexDirection: 'column', gap: '8px', background: 'var(--surface1)', border: '1px solid ' + (occ.id && occ.id === jumpDraftId ? 'var(--gold-light)' : isActive ? 'var(--border)' : 'transparent'), borderRadius: '8px', padding: '10px 12px', opacity: isActive ? 1 : 0.55 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <ToggleSwitch
