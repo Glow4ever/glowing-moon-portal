@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { supabase } from '../lib/supabase'
 import styles from './Login.module.css'
@@ -13,6 +13,7 @@ export default function Login() {
   const [resetSent, setResetSent] = useState(false)
   const { signIn } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -23,7 +24,9 @@ export default function Login() {
       setError('Invalid email or password.')
       setLoading(false)
     } else {
-      navigate('/')
+      // Return to the page an email link pointed at, if there was one.
+      const from = location.state && location.state.from
+      navigate(typeof from === 'string' && from.startsWith('/') && !from.startsWith('//') && from !== '/login' ? from : '/')
     }
   }
 
