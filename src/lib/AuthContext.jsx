@@ -14,8 +14,12 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
 
+    // Supabase re-announces the session when the tab regains focus (token
+    // refresh). Keep the same user object unless the person actually changed,
+    // otherwise every page reloads its data and resets when you come back.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+      const next = session?.user ?? null
+      setUser(prev => (prev && next && prev.id === next.id ? prev : next))
     })
 
     return () => {
