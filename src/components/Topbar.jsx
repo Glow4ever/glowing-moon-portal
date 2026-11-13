@@ -55,6 +55,8 @@ export default function Topbar() {
         clients: c.clients,
         client_id: c.client_id,
         file_path: c.file_path,
+        cycle_id: c.cycle_id,
+        folder_path: c.folder_path,
         source: 'comment'
       }))
     ].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, 20)
@@ -82,6 +84,11 @@ export default function Topbar() {
     markOneRead(n)
     if (n.source === 'comment' && n.file_path && n.client_id) {
       switchClient(n.client_id)
+      if (n.cycle_id && !n.folder_path) {
+        navigate('/delivery/' + n.cycle_id)
+        setShowNotifications(false)
+        return
+      }
       const folderPath = n.file_path.substring(0, n.file_path.lastIndexOf('/'))
       navigate('/content', { state: { jumpToFolderPath: folderPath } })
     }
@@ -307,7 +314,3 @@ export default function Topbar() {
     </header>
   )
 }
-
-
-
-
