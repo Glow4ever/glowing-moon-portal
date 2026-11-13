@@ -6,12 +6,9 @@ import { useClient } from '../lib/ClientContext'
 import { reconcileClientCounts } from '../lib/fileCounts'
 import styles from './Admin.module.css'
 import { apiFetch } from '../lib/apiFetch'
-import { weekPlan, todayUTC, shortDate } from '../lib/cadence'
-
-// All cadence math lives in lib/cadence.js (a copy of api/_cadence.js).
-function clientPlan(row) {
-  return row ? weekPlan(row, todayUTC()) : null
-}
+// All cadence math lives on the server (api/_cadence.js). This screen asks
+// api/week-plan.js for what it shows, so it can never disagree with the
+// Monday email or the This Week page.
 
 export default function Admin() {
   const { allClients, updateClientBranding, loadUserContext, switchClient } = useClient()
@@ -22,7 +19,8 @@ export default function Admin() {
   const [teamMembers, setTeamMembers] = useState([])
   const [trackerRollup, setTrackerRollup] = useState({})
   const [cyclesByClient, setCyclesByClient] = useState({})
-  const [callInfo, setCallInfo] = useState({})
+  const [weekRows, setWeekRows] = useState({})
+  const [previewText, setPreviewText] = useState('')
   const [activityFeed, setActivityFeed] = useState([])
   const [activityLoading, setActivityLoading] = useState(false)
   const [newClient, setNewClient] = useState({ name: '', primary_color: '#D3C9A7', secondary_color: '#2B2B2E' })
@@ -35,17 +33,12 @@ export default function Admin() {
   const [loadingLogs, setLoadingLogs] = useState(false)
   const [comments, setComments] = useState([])
   const [loadingComments, setLoadingComments] = useState(false)
-  const [reportDrafts, setReportDrafts] = useState([])
-  const [loadingReports, setLoadingReports] = useState(false)
-  const [editingDraft, setEditingDraft] = useState(null)
   const [trackedLinks, setTrackedLinks] = useState([])
   const [loadingLinks, setLoadingLinks] = useState(false)
   const [newLink, setNewLink] = useState({ client_id: '', slug: '', destination_url: '', label: '', platform: '' })
   const [editingLink, setEditingLink] = useState(null)
   const [savingLinkEdit, setSavingLinkEdit] = useState(false)
   const [savingLink, setSavingLink] = useState(false)
-  const [draftText, setDraftText] = useState('')
-  const [sendingDraft, setSendingDraft] = useState(false)
   const [resyncing, setResyncing] = useState({})
   const [trackerOpen, setTrackerOpen] = useState(null)
   const [settingStatus, setSettingStatus] = useState(false)
@@ -60,9 +53,33 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    loadTeam(); loadTrackerRollup(); loadActivityFeed(); loadCyclesByClient(); loadCallInfo()
-    if (tab === 'reports') loadReportDrafts()
+    loadTeam(); loadTrackerRollup(); loadActivityFeed(); loadCyclesByClient(); loadWeekPlan()
+    // Reports moved to its own page. Old email links still land here.
+    if (tab === 'reports') navigate('/reports', { replace: true })
   }, [])
+
+  // Live line under "Delivery week 1" while editing a client's dates.
+  useEffect(() => {
+    if (!editingClient) { setPreviewText(''); return }
+    const handle = setTimeout(async () => {
+      try {
+        const res = await apiFetch('/api/week-plan', {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'preview',
+            client: {
+              primary_frame: editingClient.primary_frame || 'operations',
+              retainer_start_date: editingClient.retainer_start_date,
+              delivery_start_date: editingClient.delivery_start_date,
+            },
+          }),
+        })
+        const json = await res.json()
+        setPreviewText(res.ok ? json.text : '')
+      } catch { setPreviewText('') }
+    }, 250)
+    return () => clearTimeout(handle)
+  }, [editingClient?.id, editingClient?.primary_frame, editingClient?.retainer_start_date, editingClient?.delivery_start_date])
 
   // Reset the active-client branding to GMM whenever the Admin panel mounts,
   // so opening a client folder themes to them but returning here is neutral.
@@ -113,17 +130,25 @@ export default function Admin() {
     setTrackerRollup(rollup)
   }
 
-  async function loadCallInfo() {
-    const { data } = await supabase.from('clients').select('id, primary_frame, retainer_start_date, delivery_start_date, quarterly_call_booked_at')
-    const map = {}
-    ;(data || []).forEach(r => { map[r.id] = r })
-    setCallInfo(map)
+  async function loadWeekPlan() {
+    try {
+      const res = await apiFetch('/api/week-plan')
+      if (!res.ok) return
+      const json = await res.json()
+      const map = {}
+      ;(json.rows || []).forEach(r => { map[r.clientId] = r })
+      setWeekRows(map)
+    } catch { /* the chip just stays blank */ }
   }
 
   async function markCallBooked(client) {
     if (!window.confirm(`Mark ${client.name}'s quarterly call as booked? The reminder clears until next quarter.`)) return
-    await supabase.from('clients').update({ quarterly_call_booked_at: new Date().toISOString() }).eq('id', client.id)
-    await loadCallInfo()
+    const res = await apiFetch('/api/week-plan', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'mark_call_booked', clientId: client.id }),
+    })
+    if (!res.ok) return showToast('Could not mark the call booked')
+    await loadWeekPlan()
     showToast(`${client.name}: quarterly call marked booked`)
   }
 
@@ -316,73 +341,6 @@ export default function Admin() {
     }
   }
 
-  async function loadReportDrafts() {
-    setLoadingReports(true)
-    const { data } = await supabase
-      .from('client_report_drafts')
-      .select('*, clients(name, notification_email)')
-      .eq('status', 'pending')
-      .order('created_at', { ascending: false })
-    setReportDrafts(data || [])
-    setLoadingReports(false)
-  }
-
-  function openDraftForReview(draft) {
-    setEditingDraft(draft)
-    setDraftText(draft.draft_content)
-  }
-
-  async function sendReportDraft() {
-    if (!editingDraft) return
-    if (draftText.includes('[YOUR SUMMARY')) {
-      showToast('Write your summary first: replace the [YOUR SUMMARY] line')
-      return
-    }
-    setSendingDraft(true)
-    const client = editingDraft.clients
-
-    // Logged into the same visible history a client already sees and
-    // trusts — mid-month notes and month-in-reviews show up the same way
-    // press mentions and qualitative wins already do.
-    await supabase.from('client_log_entries').insert({
-      client_id: editingDraft.client_id,
-      entry_type: editingDraft.report_type === 'mid_month' ? 'mid_month_note' : 'month_in_review',
-      entry_date: new Date().toISOString().slice(0, 10),
-      title: editingDraft.report_type === 'mid_month' ? 'Two-week note' : 'Month in review',
-      note: draftText,
-      client_visible: true
-    })
-
-    if (client?.notification_email) {
-      await apiFetch('/api/send-email', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'client_report',
-          notificationEmail: client.notification_email,
-          reportType: editingDraft.report_type,
-          content: draftText
-        })
-      })
-    }
-
-    await supabase.from('client_report_drafts').update({
-      status: 'sent',
-      sent_at: new Date().toISOString(),
-      draft_content: draftText
-    }).eq('id', editingDraft.id)
-
-    setReportDrafts(prev => prev.filter(d => d.id !== editingDraft.id))
-    setEditingDraft(null)
-    showToast('Sent!')
-    setSendingDraft(false)
-  }
-
-  async function cancelReportDraft(draft) {
-    if (!window.confirm('Cancel this draft? The portal won\'t re-prompt until the next real due date.')) return
-    await supabase.from('client_report_drafts').update({ status: 'cancelled' }).eq('id', draft.id)
-    setReportDrafts(prev => prev.filter(d => d.id !== draft.id))
-  }
-
   async function loadTrackedLinks() {
     setLoadingLinks(true)
     const { data: links } = await supabase
@@ -563,6 +521,7 @@ export default function Admin() {
       notification_email: editingClient.notification_email || null,
       retainer_start_date: editingClient.retainer_start_date || null,
       delivery_start_date: editingClient.delivery_start_date || null,
+      account_manager_id: editingClient.account_manager_id || null,
       cover_url: editingClient.cover_url || null,
       service_tier: editingClient.service_tier || null,
       mission_statement: editingClient.mission_statement || null,
@@ -734,7 +693,7 @@ export default function Admin() {
       </div>
 
       <div className={styles.tabs}>
-        {['clients','team','revisions','reports','links','audit'].map(t => (
+        {['clients','team','revisions','links','audit'].map(t => (
           <button
             key={t}
             className={`${styles.tab} ${tab === t ? styles.tabActive : ''}`}
@@ -742,11 +701,10 @@ export default function Admin() {
               setTab(t)
               if (t === 'audit') loadAuditLogs()
               if (t === 'revisions') loadComments()
-              if (t === 'reports') loadReportDrafts()
               if (t === 'links') loadTrackedLinks()
             }}
           >
-            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : t === 'revisions' ? 'Revisions' : t === 'reports' ? 'Reports' : t === 'links' ? 'Links' : 'Audit Log'}
+            {t === 'clients' ? 'Clients' : t === 'team' ? 'Team Members' : t === 'revisions' ? 'Revisions' : t === 'links' ? 'Links' : 'Audit Log'}
           </button>
         ))}
       </div>
@@ -774,19 +732,19 @@ export default function Admin() {
                       </div>
                       <div className={styles.clientSlug}>/{c.slug}</div>
                       {(() => {
-                        const plan = clientPlan(callInfo[c.id])
+                        const plan = weekRows[c.id]
                         if (!plan) return null
                         return (
                           <div style={{ fontSize: '11px', marginTop: '4px', color: plan.status === 'active' ? 'var(--text3)' : 'var(--gold-light)' }}>{plan.chip}</div>
                         )
                       })()}
                       {(() => {
-                        const plan = clientPlan(callInfo[c.id])
+                        const plan = weekRows[c.id]
                         const callItem = plan?.items.find(i => i.kind === 'call')
                         if (!callItem) return null
                         return (
                           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginTop: '8px', background: 'var(--gold-bg)', border: '0.5px solid rgba(211,201,167,0.35)', borderRadius: '20px', padding: '3px 4px 3px 12px', fontSize: '11px', color: 'var(--gold-light)' }}>
-                            Quarterly call due by {shortDate(plan.quarter.quarterEnd)}
+                            Quarterly call due by {plan.quarter?.endsLabel}
                             <button
                               onClick={() => markCallBooked(c)}
                               style={{ background: 'transparent', border: '0.5px solid var(--gold-light)', color: 'var(--gold-light)', borderRadius: '20px', padding: '2px 10px', fontSize: '11px', cursor: 'pointer' }}
@@ -1000,14 +958,24 @@ export default function Admin() {
                             onChange={e => setEditingClient(p => ({...p, delivery_start_date: e.target.value || null}))}
                           />
                           <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Starts the weekly rhythm: review weeks 1 and 3, two-week note week 2, monthly report week 4. Leave blank while onboarding. No reports or reminders until it is set.</div>
-                          {(() => {
-                            const plan = weekPlan({ ...(callInfo[editingClient.id] || {}), primary_frame: editingClient.primary_frame || 'operations', retainer_start_date: editingClient.retainer_start_date, delivery_start_date: editingClient.delivery_start_date }, todayUTC())
-                            let text
-                            if (plan.status === 'onboarding') text = 'Onboarding. Delivery clock is off.'
-                            else if (plan.status === 'upcoming') text = 'Delivery starts ' + shortDate(plan.startsOn) + '.'
-                            else text = 'This week is week ' + plan.cycle.weekInCycle + ' of 4 (' + plan.weekLabel.replace(/ week$/, '') + ').' + (plan.nextDelivery ? ' Next delivery: ' + shortDate(plan.nextDelivery) + '.' : '')
-                            return <div style={{ fontSize: '12px', color: 'var(--gold-light)', marginTop: '6px' }}>{text}</div>
-                          })()}
+                          {previewText && <div style={{ fontSize: '12px', color: 'var(--gold-light)', marginTop: '6px' }}>{previewText}</div>}
+                        </div>
+                        <div className={styles.field}>
+                          <label className={styles.label}>Account manager</label>
+                          <select
+                            className={styles.input}
+                            value={editingClient.account_manager_id || ''}
+                            onChange={e => setEditingClient(p => ({...p, account_manager_id: e.target.value || null}))}
+                          >
+                            <option value="">Not assigned (goes to admin)</option>
+                            {teamMembers
+                              .filter(m => (m.role === 'admin' || m.role === 'editor') && !m.client_id && m.user_id)
+                              .filter((m, i, arr) => arr.findIndex(x => x.user_id === m.user_id) === i)
+                              .map(m => (
+                                <option key={m.user_id} value={m.user_id}>{m.email || m.user_id} ({m.role})</option>
+                              ))}
+                          </select>
+                          <div style={{ fontSize: '11px', color: 'var(--text3)', marginTop: '4px' }}>Gets this client's review reminders and report-ready emails. Admins are copied on every email. Everyone on the team can still open every client.</div>
                         </div>
                         <div className={styles.field}>
                           <label className={styles.label}>Service Tier</label>
@@ -1546,79 +1514,6 @@ export default function Admin() {
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {tab === 'reports' && (
-        <div>
-          <div className={styles.sectionLabel}>Pending Reports</div>
-          {loadingReports && <div className={styles.empty}>Loading...</div>}
-          {!loadingReports && reportDrafts.length === 0 && (
-            <div className={styles.empty}>Nothing pending — drafts show up here as they come due.</div>
-          )}
-          {reportDrafts.map(draft => (
-            <div key={draft.id} style={{ background: 'var(--surface2)', border: '0.5px solid var(--border)', borderRadius: '10px', padding: '16px 20px', marginBottom: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text1)' }}>{draft.clients?.name}</span>
-                <span style={{ fontSize: '12px', background: 'var(--gold-bg)', color: 'var(--gold-light)', padding: '3px 10px', borderRadius: '20px' }}>
-                  {draft.report_type === 'mid_month' ? 'Two-week note' : 'Month in review'}
-                </span>
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '12px' }}>
-                {draft.period_start} to {draft.period_end}
-              </div>
-              <button className="btn btn-gold" onClick={() => openDraftForReview(draft)} style={{ fontSize: '13px' }}>
-                Review &amp; Send
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {editingDraft && (
-        <div
-          onClick={() => setEditingDraft(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--surface1)', border: '0.5px solid var(--border)', borderRadius: '14px', padding: '24px', maxWidth: '520px', width: '90%' }}
-          >
-            <div style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text1)', marginBottom: '4px' }}>
-              {editingDraft.report_type === 'mid_month' ? 'Two-week note' : 'Month in review'}: {editingDraft.clients?.name}
-            </div>
-            <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '12px' }}>
-              Edit freely before sending — this goes out exactly as written below.
-            </div>
-            <textarea
-              value={draftText}
-              onChange={e => setDraftText(e.target.value)}
-              rows={12}
-              style={{ width: '100%', background: 'var(--surface2)', border: '0.5px solid var(--border)', color: 'var(--text1)', borderRadius: '8px', padding: '12px', fontSize: '14px', lineHeight: '1.6', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }}
-            />
-            <div style={{ display: 'flex', gap: '10px', marginTop: '16px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => cancelReportDraft(editingDraft)}
-                style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', padding: '9px 16px', borderRadius: '7px', fontSize: '13px', cursor: 'pointer' }}
-              >
-                Cancel this draft
-              </button>
-              <button
-                onClick={() => setEditingDraft(null)}
-                style={{ background: 'transparent', border: '0.5px solid var(--border)', color: 'var(--text2)', padding: '9px 16px', borderRadius: '7px', fontSize: '13px', cursor: 'pointer' }}
-              >
-                Close
-              </button>
-              <button
-                className="btn btn-gold"
-                onClick={sendReportDraft}
-                disabled={sendingDraft}
-                style={{ fontSize: '13px' }}
-              >
-                {sendingDraft ? 'Sending...' : 'Send'}
-              </button>
-            </div>
-          </div>
         </div>
       )}
 
