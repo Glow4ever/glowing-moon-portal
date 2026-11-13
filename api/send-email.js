@@ -19,7 +19,7 @@ module.exports = async function handler(req, res) {
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType, note, link } = req.body
+  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType, note, link, posts } = req.body
 
   const safeClient = sanitize(clientName)
   const safeMonth = sanitize(month)
@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
       await resend.emails.send({
         from: 'Glowing Moon Media <noreply@glowingmoonmedia.com>',
         to: safeEmail,
-        subject: safeLink ? `New content ready for review: ${safeMonth}` : `Your ${safeMonth} content is ready for review`,
+        subject: posts ? `Your upcoming posts are ready to review` : safeLink ? `New content ready for review: ${safeMonth}` : `Your ${safeMonth} content is ready for review`,
         html: `
           <!DOCTYPE html>
           <html>
@@ -57,8 +57,10 @@ module.exports = async function handler(req, res) {
                   </tr>
                   <tr>
                     <td style="background:#111113;padding:40px 40px 32px;">
-                      <h1 style="margin:0 0 8px;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">Your ${safeMonth} content<br>is ready to review</h1>
-                      <p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">Hi ${safeClient}, your content package for <strong style="color:#fff;">${safeMonth}</strong> has been uploaded to your portal. Take a look, leave any revision notes on specific files, and approve when everything looks good.</p>
+                      <h1 style="margin:0 0 8px;font-size:26px;font-weight:700;color:#ffffff;line-height:1.3;">${posts ? 'Your upcoming posts<br>are ready to review' : `Your ${safeMonth} content<br>is ready to review`}</h1>
+                      ${posts
+                        ? `<p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">Hi ${safeClient}, your next posts are scheduled and ready for you to look over. Approve them, or request a change on any post before it goes out. Anything you don't get to will publish as scheduled.</p>`
+                        : `<p style="margin:16px 0 0;font-size:15px;color:#888;line-height:1.6;">Hi ${safeClient}, your content package for <strong style="color:#fff;">${safeMonth}</strong> has been uploaded to your portal. Take a look, leave any revision notes on specific files, and approve when everything looks good.</p>`}
                       ${safeNote ? `<div style="margin:20px 0 0;padding:16px 20px;background:#1a1a1c;border-left:3px solid #D3C9A7;border-radius:4px;"><p style="margin:0;font-size:15px;color:#fff;line-height:1.6;">${safeNote}</p></div>` : ''}
                     </td>
                   </tr>
