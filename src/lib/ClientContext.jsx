@@ -1,112 +1,171 @@
-import { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from './supabase'
-import { useAuth } from './AuthContext'
+// api/_cadence.js
+//
+// One weekly rhythm per client, shared by the report job, the team reminder
+// job and the Admin screen so they can never disagree about what is due.
+//
+// Two dates per client, each with one job:
+//   delivery_start_date  ("Delivery week 1")  starts the weekly rhythm.
+//   retainer_start_date  ("Onboard date")     starts the quarters.
+//
+// A client with no delivery_start_date is ONBOARDING: the delivery clock is
+// off, so no reports are drafted and no delivery reminders go out.
+//
+// Weeks run Monday to Sunday. The rhythm is a 4-week cycle:
+//   standard:     W1 delivery | W2 quiet         | W3 delivery | W4 monthly report
+//   operational:  W1 delivery | W2 quiet         | W3 delivery | W4 monthly recap
+// Every 12 weeks of the client's own quarter, the quarterly call reminder
+// starts at week 9 and clears once the call is marked booked.
+//
+// Everything else should call weekPlan(client, today) and never work out the
+// week itself. The browser never works out the week: it asks api/week-plan.js.
 
-const ClientContext = createContext({})
+const DAY = 24 * 60 * 60 * 1000
 
-export function ClientProvider({ children }) {
-  const { user, loading: authLoading } = useAuth()
-  const [role, setRole] = useState(null) // 'admin' or 'member'
-  const [client, setClient] = useState(null) // current client object
-  const [allClients, setAllClients] = useState([]) // admin only
-  const [activeClientId, setActiveClientId] = useState(null) // admin viewing as client
-  const [loading, setLoading] = useState(true)
+function parseDate(s) { return new Date(String(s).slice(0, 10) + 'T00:00:00Z') }
+function iso(d) { return d.toISOString().slice(0, 10) }
+function addDays(d, n) { return new Date(d.getTime() + n * DAY) }
+function todayUTC() { return parseDate(iso(new Date())) }
+function mondayOnOrBefore(d) { return addDays(d, -((d.getUTCDay() + 6) % 7)) }
 
-  useEffect(() => {
-    // AuthContext's `user` starts as null while it checks for an existing
-    // session, then resolves to either a real user or null once it knows
-    // for sure. Without this guard, that initial "null" is indistinguishable
-    // from a real logged-out state, so this effect would fire early, set
-    // loading=false with role=null, and any route gated on role (e.g.
-    // AdminRoute) would redirect away before auth even finished resolving —
-    // reproducible by hard-loading /admin directly. Wait for authLoading to
-    // clear before treating a null user as "actually logged out."
-    if (authLoading) return
-    if (user) loadUserContext()
-    else { setRole(null); setClient(null); setLoading(false) }
-  }, [user, authLoading])
-
-  async function loadUserContext() {
-    setLoading(true)
-
-    // Get user's role
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('role, client_id, clients(*)')
-      .eq('user_id', user.id)
-
-    if (!roleData || roleData.length === 0) {
-      setLoading(false)
-      return
-    }
-
-    // Check if admin or editor (has a role with null client_id)
-    const adminRole = roleData.find(r => r.client_id === null && r.role === 'admin')
-    const editorRole = roleData.find(r => r.client_id === null && r.role === 'editor')
-
-    if (adminRole || editorRole) {
-      setRole(adminRole ? 'admin' : 'editor')
-      // Load all clients for admin/editor
-      const { data: clients } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('active', true)
-        .order('name')
-      setAllClients(clients || [])
-      setClient(prevClient => {
-        if (prevClient && clients?.some(c => c.id === prevClient.id)) {
-          return clients.find(c => c.id === prevClient.id)
-        }
-        const gmm = clients?.find(c => c.slug === 'glowing-moon-media')
-        return gmm || clients?.[0] || null
-      })
-} else {
-      // Regular member — get their client fresh from clients table
-      setRole('member')
-      const memberRole = roleData[0]
-      const { data: freshClient } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('id', memberRole.client_id)
-        .single()
-    
-      setClient(freshClient || memberRole.clients)
-    }
-
-    setLoading(false)
+// Position within the 4-week cycle, counted from the delivery start.
+function cadenceFor(anchorStr, today) {
+  if (!anchorStr) return null
+  const start = mondayOnOrBefore(parseDate(anchorStr))
+  const days = Math.floor((today - start) / DAY)
+  if (days < 0) return null
+  const weekIndex = Math.floor(days / 7)
+  const cycleIndex = Math.floor(weekIndex / 4)
+  const weekStart = addDays(start, weekIndex * 7)
+  return {
+    start,
+    weekIndex,
+    weekInCycle: (weekIndex % 4) + 1,
+    cycleIndex,
+    cycleStart: addDays(start, cycleIndex * 28),
+    weekStart,
+    weekEnd: addDays(weekStart, 6),
   }
-
-  async function switchClient(clientId) {
-    if (role !== 'admin' && role !== 'editor') return
-    const found = allClients.find(c => c.id === clientId)
-    if (found) { setClient(found); setActiveClientId(clientId) }
-  }
-
-  async function updateClientBranding(clientId, updates) {
-    const { data, error } = await supabase
-      .from('clients')
-      .update(updates)
-      .eq('id', clientId)
-      .select()
-      .single()
-    if (!error && data) {
-      setClient(data)
-      setAllClients(prev => prev.map(c => c.id === clientId ? data : c))
-    }
-    return { data, error }
-  }
-
-  return (
-    <ClientContext.Provider value={{
-      role, client, allClients, loading,
-      switchClient, updateClientBranding, loadUserContext
-    }}>
-      {children}
-    </ClientContext.Provider>
-  )
 }
 
-export const useClient = () => useContext(ClientContext)
+// Position within the client's 12-week quarter, counted from the onboard date.
+function quarterFor(anchorStr, today) {
+  if (!anchorStr) return null
+  const start = mondayOnOrBefore(parseDate(anchorStr))
+  const days = Math.floor((today - start) / DAY)
+  if (days < 0) return null
+  const weekIndex = Math.floor(days / 7)
+  const quarterIndex = Math.floor(weekIndex / 12)
+  const quarterStart = addDays(start, quarterIndex * 84)
+  return {
+    quarterIndex,
+    quarterNumber: quarterIndex + 1,
+    quarterStart,
+    quarterEnd: addDays(quarterStart, 83),
+    weekInQuarter: (weekIndex % 12) + 1,
+  }
+}
 
+// The rhythm is anchored on delivery week 1 only. No fallback: a client
+// without it is onboarding.
+function anchorFor(client) {
+  return client?.delivery_start_date || null
+}
 
+// Quarters count from the onboard date. If it is missing, fall back to the
+// delivery start so the call reminder still works.
+function quarterAnchorFor(client) {
+  return client?.retainer_start_date || client?.delivery_start_date || null
+}
 
+// Which cadence template a client follows. Pulse gets its own in Session 6.
+function templateFor(client) {
+  return client?.primary_frame === 'operations' ? 'operational' : 'standard'
+}
+
+const TEMPLATES = {
+  standard: {
+    1: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
+    // Two-week note switched off Nov 12, 2026: review cycles in weeks 1 and 3
+    // already keep clients hearing from us. To bring it back, restore:
+    // 2: { kind: 'note', text: 'Two-week note goes out', short: 'two-week note week' },
+    2: null,
+    3: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
+    4: { kind: 'report', text: 'Monthly report goes out', short: 'monthly report week' },
+  },
+  operational: {
+    1: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
+    2: null,
+    3: { kind: 'delivery', text: 'Send review cycle', short: 'delivery week' },
+    4: { kind: 'report', text: 'Monthly recap goes out', short: 'monthly recap week' },
+  },
+}
+
+// Booked counts for the current quarter only if it was marked after the
+// quarter began, so last quarter's booking never silences this quarter.
+function quarterlyCallDue(quarter, bookedAt) {
+  if (!quarter || quarter.weekInQuarter < 9) return false
+  return !(bookedAt && new Date(bookedAt) >= quarter.quarterStart)
+}
+
+// Monday of the next delivery week after the current one.
+function nextDeliveryStart(cad, template) {
+  for (let i = 1; i <= 4; i++) {
+    const w = ((cad.weekInCycle - 1 + i) % 4) + 1
+    if (TEMPLATES[template][w]?.kind === 'delivery') return addDays(cad.weekStart, i * 7)
+  }
+  return null
+}
+
+// What is due for a client this week. Returns:
+//   status    'onboarding' (no delivery week 1), 'upcoming' (starts later), 'active'
+//   template  'standard' | 'operational'
+//   cycle     cycle position (active only)
+//   quarter   quarter position (null if no onboard/delivery date yet)
+//   items     [{ kind: 'delivery' | 'note' | 'report' | 'call', text }]
+//   weekLabel short name of this week, e.g. 'two-week note week'
+//   nextDelivery  Date of the next delivery week's Monday (active only)
+//   chip      one line for the client card
+function weekPlan(client, today, opts = {}) {
+  const template = templateFor(client)
+  const anchor = anchorFor(client)
+  const quarter = quarterFor(quarterAnchorFor(client), today)
+  const base = { template, quarter, items: [], cycle: null, weekLabel: null, nextDelivery: null }
+
+  if (!anchor) {
+    return { ...base, status: 'onboarding', chip: 'Onboarding' }
+  }
+  const cycle = cadenceFor(anchor, today)
+  if (!cycle) {
+    const startsOn = mondayOnOrBefore(parseDate(anchor))
+    return { ...base, status: 'upcoming', startsOn, chip: 'Delivery starts ' + shortDate(startsOn) }
+  }
+
+  const slot = TEMPLATES[template][cycle.weekInCycle]
+  const items = []
+  if (slot) items.push({ kind: slot.kind, text: slot.text })
+  if (quarterlyCallDue(quarter, opts.quarterlyCallBookedAt ?? client.quarterly_call_booked_at)) {
+    items.push({ kind: 'call', text: 'Book quarterly call (quarter ends ' + shortDate(quarter.quarterEnd) + ')' })
+  }
+  const weekLabel = slot ? slot.short : 'quiet week'
+  const chip = (quarter ? 'Q' + quarter.quarterNumber + ', week ' + quarter.weekInQuarter + ', ' : '') + weekLabel
+
+  return {
+    ...base,
+    status: 'active',
+    cycle,
+    items,
+    weekLabel,
+    nextDelivery: nextDeliveryStart(cycle, template),
+    chip,
+  }
+}
+
+function shortDate(d) {
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
+module.exports = {
+  DAY, parseDate, iso, addDays, todayUTC, mondayOnOrBefore,
+  cadenceFor, quarterFor, anchorFor, quarterAnchorFor, templateFor,
+  quarterlyCallDue, weekPlan, shortDate,
+}
