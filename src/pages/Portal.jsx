@@ -13,6 +13,7 @@ import ThisWeek from './ThisWeek.jsx'
 import Reports from './Reports.jsx'
 import Settings from './Settings.jsx'
 import Messages from './Messages.jsx'
+import Delivery from './Delivery.jsx'
 import styles from './Portal.module.css'
 
 function AdminRoute({ children }) {
@@ -64,6 +65,7 @@ export default function Portal() {
             <Route path="/content-bank" element={<TeamRoute><Schedule /></TeamRoute>} />
             <Route path="/reports" element={<TeamRoute><Reports /></TeamRoute>} />
             <Route path="/schedule" element={<Navigate to="/content-bank" replace />} />
+            <Route path="/delivery/:id" element={<Delivery />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
