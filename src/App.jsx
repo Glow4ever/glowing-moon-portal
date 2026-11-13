@@ -1,5 +1,5 @@
 import ResetPassword from './pages/ResetPassword.jsx'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/AuthContext'
 import { ClientProvider, useClient } from './lib/ClientContext'
 import { useEffect } from 'react'
@@ -27,6 +27,7 @@ function BrandingInjector() {
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
+  const location = useLocation()
   const { showWarning, stayActive } = useIdleTimer()
   if (loading) return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#080807' }}>
@@ -36,7 +37,7 @@ function ProtectedRoute({ children }) {
       </div>
     </div>
   )
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname }} />
   return (
     <>
       {children}
@@ -88,4 +89,3 @@ export default function App() {
     </AuthProvider>
   )
 }
-
