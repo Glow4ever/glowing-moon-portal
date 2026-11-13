@@ -9,6 +9,8 @@ import Calendar from './Calendar'
 import Metrics from './Metrics'
 import Admin from './Admin'
 import Schedule from './Schedule'
+import ThisWeek from './ThisWeek.jsx'
+import Reports from './Reports.jsx'
 import Settings from './Settings.jsx'
 import Messages from './Messages.jsx'
 import styles from './Portal.module.css'
@@ -20,7 +22,7 @@ function AdminRoute({ children }) {
   return children
 }
 
-function ScheduleRoute({ children }) {
+function TeamRoute({ children }) {
   const { role, loading } = useClient()
   if (loading) return null
   if (!['admin', 'editor'].includes(role)) return <Navigate to="/" replace />
@@ -58,7 +60,10 @@ export default function Portal() {
             <Route path="/metrics"  element={<MetricsRoute><Metrics /></MetricsRoute>} />
             <Route path="/messages" element={<Messages />} />
             <Route path="/admin"    element={<AdminRoute><Admin /></AdminRoute>} />
-            <Route path="/schedule" element={<ScheduleRoute><Schedule /></ScheduleRoute>} />
+            <Route path="/this-week" element={<TeamRoute><ThisWeek /></TeamRoute>} />
+            <Route path="/content-bank" element={<TeamRoute><Schedule /></TeamRoute>} />
+            <Route path="/reports" element={<TeamRoute><Reports /></TeamRoute>} />
+            <Route path="/schedule" element={<Navigate to="/content-bank" replace />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>
