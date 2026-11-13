@@ -699,7 +699,7 @@ export default function Schedule() {
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <div className={styles.title}>Schedule</div>
+        <div className={styles.title}>Content Bank</div>
         <div className={styles.sub}>Pick the quarter's content folder, then write captions and schedule the batch to Metricool.</div>
       </div>
 
