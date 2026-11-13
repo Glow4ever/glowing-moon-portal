@@ -29,6 +29,52 @@ function previewText(plan) {
     (plan.nextDelivery ? ' Next delivery: ' + shortDate(plan.nextDelivery) + '.' : '')
 }
 
+// Wall-clock "YYYY-MM-DDTHH:mm" in a timezone, matching how publish_date is stored.
+function wallClock(date, tz) {
+  const parts = {}
+  new Intl.DateTimeFormat('en-CA', { timeZone: tz || 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+    .formatToParts(date).forEach(p => { parts[p.type] = p.value })
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`
+}
+
+// Posts in an open delivery that go out within 48 hours and the client has
+// not approved. Shown on This Week only. No email: the team decides whether
+// to nudge the client, pull the post, or let it publish.
+async function postFlags(clientsById) {
+  const { data: items } = await supabase
+    .from('review_cycle_items')
+    .select('client_id, cycle_id, filename, review_status, schedule_draft_id, review_cycles!inner(resolved_at)')
+    .not('schedule_draft_id', 'is', null)
+    .in('review_status', ['awaiting', 'changes_requested'])
+    .is('review_cycles.resolved_at', null)
+  if (!items || !items.length) return []
+  const { data: drafts } = await supabase
+    .from('schedule_drafts').select('id, status, publish_date, timezone')
+    .in('id', items.map(i => i.schedule_draft_id))
+  const byId = {}
+  ;(drafts || []).forEach(d => { byId[d.id] = d })
+  const now = new Date()
+  const later = new Date(now.getTime() + 48 * 3600 * 1000)
+  const out = []
+  for (const it of items) {
+    const d = byId[it.schedule_draft_id]
+    if (!d || d.status !== 'scheduled' || !d.publish_date) continue
+    const when = String(d.publish_date).slice(0, 16)
+    if (when < wallClock(now, d.timezone) || when > wallClock(later, d.timezone)) continue
+    const c = clientsById[it.client_id]
+    out.push({
+      clientId: it.client_id,
+      clientName: c ? c.name : '',
+      mine: !!(c && c.mine),
+      cycleId: it.cycle_id,
+      filename: it.filename,
+      when,
+      kind: it.review_status === 'changes_requested' ? 'change' : 'unreviewed'
+    })
+  }
+  return out.sort((a, b) => a.when.localeCompare(b.when))
+}
+
 function serialize(client, plan, items, owner, draftReady, mine) {
   return {
     clientId: client.id,
@@ -126,8 +172,15 @@ module.exports = async function handler(req, res) {
       rows.push(serialize(o.client, o.plan, [], ownerOf(o.client), false, isMine(o.client)))
     }
 
+    const clientsById = {}
+    for (const r of week.rows) clientsById[r.client.id] = { name: r.client.name, mine: isMine(r.client) }
+    for (const o of week.onboarding) clientsById[o.client.id] = { name: o.client.name, mine: isMine(o.client) }
+    let flags = []
+    try { flags = await postFlags(clientsById) } catch (e) { console.error('postFlags error:', e) }
+
     const monday = mondayOnOrBefore(today)
     return res.status(200).json({
+      postFlags: flags,
       weekOf: iso(monday),
       weekOfLabel: shortDate(monday) + ' to ' + shortDate(addDays(monday, 6)),
       role: isAdmin ? 'admin' : 'editor',
