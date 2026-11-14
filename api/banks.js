@@ -6,7 +6,7 @@
 
 const { requireAuth } = require('./_auth')
 const { createClient } = require('@supabase/supabase-js')
-const { ensureBanks, setBank } = require('./_banks')
+const { ensureBanks, setBank } = require('./_quarter-history')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
