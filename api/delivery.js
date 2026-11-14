@@ -12,13 +12,13 @@
 //   cancel   team   delete a delivery that was sent by mistake
 //
 // Review state lives on review_cycle_items.review_status
-// (awaiting | approved | changes_requested). The close rule lives in _delivery.js.
+// (awaiting | approved | changes_requested). The close rule lives in _delivery-rules.js.
 // Writes use the service role, so the permission rules live here.
 
 const { requireAuth } = require('./_auth')
 const { createClient } = require('@supabase/supabase-js')
 const { iso, todayUTC, mondayOnOrBefore, shortDate } = require('./_cadence')
-const { contentKey, settle } = require('./_delivery')
+const { contentKey, settle } = require('./_delivery-rules')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
