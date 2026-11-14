@@ -82,6 +82,23 @@ export default function ThisWeek() {
         <div className={styles.empty}>No clients yet.</div>
       )}
 
+      {(data?.bankPrompts || []).length > 0 && (
+        <>
+          <div className={styles.sectionLabel}>New quarter, content bank not set</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '22px' }}>
+            {[...data.bankPrompts].sort((a, b) => (b.mine ? 1 : 0) - (a.mine ? 1 : 0)).map(b => (
+              <div key={b.clientId} style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px 12px', fontSize: '13px' }}>
+                <span style={{ color: 'var(--text1)', minWidth: '120px' }}>{b.clientName}</span>
+                <span style={{ color: 'var(--text2)' }}>Q{b.quarter} has started. Set this quarter's bank folder.</span>
+                <button className={styles.editBtn} style={{ marginLeft: 'auto' }} onClick={() => { switchClient(b.clientId); navigate('/content-bank') }}>
+                  Open Content Bank
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       {flags.length > 0 && (
         <>
           <div className={styles.sectionLabel}>Going out in the next 48 hours, not approved</div>
