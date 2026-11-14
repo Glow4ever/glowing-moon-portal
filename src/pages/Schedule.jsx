@@ -262,7 +262,8 @@ export default function Schedule() {
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState(false)
   const [thumbs, setThumbs] = useState({})
-  const [bankFolder, setBankFolder] = useState(null) // the folder chosen as "this quarter's bank"
+  const [bankFolder, setBankFolder] = useState(null) // the bank being viewed (this quarter's, unless a past one was picked)
+  const [bankInfo, setBankInfo] = useState(null) // { quarter, banks: [{quarter_number, folder_path, folder_name}], needsBank }
 
   // drafts keyed by dropbox_path (path_lower) — one entry per file, holding
   // both the row's db id (once it exists) and its current field values.
@@ -343,7 +344,16 @@ export default function Schedule() {
           setBankFolder({ name: data.schedule_bank_folder_name, path: data.schedule_bank_folder_path })
         }
       })
+    loadBankInfo(selectedClientId)
   }, [clientName, selectedClientId])
+
+  // Which quarter it is and which folder was the bank in each quarter.
+  async function loadBankInfo(id) {
+    try {
+      const res = await apiFetch('/api/banks?clientId=' + encodeURIComponent(id))
+      if (res.ok) setBankInfo(await res.json())
+    } catch (e) { console.error('Bank history error:', e) }
+  }
 
   useEffect(() => {
     if (selectedClientId && stack?.length) {
@@ -351,14 +361,22 @@ export default function Schedule() {
     }
   }, [selectedClientId, stack])
 
+  // Sets THIS quarter's bank. Past quarters keep their own bank in the history.
   function setBank(folder) {
     setBankFolder(folder)
     if (!selectedClientId) return
-    supabase
-      .from('clients')
-      .update({ schedule_bank_folder_path: folder.path, schedule_bank_folder_name: folder.name })
-      .eq('id', selectedClientId)
-      .then(({ error }) => { if (error) console.error('Failed to save content bank:', error) })
+    apiFetch('/api/banks', { method: 'POST', body: JSON.stringify({ clientId: selectedClientId, folder }) })
+      .then(r => r.json().then(j => { if (r.ok) setBankInfo(j); else console.error('Failed to save content bank:', j) }))
+      .catch(e => console.error('Failed to save content bank:', e))
+  }
+
+  // Open any quarter's bank. Its content can still be scheduled or sent.
+  function openBank(path) {
+    const b = (bankInfo?.banks || []).find(x => x.folder_path === path)
+    if (!b || !clientName) return
+    setBankFolder({ name: b.folder_name || b.folder_path.split('/').pop(), path: b.folder_path })
+    const st = buildStackFromPath(`/Glowing Moon Portal/${clientName}/Content`, b.folder_path)
+    if (st) setStack(st)
   }
 
   const currentPath = stack?.[stack.length - 1]?.path
@@ -437,6 +455,10 @@ export default function Schedule() {
   const fileEntries = entries.filter(e => e.type !== 'folder').sort(byName)
   const folderEntries = entries.filter(e => e.type === 'folder').sort(byName)
   const viewingBank = bankFolder && currentPath === bankFolder.path
+  // The bank on screen is from an earlier quarter.
+  const viewedPast = bankFolder && bankInfo?.quarter
+    ? (bankInfo.banks || []).find(b => b.folder_path === bankFolder.path && b.quarter_number !== bankInfo.quarter.number && !(bankInfo.banks || []).some(x => x.quarter_number === bankInfo.quarter.number && x.folder_path === bankFolder.path))
+    : null
   const operational = client?.delivery_mode === 'operational'
 
   // Load existing draft rows for the bank folder whenever it's the one
@@ -819,18 +841,33 @@ export default function Schedule() {
             borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: '18px'
           }}>
             <div style={{ fontSize: '13px', color: viewingBank ? 'var(--teal)' : 'var(--text2)' }}>
-              {bankFolder
-                ? <>Content bank: <strong>{bankFolder.name}</strong>{viewingBank && activeOccurrences.length > 0 && <> — {readyCount} of {activeOccurrences.length} ready to schedule</>}</>
-                : 'Browse into the folder holding this quarter\'s content, then set it as the bank.'}
+              {bankInfo?.needsBank
+                ? <>Q{bankInfo.quarter.number} has started. Browse into this quarter's folder and set it as the bank.{bankFolder && <> Showing <strong>{bankFolder.name}</strong> until then.</>}</>
+                : bankFolder
+                  ? <>{viewedPast ? <>Past bank (Q{viewedPast.quarter_number}): </> : <>Content bank{bankInfo?.quarter ? ` (Q${bankInfo.quarter.number})` : ''}: </>}<strong>{bankFolder.name}</strong>{viewingBank && activeOccurrences.length > 0 && <> · {readyCount} of {activeOccurrences.length} ready to schedule</>}</>
+                  : 'Browse into the folder holding this quarter\'s content, then set it as the bank.'}
             </div>
+            {(bankInfo?.banks || []).length > 1 && (
+              <select
+                value={bankFolder?.path || ''}
+                onChange={e => openBank(e.target.value)}
+                style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text2)', fontSize: '12px', padding: '6px 8px', borderRadius: '7px' }}
+              >
+                {bankInfo.banks.map(b => (
+                  <option key={b.quarter_number} value={b.folder_path}>
+                    Q{b.quarter_number}{bankInfo.quarter && b.quarter_number === bankInfo.quarter.number ? ' (current)' : ''}: {b.folder_name || b.folder_path.split('/').pop()}
+                  </option>
+                ))}
+              </select>
+            )}
             {stack.length > 1 && (
               <button
                 className={styles.editBtn}
                 onClick={() => setBank({ name: stack[stack.length - 1].name, path: currentPath })}
-                disabled={viewingBank}
+                disabled={viewingBank && !viewedPast && !bankInfo?.needsBank}
               >
                 <i className="ti ti-flag-3" aria-hidden="true" />
-                {viewingBank ? 'This is the bank' : 'Set as content bank'}
+                {viewingBank && !viewedPast && !bankInfo?.needsBank ? 'This is the bank' : bankInfo?.quarter ? `Set as Q${bankInfo.quarter.number} bank` : 'Set as content bank'}
               </button>
             )}
           </div>
