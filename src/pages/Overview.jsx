@@ -242,14 +242,25 @@ export default function Overview() {
     let activeCycles = []
     if (cycleRows && cycleRows.length > 0) {
       const cycleIds = cycleRows.map(c => c.id)
-      const [{ data: statusRows }, { data: commentRows }] = await Promise.all([
+      const [{ data: statusRows }, { data: commentRows }, { data: itemRows }] = await Promise.all([
         supabase.from('file_status').select('cycle_id, status').in('cycle_id', cycleIds),
         // resolved = false is the fix here — this query used to count ANY
         // comment as "still needs revisions", including old ones already
         // marked resolved. Same bug class we already fixed in
         // recomputeCycleStage/loadStatusData, just missed here originally.
-        supabase.from('file_comments').select('cycle_id').in('cycle_id', cycleIds).eq('resolved', false)
+        supabase.from('file_comments').select('cycle_id').in('cycle_id', cycleIds).eq('resolved', false),
+        // Bank deliveries: what is still waiting on the client, item by item.
+        supabase.from('review_cycle_items').select('cycle_id, review_status, schedule_draft_id').in('cycle_id', cycleIds)
       ])
+      const itemsByCycle = {}
+      ;(itemRows || []).forEach(r => {
+        const t = itemsByCycle[r.cycle_id] || (itemsByCycle[r.cycle_id] = { total: 0, waiting: 0, awaiting: 0, approved: 0, posts: false })
+        t.total++
+        if (r.review_status === 'approved') t.approved++
+        else t.waiting++
+        if (r.review_status === 'awaiting') t.awaiting++
+        if (r.schedule_draft_id) t.posts = true
+      })
       const revisionCycles = new Set((commentRows || []).map(r => r.cycle_id))
       const rollupByCycle = {}
       ;(statusRows || []).forEach(r => {
@@ -269,14 +280,18 @@ export default function Overview() {
           else if (roll.approved > 0 && roll.in_review === 0) derivedStage = 'approved'
           // Bank deliveries keep their stage on the row (unapproved files have no status row).
           const effectiveStage = cycle.manual_override || (cycle.source === 'bank' ? cycle.stage : derivedStage)
-          return { ...cycle, effectiveStage }
+          return { ...cycle, effectiveStage, counts: itemsByCycle[cycle.id] || null }
         })
         // Active means still open — approved cycles have nothing left to
         // show here. Admin/editor see both in_review and revisions;
         // client-side roles only see in_review (revisions means it's on
         // the admin now, not something the client needs to act on).
         .filter(cy => cy.effectiveStage !== 'approved')
-        .filter(cy => (role === 'member' || role === 'viewer') ? cy.effectiveStage === 'in_review' : true)
+        // A bank delivery stays on the client's card while anything in it still
+        // awaits their review, even if they asked for a change on another item.
+        .filter(cy => (role === 'member' || role === 'viewer')
+          ? (cy.source === 'bank' && cy.counts ? cy.counts.awaiting > 0 : cy.effectiveStage === 'in_review')
+          : true)
         .sort((a, b) => new Date(a.sent_at) - new Date(b.sent_at))
     }
 
@@ -469,7 +484,7 @@ export default function Overview() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '24px 0 10px' }}>
         <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--teal)', flexShrink: 0 }} />
-        <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)' }}>Active review cycles</div>
+        <div style={{ fontSize: '12px', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--text3)' }}>{role === 'admin' || role === 'editor' ? 'Open deliveries' : 'This week'}</div>
       </div>
 
       {nextSteps && nextSteps.pendingCycles.length > 0 ? (
@@ -488,6 +503,21 @@ export default function Overview() {
                     {isRevisions ? 'Revisions' : 'In review'}
                   </span>
                 </div>
+                {cycle.counts && (
+                  <div style={{ fontSize: '13px', color: 'var(--text1)', marginBottom: '4px' }}>
+                    {(() => {
+                      const team = role === 'admin' || role === 'editor'
+                      const n = team ? cycle.counts.waiting : cycle.counts.awaiting
+                      const noun = cycle.counts.posts ? 'post' : 'file'
+                      return n > 0 ? `${n} ${noun}${n === 1 ? '' : 's'} waiting${team ? ' on the client' : ' for you'}` : 'Everything approved'
+                    })()}
+                    {cycle.counts.approved > 0 && cycle.counts.waiting > 0 ? `, ${cycle.counts.approved} approved` : ''}
+                    {cycle.due_date ? ` · review by ${new Date(cycle.due_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : ''}
+                  </div>
+                )}
+                {cycle.counts?.posts && role !== 'admin' && role !== 'editor' && (
+                  <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '4px' }}>These posts are scheduled and publish on time unless you request a change.</div>
+                )}
                 <div style={{ fontSize: '12px', color: 'var(--text3)', marginBottom: '12px' }}>
                   {role === 'admin' || role === 'editor'
                     ? (isRevisions ? 'Awaiting your response to client notes' : 'Awaiting client approval')
@@ -509,8 +539,8 @@ export default function Overview() {
             <i className="ti ti-check" />
           </div>
           <div>
-            <div className={styles.allClearTitle}>All clear, nothing waiting on you</div>
-            <div className={styles.allClearSub}>New files land here the moment a cycle opens.</div>
+            <div className={styles.allClearTitle}>All clear, nothing waiting on you this week</div>
+            <div className={styles.allClearSub}>When new content is ready for you, it shows up here and in your email.</div>
           </div>
         </div>
       )}
