@@ -1,6 +1,6 @@
 // src/lib/postSnapshot.js
 //
-// Browser copy of the field list in api/_delivery.js (POST_FIELDS). Used only
+// Browser copy of the field list in api/_delivery-rules.js (POST_FIELDS). Used only
 // to show "Unsent changes" in the Content Bank: a scheduled post whose fields
 // no longer match what was last sent to Metricool. If you add a field to one
 // list, add it to the other.
