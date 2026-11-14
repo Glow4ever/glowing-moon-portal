@@ -125,8 +125,8 @@ export default async function handler(req, res) {
   }
 
   const { createClient } = await import('@supabase/supabase-js')
-  // _delivery.js is CommonJS; this file is ESM, so load it the same way as supabase-js above.
-  const deliveryMod = await import('./_delivery.js')
+  // _delivery-rules.js is CommonJS; this file is ESM, so load it the same way as supabase-js above.
+  const deliveryMod = await import('./_delivery-rules.js')
   const { settleForDrafts } = deliveryMod.settleForDrafts ? deliveryMod : deliveryMod.default
   const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
