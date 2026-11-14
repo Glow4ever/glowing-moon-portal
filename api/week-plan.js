@@ -19,6 +19,7 @@ const { createClient } = require('@supabase/supabase-js')
 const { iso, addDays, todayUTC, mondayOnOrBefore, weekPlan, shortDate } = require('./_cadence')
 const { buildWeek } = require('./_weekitems')
 const { loadTeam } = require('./_team')
+const { ensureBanks } = require('./_quarter-history')
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
@@ -178,9 +179,23 @@ module.exports = async function handler(req, res) {
     let flags = []
     try { flags = await postFlags(clientsById) } catch (e) { console.error('postFlags error:', e) }
 
+    // A new quarter with no content bank yet. This Week only, no email.
+    const bankPrompts = []
+    try {
+      const ids = week.rows.map(r => r.client.id)
+      if (ids.length) {
+        const { data: full } = await supabase.from('clients').select('*').in('id', ids)
+        for (const c of full || []) {
+          const b = await ensureBanks(supabase, c, today)
+          if (b.needsBank) bankPrompts.push({ clientId: c.id, clientName: c.name, mine: isMine(c), quarter: b.quarter.number, hasBank: !!c.schedule_bank_folder_path })
+        }
+      }
+    } catch (e) { console.error('bankPrompts error:', e) }
+
     const monday = mondayOnOrBefore(today)
     return res.status(200).json({
       postFlags: flags,
+      bankPrompts,
       weekOf: iso(monday),
       weekOfLabel: shortDate(monday) + ' to ' + shortDate(addDays(monday, 6)),
       role: isAdmin ? 'admin' : 'editor',
