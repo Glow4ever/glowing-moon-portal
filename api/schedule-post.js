@@ -1,7 +1,7 @@
 const { requireAuth } = require('./_auth')
 const { createClient } = require('@supabase/supabase-js')
 const supabaseAdmin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
-const { snapshotOf, contentKey, settle, settleForDrafts } = require('./_delivery')
+const { snapshotOf, contentKey, settle, settleForDrafts } = require('./_delivery-rules')
 
 // Everything below the media/caption handling is built against Metricool's
 // real API, verified live rather than assumed -- see the Schedule feature's
