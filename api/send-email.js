@@ -1,11 +1,42 @@
 const { requireAuth } = require('./_auth')
 const { Resend } = require('resend')
+const { createClient } = require('@supabase/supabase-js')
 
 const resend = new Resend(process.env.RESEND_API_KEY)
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
 
 function sanitize(str) {
   if (typeof str !== 'string') return ''
-  return str.replace(/[<>]/g, '').trim().slice(0, 2000)
+  // eslint-disable-next-line no-control-regex
+  return str.replace(/[<>\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 2000)
+}
+
+// Who may send what.
+//   Team (admin or editor with no client): every type.
+//   Anyone else with a role on a client: only 'comment' and 'approved'. Both go
+//   to the team, and the client name is taken from their own client record.
+//   Logged in but no role: nothing.
+const TEAM_ONLY = ['review', 'comment_reply', 'file_revised', 'client_report', 'welcome']
+const MEMBER_OK = ['comment', 'approved']
+
+// 'content' keeps its line breaks (client reports), so it gets its own cleaner.
+function sanitizeBody(str) {
+  if (typeof str !== 'string') return ''
+  return str.replace(/[<>]/g, '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, 5000)
+}
+
+// An address we already know about: a client's notification email or a portal login.
+async function isKnownRecipient(email) {
+  const e = (typeof email === 'string' ? email : '').trim().toLowerCase()
+  if (!e || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return false
+  const pat = e.replace(/[\\%_]/g, '\\$&') // match literally, not as wildcards
+  const { data: roleRows } = await supabase.from('user_roles').select('user_id').ilike('email', pat).limit(1)
+  if (roleRows && roleRows.length) return true
+  const { data: clientRows } = await supabase.from('clients').select('id').ilike('notification_email', pat).limit(1)
+  if (clientRows && clientRows.length) return true
+  // Fallback for logins whose role row carries no email.
+  const { data: list } = await supabase.auth.admin.listUsers({ page: 1, perPage: 1000 })
+  return !!(list && list.users && list.users.some(u => (u.email || '').toLowerCase() === e))
 }
 
 module.exports = async function handler(req, res) {
@@ -19,15 +50,43 @@ module.exports = async function handler(req, res) {
   const user = await requireAuth(req, res)
   if (!user) return
 
-  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType, note, link, posts } = req.body
+  const body = req.body || {}
+  const emailType = body.type
+  if (![...TEAM_ONLY, ...MEMBER_OK].includes(emailType)) return res.status(400).json({ error: 'Unknown email type' })
 
-  const safeClient = sanitize(clientName)
+  const { data: roleRows, error: roleErr } = await supabase.from('user_roles').select('client_id, role').eq('user_id', user.id)
+  if (roleErr) return res.status(500).json({ error: 'Could not check access' })
+  const roles = roleRows || []
+  const isTeam = roles.some(r => !r.client_id && (r.role === 'admin' || r.role === 'editor'))
+  if (!roles.length) return res.status(403).json({ error: 'Forbidden' })
+  if (!isTeam && !MEMBER_OK.includes(emailType)) return res.status(403).json({ error: 'Forbidden' })
+
+  // Non-team senders cannot choose the client name; it comes from their own client.
+  let ownClientName = null
+  if (!isTeam) {
+    const own = roles.find(r => r.client_id)
+    if (!own) return res.status(403).json({ error: 'Forbidden' })
+    const { data: c } = await supabase.from('clients').select('name').eq('id', own.client_id).single()
+    ownClientName = c ? c.name : null
+    if (!ownClientName) return res.status(403).json({ error: 'Forbidden' })
+  }
+
+  // Emails that go to a client or a new login may only go to an address we already hold.
+  for (const addr of [body.notificationEmail, body.recipientEmail]) {
+    if (addr !== undefined && addr !== null && addr !== '' && !(await isKnownRecipient(addr))) {
+      return res.status(400).json({ error: 'Unknown recipient' })
+    }
+  }
+
+  const { type, clientName, month, notificationEmail, fileName, comment, recipientEmail, content, reportType, note, link, posts } = body
+
+  const safeClient = ownClientName || sanitize(clientName)
   const safeMonth = sanitize(month)
   const safeEmail = sanitize(notificationEmail)
   const safeFile = sanitize(fileName)
   const safeComment = sanitize(comment)
   const safeRecipient = sanitize(recipientEmail)
-  const safeContent = sanitize(content)
+  const safeContent = sanitizeBody(content)
   const safeReportType = sanitize(reportType)
   const safeNote = sanitize(note)
 
@@ -291,6 +350,6 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ success: true })
   } catch (err) {
     console.error('Email error:', err)
-    return res.status(500).json({ error: err.message })
+    return res.status(500).json({ error: 'Email could not be sent' })
   }
 }
