@@ -31,7 +31,15 @@ module.exports = async function handler(req, res) {
     if (req.method === 'POST') {
       const folder = (req.body || {}).folder || {}
       if (typeof folder.path !== 'string' || !folder.path.startsWith('/')) return res.status(400).json({ error: 'Pick a folder.' })
-      await setBank(supabase, client, { path: folder.path, name: String(folder.name || '').slice(0, 200) }, user.id)
+      // Dropbox paths are case-insensitive, but schedule_drafts.bank_folder_path
+      // is matched with a plain string equality (see Schedule.jsx). Any path
+      // that reaches here in some OTHER casing than Dropbox's own lowercase
+      // path_lower -- an old client_banks row from before this fix, a future
+      // code path that forgets to use path_lower -- would quietly orphan every
+      // caption saved under the casing already in use. Lowercasing here, at
+      // the one place a bank folder gets written, makes that impossible
+      // regardless of what casing the caller happens to send.
+      await setBank(supabase, client, { path: folder.path.toLowerCase(), name: String(folder.name || '').slice(0, 200) }, user.id)
       const { data: fresh } = await supabase.from('clients').select('*').eq('id', clientId).maybeSingle()
       return res.status(200).json({ ok: true, ...(await ensureBanks(supabase, fresh || client)) })
     }
